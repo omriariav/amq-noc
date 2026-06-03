@@ -548,6 +548,9 @@ type nocSessionJSONData struct {
 	AgentsAlive     int                 `json:"agents_alive"`
 	ThreadCount     int                 `json:"thread_count"`
 	ThreadsReturned int                 `json:"threads_returned,omitempty"`
+	Attention       string              `json:"attention"`
+	AttentionReason string              `json:"attention_reason,omitempty"`
+	UnownedEvidence string              `json:"unowned_evidence,omitempty"`
 	Rollup          nocRollupData       `json:"rollup"`
 	Threads         []threadRow         `json:"threads,omitempty"`
 	Agents          []nocAgentJSONData  `json:"agents,omitempty"`
@@ -555,18 +558,20 @@ type nocSessionJSONData struct {
 }
 
 type nocAgentJSONData struct {
-	ID           string              `json:"id"`
-	Handle       string              `json:"handle"`
-	Role         string              `json:"role,omitempty"`
-	Engine       string              `json:"engine,omitempty"`
-	Liveness     string              `json:"liveness"`
-	WakeHealth   string              `json:"wake_health,omitempty"`
-	LastSeen     *time.Time          `json:"last_seen,omitempty"`
-	Presence     string              `json:"presence,omitempty"`
-	Conversation string              `json:"conversation,omitempty"`
-	Source       string              `json:"source,omitempty"`
-	TeamProfile  string              `json:"team_profile"`
-	Actions      []nocActionJSONData `json:"actions,omitempty"`
+	ID              string              `json:"id"`
+	Handle          string              `json:"handle"`
+	Role            string              `json:"role,omitempty"`
+	Engine          string              `json:"engine,omitempty"`
+	Liveness        string              `json:"liveness"`
+	WakeHealth      string              `json:"wake_health,omitempty"`
+	Attention       string              `json:"attention"`
+	AttentionReason string              `json:"attention_reason,omitempty"`
+	LastSeen        *time.Time          `json:"last_seen,omitempty"`
+	Presence        string              `json:"presence,omitempty"`
+	Conversation    string              `json:"conversation,omitempty"`
+	Source          string              `json:"source,omitempty"`
+	TeamProfile     string              `json:"team_profile"`
+	Actions         []nocActionJSONData `json:"actions,omitempty"`
 }
 
 type nocRollupData struct {
@@ -2143,18 +2148,20 @@ func nocSessionEnvelope(ps noc.ProjectSnapshot, sess state.Session) nocSessionJS
 			profile = team.DefaultProfile
 		}
 		agents = append(agents, nocAgentJSONData{
-			Handle:       ag.Handle,
-			Role:         ag.Role,
-			Engine:       ag.Engine,
-			Liveness:     string(ag.Liveness),
-			WakeHealth:   string(ag.WakeHealth),
-			LastSeen:     jsonTimePtr(ag.LastSeen),
-			Presence:     ag.Presence,
-			Conversation: ag.Conversation,
-			Source:       ag.Source,
-			TeamProfile:  profile,
-			ID:           nocAgentJSONID(ps.Dir, sess.Name, ag.Handle),
-			Actions:      nocAgentActions(ps, sess, ag),
+			Handle:          ag.Handle,
+			Role:            ag.Role,
+			Engine:          ag.Engine,
+			Liveness:        string(ag.Liveness),
+			WakeHealth:      string(ag.WakeHealth),
+			Attention:       string(ag.Attention.State),
+			AttentionReason: string(ag.Attention.Reason),
+			LastSeen:        jsonTimePtr(ag.LastSeen),
+			Presence:        ag.Presence,
+			Conversation:    ag.Conversation,
+			Source:          ag.Source,
+			TeamProfile:     profile,
+			ID:              nocAgentJSONID(ps.Dir, sess.Name, ag.Handle),
+			Actions:         nocAgentActions(ps, sess, ag),
 		})
 	}
 	threads := threadRows(sess.Coordination.Threads)
@@ -2172,11 +2179,23 @@ func nocSessionEnvelope(ps noc.ProjectSnapshot, sess state.Session) nocSessionJS
 		AgentsAlive:     live,
 		ThreadCount:     threadCount,
 		ThreadsReturned: len(threads),
+		Attention:       string(sess.Attention.State),
+		AttentionReason: string(sess.Attention.Reason),
+		UnownedEvidence: liveAttentionString(sess.UnownedAttention),
 		Rollup:          nocRollupEnvelope(sess.Rollup),
 		Threads:         threads,
 		Agents:          agents,
 		Actions:         nocSessionActions(ps, sess, sessionID, live, len(agents)),
 	}
+}
+
+// liveAttentionString renders an attention tier for JSON, returning "" for clear
+// so an omitempty field is dropped when there is nothing outstanding.
+func liveAttentionString(a state.Attention) string {
+	if a.State == "" || a.State == state.TriageClear {
+		return ""
+	}
+	return string(a.State)
 }
 
 func nocRollupEnvelope(r state.TriageRollup) nocRollupData {

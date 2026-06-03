@@ -67,12 +67,15 @@ func BuildWithThresholds(projectRoot, baseRoot string, probe Probe, th Threshold
 		sortAgents(b.agents)
 
 		coord := coordinateSession(b.root, b.agents, now, th)
+		sessAttention, unowned := attachAttention(b.agents, coord.Threads)
 		sessions = append(sessions, Session{
-			Name:         name,
-			Root:         b.root,
-			Agents:       b.agents,
-			Coordination: coord,
-			Rollup:       coord.Rollup,
+			Name:             name,
+			Root:             b.root,
+			Agents:           b.agents,
+			Coordination:     coord,
+			Rollup:           coord.Rollup,
+			Attention:        sessAttention,
+			UnownedAttention: unowned,
 		})
 		snapRollup.Add(coord.Rollup)
 	}

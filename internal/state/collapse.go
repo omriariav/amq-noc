@@ -72,7 +72,8 @@ type threadAccumulator struct {
 	latest      Message
 	hasLatest   bool
 	blockActive bool
-	blockOwner  string
+	blockOwner  string // primary recipient of the active block (who it is addressed to)
+	blockSender string // sender that DECLARED the active block (who is waiting)
 }
 
 // collapseThreads groups messages by canonical thread id and derives a summary
@@ -156,6 +157,7 @@ func (a *threadAccumulator) observe(m Message) {
 	if declaresBlock(m) {
 		a.blockActive = true
 		a.blockOwner = primaryRecipient(m)
+		a.blockSender = m.From
 	} else if a.blockActive && clearsBlock(m) {
 		a.blockActive = false
 	}
@@ -168,30 +170,31 @@ func (a *threadAccumulator) summarize(now time.Time, th Thresholds, agents []Age
 
 	status := deriveStatus(a)
 	fresh := computeFreshness(a.lastEventAt, a.latest, now, governingThreshold(status, th))
-	triage := computeTriage(a, status, fresh, now, th, agents)
+	triage, needsYouOwner := computeTriage(a, status, fresh, now, th, agents)
 	stale := isStale(a.lastEventAt, now, th.StaleAfter, triage)
 	reason := classifyAttnReason(a, triage)
 	historical := isHistoricalNeedsYou(triage, fresh, agents, th.OperatorHandle)
 
 	return ThreadSummary{
-		ID:           a.id,
-		LatestID:     a.latest.ID,
-		Participants: parts,
-		Subject:      a.subject,
-		Kind:         a.lastKind,
-		Labels:       labels,
-		Orchestrator: a.orchestrator,
-		FromProject:  a.fromProject,
-		ReplyProject: a.replyProject,
-		Status:       status,
-		LastEventAt:  a.lastEventAt,
-		MessageCount: a.count,
-		UnreadBy:     unread,
-		Triage:       triage,
-		Freshness:    fresh,
-		Stale:        stale,
-		Historical:   historical,
-		AttnReason:   reason,
+		ID:            a.id,
+		LatestID:      a.latest.ID,
+		Participants:  parts,
+		Subject:       a.subject,
+		Kind:          a.lastKind,
+		Labels:        labels,
+		Orchestrator:  a.orchestrator,
+		FromProject:   a.fromProject,
+		ReplyProject:  a.replyProject,
+		Status:        status,
+		LastEventAt:   a.lastEventAt,
+		MessageCount:  a.count,
+		UnreadBy:      unread,
+		Triage:        triage,
+		Freshness:     fresh,
+		Stale:         stale,
+		Historical:    historical,
+		AttnReason:    reason,
+		NeedsYouOwner: needsYouOwner,
 	}
 }
 
@@ -403,54 +406,67 @@ func latestHeaderCreated(m Message) string {
 
 // computeTriage classifies a thread into a triage tier. Severity order is
 // enforced by checking NeedsYou first, then Blocked, then Gated, then AtRisk.
-func computeTriage(a *threadAccumulator, status ThreadStatus, fresh Freshness, now time.Time, th Thresholds, agents []Agent) Triage {
+// For a needs-you tier it also returns the owner: the agent actually waiting on
+// the operator (the ask sender or block declarer, "" when operator-only or
+// operator-originated). For every other tier the owner is "".
+func computeTriage(a *threadAccumulator, status ThreadStatus, fresh Freshness, now time.Time, th Thresholds, agents []Agent) (Triage, string) {
 	op := th.OperatorHandle
 
 	// NeedsYou: an unanswered ask addressed TO the operator, a block awaiting
 	// the human, or explicit prose that says the thread is waiting for the
-	// operator/user.
+	// operator/user. The owner is the asker/declarer, never a sorted participant.
 	if status == ThreadAwaitingReply || status == ThreadBlocked {
 		if addressedTo(a.latest, op) {
 			switch a.latest.Kind {
 			case KindQuestion, KindReviewRequest, KindDecision:
 				if operatorMessageNeedsAction(a.latest) && (operatorStillUnread(a, op) || a.latest.From != op) {
-					return TriageNeedsYou
+					return TriageNeedsYou, nonOperatorHandle(a.latest.From, op)
 				}
 			}
 		}
 		if a.blockActive && a.blockOwner == op {
-			return TriageNeedsYou
+			return TriageNeedsYou, nonOperatorHandle(a.blockSender, op)
 		}
 	}
 	if declaresUserWait(a.latest) {
-		return TriageNeedsYou
+		return TriageNeedsYou, nonOperatorHandle(a.latest.From, op)
 	}
 
 	// Blocked: an explicitly declared, still-active block (owner may be another
 	// agent).
 	if a.blockActive {
-		return TriageBlocked
+		return TriageBlocked, ""
 	}
 
 	// Gated: intentionally paused on release, QA, policy, or approval gates. A
 	// user-waiting gate has already been classified as NeedsYou above.
 	if declaresGate(a.latest) {
-		return TriageGated
+		return TriageGated, ""
 	}
 
 	// AtRisk: agent<->agent unanswered review/question aging past thresholds, or
 	// a quiet heartbeat on a participant.
 	if status == ThreadAwaitingReply && fresh.Stale {
-		return TriageAtRisk
+		return TriageAtRisk, ""
 	}
 	if heartbeatQuiet(a.participants, agents, now, th) && status == ThreadAwaitingReply {
-		return TriageAtRisk
+		return TriageAtRisk, ""
 	}
 	if deadMailboxLiveParticipant(a.participants, agents) {
-		return TriageAtRisk
+		return TriageAtRisk, ""
 	}
 
-	return TriageClear
+	return TriageClear, ""
+}
+
+// nonOperatorHandle returns h when it is a real, non-operator handle, else "".
+// A needs-you ask whose sender is the operator (or unknown) is unowned: no agent
+// is waiting on the human.
+func nonOperatorHandle(h, op string) string {
+	if h == "" || h == op {
+		return ""
+	}
+	return h
 }
 
 // addressedTo reports whether handle is among the message recipients.

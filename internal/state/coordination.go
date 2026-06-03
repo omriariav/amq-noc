@@ -198,6 +198,14 @@ type ThreadSummary struct {
 	// goal-reached vs a plain question). It is AttnNone on every non-needs-you
 	// thread. See AttnReason.
 	AttnReason AttnReason
+	// NeedsYouOwner is the handle of the agent actually waiting on the operator
+	// for a needs-you thread: the sender of the ask (operator-addressed question /
+	// review / decision, or user-wait prose) or the agent that declared a block
+	// awaiting the human. It is "" on non-needs-you threads and on operator-only
+	// or operator-originated asks (which are unowned). It is the source of truth
+	// for needs-you ownership; do NOT infer the asker from the sorted Participants
+	// union, which cannot identify the sender.
+	NeedsYouOwner string
 }
 
 // Edge is a directed from->to message count across a session.

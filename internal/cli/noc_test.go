@@ -818,6 +818,46 @@ func TestNOCSessionEnvelopeCapsThreadSummaries(t *testing.T) {
 	}
 }
 
+func TestNOCSessionEnvelopeExposesAttention(t *testing.T) {
+	row := nocSessionEnvelope(noc.ProjectSnapshot{Dir: "/root/api"}, state.Session{
+		Name:             "issue-96",
+		Attention:        state.Attention{State: state.TriageNeedsYou, Reason: state.AttnApprove},
+		UnownedAttention: state.Attention{State: state.TriageBlocked},
+		Agents: []state.Agent{
+			{Handle: "cto", Liveness: state.LivenessAlive, Attention: state.Attention{State: state.TriageNeedsYou, Reason: state.AttnApprove}},
+			{Handle: "qa", Liveness: state.LivenessAlive, Attention: state.Attention{State: state.TriageClear}},
+		},
+	})
+	if row.Attention != "needs-you" || row.AttentionReason != "approve" {
+		t.Fatalf("session attention = %q/%q, want needs-you/approve", row.Attention, row.AttentionReason)
+	}
+	if row.UnownedEvidence != "blocked" {
+		t.Fatalf("unowned_evidence = %q, want blocked", row.UnownedEvidence)
+	}
+	byHandle := map[string]nocAgentJSONData{}
+	for _, a := range row.Agents {
+		byHandle[a.Handle] = a
+	}
+	if byHandle["cto"].Attention != "needs-you" || byHandle["cto"].AttentionReason != "approve" {
+		t.Fatalf("cto attention = %q/%q, want needs-you/approve", byHandle["cto"].Attention, byHandle["cto"].AttentionReason)
+	}
+	if byHandle["qa"].Attention != "clear" || byHandle["qa"].AttentionReason != "" {
+		t.Fatalf("qa attention = %q/%q, want clear/empty", byHandle["qa"].Attention, byHandle["qa"].AttentionReason)
+	}
+
+	// A clear session omits unowned_evidence but still reports its headline.
+	clearRow := nocSessionEnvelope(noc.ProjectSnapshot{Dir: "/root/api"}, state.Session{
+		Name:      "issue-97",
+		Attention: state.Attention{State: state.TriageClear},
+	})
+	if clearRow.UnownedEvidence != "" {
+		t.Fatalf("unowned_evidence = %q, want empty when clear", clearRow.UnownedEvidence)
+	}
+	if clearRow.Attention != "clear" {
+		t.Fatalf("session attention = %q, want clear", clearRow.Attention)
+	}
+}
+
 func TestNOCProjectEnvelopeLabelsHistoricalNeedsYouAsNonLive(t *testing.T) {
 	ps := noc.ProjectSnapshot{
 		Project: "api",

@@ -108,6 +108,10 @@ type Agent struct {
 	AgentDir     string
 	Source       string // launch source label, e.g. "launch.json" or "amq history"
 	TeamProfile  string // launch team profile; empty means the default profile
+	// Attention is the agent's derived attention tier (needs-you/blocked/gated/
+	// at-risk/clear) over the current thread evidence it owns. It is SEPARATE from
+	// Liveness: a non-operational agent stays clear here. See Attention.
+	Attention Attention
 }
 
 // Session groups the agents discovered under one AMQ session root, plus the
@@ -119,7 +123,14 @@ type Session struct {
 	Root         string // the session root directory (base root or base root/<name>)
 	Agents       []Agent
 	Coordination Coordination // derived threads/edges/timeline/triage for this session
-	Rollup       TriageRollup // triage headline for this session
+	Rollup       TriageRollup // triage headline counts for this session (detail)
+	// Attention is the session/team headline attention tier: the max severity over
+	// its agents' attention plus any unowned current evidence (needs-you > blocked
+	// > gated > at-risk > clear). UnownedAttention is the portion not attributable
+	// to a live agent (a dead/missing participant, or an operator-only thread).
+	// Both are derived from thread evidence and are separate from agent liveness.
+	Attention        Attention
+	UnownedAttention Attention
 }
 
 // Snapshot is the full read-only view of all discovered sessions and agents,

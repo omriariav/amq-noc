@@ -1,0 +1,11 @@
+.amq-squad/
+.agent-mail/
+.amqrc
+.pm-os/
+AGENTS.md
+CLAUDE.md
+
+/amq-noc
+coverage.out
+dist/
+build/

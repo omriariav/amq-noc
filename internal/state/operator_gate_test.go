@@ -127,3 +127,38 @@ func TestReviewApprovalClearsPriorBlockedThread(t *testing.T) {
 		t.Fatalf("approved review should clear prior block, got status=%q triage=%q subject=%q", th.Status, th.Triage, th.Subject)
 	}
 }
+
+func TestReviewNonApprovalDoesNotClearPriorBlockedThread(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name    string
+		subject string
+		body    string
+	}{
+		{name: "not-approved", subject: "Not approved", body: "Needs rework before release."},
+		{name: "unresolved", subject: "Review remains unresolved", body: "The original issue remains unresolved."},
+		{name: "not-green", subject: "Not green", body: "Validation is not green yet."},
+		{name: "greenfield", subject: "Greenfield note", body: "This is a greenfield follow-up, not a release approval."},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			msgs := []Message{
+				{ID: "b1", From: "fullstack", To: []string{"cto"}, Thread: "p2p/cto__fullstack",
+					Subject: "Review: blocker found", Kind: KindReviewResponse,
+					Created: now.Add(-10 * time.Minute), Owner: "cto", State: MailboxCur,
+					Body: "BLOCKER: command rejects valid operator gates."},
+				{ID: "b2", From: "fullstack", To: []string{"cto"}, Thread: "p2p/cto__fullstack",
+					Subject: tc.subject, Kind: KindReviewResponse,
+					Created: now.Add(-1 * time.Minute), Owner: "cto", State: MailboxNew,
+					Body: tc.body},
+			}
+			agents := []Agent{opAgent("cto"), opAgent("fullstack")}
+
+			coord := buildCoordination(collapseInput{messages: msgs, agents: agents}, now, Thresholds{})
+			th := findThread(t, coord, "p2p/cto__fullstack")
+			if th.Status != ThreadBlocked || th.Triage != TriageBlocked {
+				t.Fatalf("non-approval should not clear prior block, got status=%q triage=%q subject=%q", th.Status, th.Triage, th.Subject)
+			}
+		})
+	}
+}

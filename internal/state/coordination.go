@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // DefaultOperatorHandle is the mailbox handle that represents the human
@@ -521,9 +522,39 @@ func clearsBlock(m Message) bool {
 		text := messageSignalText(m)
 		// A bare "GO" decision (not "NO-GO") clears.
 		if (strings.Contains(text, "\ngo ") || strings.HasPrefix(text, "go ") ||
-			strings.Contains(text, "go for") || strings.Contains(text, "unblocked") ||
-			strings.Contains(text, "resolved") || strings.Contains(text, "approved") ||
-			strings.Contains(text, "green")) && !declaresBlock(m) {
+			strings.Contains(text, "go for") || affirmativeWord(text, "unblocked") ||
+			affirmativeWord(text, "resolved") || affirmativeWord(text, "approved") ||
+			affirmativeWord(text, "green")) && !declaresBlock(m) {
+			return true
+		}
+	}
+	return false
+}
+
+func affirmativeWord(text, word string) bool {
+	words := strings.FieldsFunc(text, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+	for i, w := range words {
+		if w != word {
+			continue
+		}
+		if negatedAt(words, i) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func negatedAt(words []string, i int) bool {
+	for _, offset := range []int{1, 2} {
+		j := i - offset
+		if j < 0 {
+			continue
+		}
+		switch words[j] {
+		case "not", "no", "never", "without":
 			return true
 		}
 	}

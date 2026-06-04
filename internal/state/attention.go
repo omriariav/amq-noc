@@ -121,7 +121,15 @@ func attachAttention(agents []Agent, threads []ThreadSummary) (headline, unowned
 		}
 		unowned = mergeAttention(unowned, ta)
 	}
-	headline = mergeAttention(headline, unowned)
+	// A session's HEADLINE work status comes from its OPERATIONAL agents' owned
+	// attention. Unowned evidence is orphaned (no operational owner): an unowned
+	// NEEDS-YOU is still a real human action item and drives the headline, but an
+	// unowned non-human wait (block/gate/at-risk) requires an operational waiter,
+	// so it stays detail-only (UnownedAttention) and never makes a stopped session
+	// "waiting".
+	if unowned.State == TriageNeedsYou {
+		headline = mergeAttention(headline, unowned)
+	}
 	return headline, unowned
 }
 
@@ -137,11 +145,13 @@ func threadOwnedByOperational(th ThreadSummary, agents []Agent) bool {
 }
 
 // agentOperational reports whether an agent is live enough to own attention
-// (alive, wake-live, or dead-mailbox-live). Mirrors the console operational gate
-// so the data layer and the renderer agree.
+// (alive or wake-live). dead-mailbox-live is deliberately NOT operational: its
+// process is gone, so it accrues no work attention and its unresolved evidence
+// rolls up to the session as unowned rather than making the agent/team "waiting".
+// Mirrors the console operational gate so the data layer and renderer agree.
 func agentOperational(a Agent) bool {
 	switch a.Liveness {
-	case LivenessAlive, LivenessWakeLive, LivenessDeadMailboxLive:
+	case LivenessAlive, LivenessWakeLive:
 		return true
 	default:
 		return false

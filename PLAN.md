@@ -16,6 +16,14 @@ Split the multi-root NOC/operator surface out of `amq-squad` into this repo.
   `amq-squad` CLI.
 - Remove the `noc` command and `console --root` forwarding from `amq-squad`.
 - Keep `amq-squad console` as the project-scoped Mission Control surface.
+- Treat thread status as evidence, not as the primary NOC status. The primary
+  visible status belongs to projects, teams/sessions, and agents.
+- Use four primary visible statuses for 0.1.0:
+  `running`, `stale`, `waiting`, and `needs-you`.
+- Derive `needs-you` deterministically from structural human-addressed AMQ
+  evidence, not broad prose inference.
+- Keep granular blocked/gated/at-risk signals as internal evidence/detail where
+  useful, but collapse them to `waiting` in primary tree/header UX.
 
 ## amq-noc 0.1.0 Work
 
@@ -31,6 +39,44 @@ Split the multi-root NOC/operator surface out of `amq-squad` into this repo.
   history, direct delete preview, and confirm-gated mutating actions.
 - Keep copied support packages only as needed for 0.1.0; defer shared-package
   cleanup.
+- Make the left tree quiet and operational:
+  projects collapsed by default, parent rows summarize immediate child
+  teams/sessions instead of thread/agent evidence counts, and thread subjects
+  stay in the right detail pane.
+- Project rows count child teams/sessions by visible status, for example
+  `(1 waiting, 2 stale)`, not thread rollups such as blocked-stale or at-risk
+  stale counts.
+- Session rows may summarize child agents by visible status; detailed thread
+  evidence belongs in the right pane.
+- Remove unclear primary shortcuts from the 0.1.0 interactive UX:
+  `p` palette, `A` alerts, `t` timeline, `c` context, `D`/DLQ, `i` inbox,
+  `v` read, `o` open, and `j`/`J` jump.
+- Keep primary navigation simple:
+  move, expand/collapse, filter, hide stale, refresh, help, quit/back, and a
+  delete shortcut where relevant.
+- Defer tmux open/jump behavior to 0.2.0.
+- Show human-action workflow in the right pane:
+  thread/evidence, full ask/context, then visible CTAs below the context
+  (`approve` + `deny` for approval/decision asks, or reply/answer for reply
+  situations). Do not require separate context/read shortcuts.
+
+## Current 0.1.0 RC Slices
+
+- S1: First-class team/session/agent attention model.
+  - Add explicit attention state to sessions and agents.
+  - Add needs-you owner derivation so parent rows can say which agent needs the
+    operator.
+  - Committed on `feat/status-model` as `e611582`.
+- S2: Primary NOC UX reorientation.
+  - Collapse granular blocked/gated/at-risk to visible `waiting`.
+  - Make needs-you structural and owner-led.
+  - Collapse projects by default.
+  - Make parent-row counts team/session based instead of thread-rollup based.
+- S3: 0.1.0 keymap and human-action cleanup.
+  - Stage (a): prune confusing keymap/footer/help entries and remove jump/open
+    behavior from the primary interactive surface.
+  - Stage (b): render context and approve/deny/reply CTAs inline in the right
+    pane for human asks.
 
 ## amq-squad 1.3.0 Work
 
@@ -53,10 +99,23 @@ gofmt -l .
 git diff --check
 git diff --unified=0 -- . | rg '^\+[^+].*[—…→]'
 go test ./...
+go vet ./...
+make ci
 go build ./cmd/amq-noc
 amq-noc --once --root /Users/omri.a/Code
+amq-noc --once --tree --root /Users/omri.a/Code --depth 5
 amq-noc --json --root /Users/omri.a/Code
 amq-noc --actions --root /Users/omri.a/Code --filter needs-you
+```
+
+Manual RC checks:
+
+```sh
+go build -o /tmp/amq-noc-rc ./cmd/amq-noc
+/tmp/amq-noc-rc --version
+/tmp/amq-noc-rc noc --once --tree --root /Users/omri.a/Code --depth 5
+/tmp/amq-noc-rc noc --once --tree --filter amq-noc-0-1-0 --root /Users/omri.a/Code/amq-noc/.agent-mail
+/tmp/amq-noc-rc noc --once --tree --filter beta-vault-context --root /Users/omri.a/Code --depth 5
 ```
 
 For `amq-squad`:
@@ -79,3 +138,8 @@ amq-squad console --once
   NOC branch so no QA fixes are lost.
 - The next cleanup should remove copied amq-squad lifecycle commands from
   `amq-noc` once the NOC command surface is stable.
+- Coordination rule for the active RC workstream:
+  fullstack implements focused slices; CTO reviews, approves, advises, and
+  handles user-facing release decisions. Avoid concurrent edits in
+  `internal/console/*`; explicitly hand off ownership before changing those
+  files.

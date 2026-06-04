@@ -80,6 +80,29 @@ func TestNeedsYouOwnerIsAskerNotFirstParticipant(t *testing.T) {
 	}
 }
 
+// S4b: a session whose only agents are dead-mailbox-live (non-operational) with
+// an aged peer review (at-risk) has NO operational owner, so the headline is
+// clear; the at-risk is retained as unowned evidence (detail), never the headline.
+func TestAttention_AllDmblUnownedWaitNotHeadline(t *testing.T) {
+	agents := []Agent{
+		{Handle: "cto", Liveness: LivenessDeadMailboxLive},
+		{Handle: "fullstack", Liveness: LivenessDeadMailboxLive},
+	}
+	threads := []ThreadSummary{{ID: "rev", Participants: []string{"cto", "fullstack"}, Triage: TriageAtRisk}}
+	headline, unowned := attachAttention(agents, threads)
+	if headline.State != TriageClear {
+		t.Fatalf("headline = %q, want clear (no operational owner)", headline.State)
+	}
+	if unowned.State != TriageAtRisk {
+		t.Fatalf("unowned = %q, want at-risk (retained as detail)", unowned.State)
+	}
+	for _, ag := range agents {
+		if ag.Attention.State != TriageClear {
+			t.Errorf("dmbl agent %s = %q, want clear (not operational)", ag.Handle, ag.Attention.State)
+		}
+	}
+}
+
 // Severity precedence: needs-you > blocked > gated > at-risk > clear.
 func TestAgentAttention_SeverityPrecedence(t *testing.T) {
 	ag := opAgent("b")
@@ -134,10 +157,10 @@ func TestAttention_HistoricalAndStaleDoNotPromote(t *testing.T) {
 	}
 }
 
-// Evidence that cannot be attributed to a live agent (dead/missing asker or
-// participant, or an operator-only thread) rolls up as session-level unowned
-// evidence and still promotes the session headline, without pinning any live
-// agent.
+// Evidence that cannot be attributed to a live agent rolls up as session-level
+// unowned evidence (retained for detail). An unowned NEEDS-YOU still promotes the
+// session headline (a human action item), but an unowned non-human wait
+// (block/gate/at-risk) is detail-only and must NOT make a stopped session waiting.
 func TestSessionAttention_UnownedEvidence(t *testing.T) {
 	t.Run("dead asker", func(t *testing.T) {
 		agents := []Agent{opAgent("a"), deadAgent("b")}
@@ -158,12 +181,17 @@ func TestSessionAttention_UnownedEvidence(t *testing.T) {
 		}
 	})
 
-	t.Run("missing participant blocked", func(t *testing.T) {
+	t.Run("missing participant blocked stays detail, not headline", func(t *testing.T) {
+		// S4b: an unowned non-human wait (no operational owner) is retained in
+		// UnownedAttention but must NOT drive the session headline.
 		agents := []Agent{{Handle: "z", Liveness: LivenessMissing}}
 		threads := []ThreadSummary{{ID: "blk", Participants: []string{"z", "c"}, Triage: TriageBlocked}}
 		headline, unowned := attachAttention(agents, threads)
-		if headline.State != TriageBlocked || unowned.State != TriageBlocked {
-			t.Fatalf("missing-participant blocked: headline=%q unowned=%q, want blocked/blocked", headline.State, unowned.State)
+		if unowned.State != TriageBlocked {
+			t.Fatalf("unowned = %q, want blocked (retained as detail)", unowned.State)
+		}
+		if headline.State != TriageClear {
+			t.Fatalf("headline = %q, want clear (an unowned non-human wait must not drive the headline)", headline.State)
 		}
 	})
 

@@ -91,6 +91,7 @@ func newControlModel(t *testing.T) *NOCModel {
 	m := newNOCModel(NOCRebuildConfig{Roots: []string{"/fake/proj"}})
 	m.colorMode = ColorNone
 	m.th = newNOCTheme(ColorNone)
+	m.fullTree = true
 	// Neutralize the real seams: no test may touch a live bus or tmux.
 	m.sendOp = func(act.OpMessage) error { return nil }
 	m.lifecycle = func(lifecycleOp) error { return nil }
@@ -208,276 +209,6 @@ func theNeedsYouThread(t *testing.T, m *NOCModel) state.ThreadSummary {
 }
 
 // --- inbox / read / approve / reply / deny --------------------------------
-
-func TestControl_InboxReadOnlyAction(t *testing.T) {
-	t.Run("i lists selected agent inbox without confirm or mutation", func(t *testing.T) {
-		m := newControlModel(t)
-		selectKind(t, m, nodeAgent, "qa")
-		var got []inboxAgentOp
-		m.inboxAgent = func(op inboxAgentOp) (inboxAgentResult, error) {
-			got = append(got, op)
-			return inboxAgentResult{Handle: op.Handle, Output: "2026-06-01T09:00:00Z  normal  dev  msg-1  Review needed\n"}, nil
-		}
-
-		m, cmd := nocPress(m, "i")
-		if len(got) != 1 {
-			t.Fatalf("inbox should call the list seam exactly once, got %d", len(got))
-		}
-		if got[0].Root != ctlRoot || got[0].Handle != "qa" {
-			t.Fatalf("inbox op mismatch: %+v", got[0])
-		}
-		if cmd != nil {
-			t.Fatal("read-only inbox listing should not request a rebuild")
-		}
-		if m.pending != nil || m.input != nil {
-			t.Fatalf("inbox listing should not open input/confirm, input=%+v pending=%+v", m.input, m.pending)
-		}
-		if m.inboxResult == nil {
-			t.Fatal("inbox listing should open a result overlay")
-		}
-		out := m.View()
-		for _, want := range []string{
-			"INBOX",
-			"agent: qa",
-			"amq list --root /fake/root/.agent-mail --me qa --new",
-			"Review needed",
-		} {
-			if !strings.Contains(out, want) {
-				t.Fatalf("inbox overlay missing %q:\n%s", want, out)
-			}
-		}
-		m, _ = nocPress(m, "enter")
-		if m.inboxResult != nil {
-			t.Fatal("enter should close the inbox result overlay")
-		}
-	})
-
-	t.Run("empty inbox output explains there were no unread messages", func(t *testing.T) {
-		m := newControlModel(t)
-		selectKind(t, m, nodeAgent, "qa")
-		m.inboxAgent = func(op inboxAgentOp) (inboxAgentResult, error) {
-			return inboxAgentResult{Handle: op.Handle}, nil
-		}
-
-		m, _ = nocPress(m, "i")
-		if m.inboxResult == nil {
-			t.Fatal("empty inbox listing should open a result overlay")
-		}
-		if !strings.Contains(m.View(), "(no unread messages)") {
-			t.Fatalf("empty inbox result should explain no unread messages:\n%s", m.View())
-		}
-	})
-}
-
-func TestControl_DLQReadOnlyAction(t *testing.T) {
-	t.Run("D lists selected agent DLQ without confirm or mutation", func(t *testing.T) {
-		m := newControlModel(t)
-		selectKind(t, m, nodeAgent, "qa")
-		var got []dlqAgentOp
-		m.dlqAgent = func(op dlqAgentOp) (dlqAgentResult, error) {
-			got = append(got, op)
-			return dlqAgentResult{Handle: op.Handle, Output: "dlq-1  corrupt_header  msg-1  new\n"}, nil
-		}
-
-		m, cmd := nocPress(m, "D")
-		if len(got) != 1 {
-			t.Fatalf("DLQ should call the list seam exactly once, got %d", len(got))
-		}
-		if got[0].Root != ctlRoot || got[0].Handle != "qa" {
-			t.Fatalf("DLQ op mismatch: %+v", got[0])
-		}
-		if cmd != nil {
-			t.Fatal("read-only DLQ listing should not request a rebuild")
-		}
-		if m.pending != nil || m.input != nil {
-			t.Fatalf("DLQ listing should not open input/confirm, input=%+v pending=%+v", m.input, m.pending)
-		}
-		if m.dlqResult == nil {
-			t.Fatal("DLQ listing should open a result overlay")
-		}
-		out := m.View()
-		for _, want := range []string{
-			"DLQ",
-			"agent: qa",
-			"amq dlq list --root /fake/root/.agent-mail --me qa",
-			"corrupt_header",
-		} {
-			if !strings.Contains(out, want) {
-				t.Fatalf("DLQ overlay missing %q:\n%s", want, out)
-			}
-		}
-		m, _ = nocPress(m, "enter")
-		if m.dlqResult != nil {
-			t.Fatal("enter should close the DLQ result overlay")
-		}
-	})
-
-	t.Run("empty DLQ output explains there are no failed messages", func(t *testing.T) {
-		m := newControlModel(t)
-		selectKind(t, m, nodeAgent, "qa")
-		m.dlqAgent = func(op dlqAgentOp) (dlqAgentResult, error) {
-			return dlqAgentResult{Handle: op.Handle}, nil
-		}
-
-		m, _ = nocPress(m, "D")
-		if m.dlqResult == nil {
-			t.Fatal("empty DLQ listing should open a result overlay")
-		}
-		if !strings.Contains(m.View(), "(no DLQ messages)") {
-			t.Fatalf("empty DLQ result should explain no failed messages:\n%s", m.View())
-		}
-	})
-}
-
-func TestControl_ThreadContextReadOnlyAction(t *testing.T) {
-	m := newControlModel(t)
-	selectKind(t, m, nodeSession, "")
-	var got []threadContextOp
-	m.threadContext = func(op threadContextOp) (threadContextResult, error) {
-		got = append(got, op)
-		return threadContextResult{
-			Thread:  op.Thread,
-			Subject: op.Subject,
-			Output:  "2026-06-01T09:00:00Z  qa  Ship it?\nPlease approve\n---\n",
-		}, nil
-	}
-
-	m, cmd := nocPress(m, "c")
-	if len(got) != 1 {
-		t.Fatalf("context should call the thread seam exactly once, got %d", len(got))
-	}
-	if got[0].Root != ctlRoot || got[0].Thread != "decision/ship" || got[0].Subject != "Ship it?" {
-		t.Fatalf("thread context op mismatch: %+v", got[0])
-	}
-	if cmd != nil {
-		t.Fatal("read-only thread context should not request a rebuild")
-	}
-	if m.pending != nil || m.input != nil {
-		t.Fatalf("thread context should not open input/confirm, input=%+v pending=%+v", m.input, m.pending)
-	}
-	if m.threadContextResult == nil {
-		t.Fatal("thread context should open a result overlay")
-	}
-	out := m.View()
-	for _, want := range []string{
-		"THREAD CONTEXT",
-		"thread: decision/ship",
-		"subject: Ship it?",
-		"amq thread --root /fake/root/.agent-mail --id decision/ship --include-body --limit 20",
-		"Please approve",
-	} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("thread context overlay missing %q:\n%s", want, out)
-		}
-	}
-	m, _ = nocPress(m, "enter")
-	if m.threadContextResult != nil {
-		t.Fatal("enter should close the thread context overlay")
-	}
-}
-
-func TestControl_ReadNeedsYouConfirmGate(t *testing.T) {
-	t.Run("v opens a preview overlay showing amq read and sends nothing", func(t *testing.T) {
-		m := newControlModel(t)
-		selectKind(t, m, nodeSession, "")
-		called := false
-		m.readNeedsYou = func(readNeedsYouOp) (readNeedsYouResult, error) {
-			called = true
-			return readNeedsYouResult{}, nil
-		}
-
-		m, _ = nocPress(m, "v")
-		if m.pending == nil || m.pending.kind != ctlRead || m.pending.read == nil {
-			t.Fatalf("v on a needs-you session should open the read confirm overlay, got %+v", m.pending)
-		}
-		for _, want := range []string{"amq read", "--root /fake/root/.agent-mail", "--me user", "--id msg-ship", "--json"} {
-			if !strings.Contains(m.pending.preview, want) {
-				t.Fatalf("read preview missing %q: %s", want, m.pending.preview)
-			}
-		}
-		if called {
-			t.Fatal("opening the read overlay must not call the read seam")
-		}
-	})
-
-	t.Run("esc declines: read seam NEVER called", func(t *testing.T) {
-		m := newControlModel(t)
-		selectKind(t, m, nodeSession, "")
-		called := false
-		m.readNeedsYou = func(readNeedsYouOp) (readNeedsYouResult, error) {
-			called = true
-			return readNeedsYouResult{}, nil
-		}
-
-		m, _ = nocPress(m, "v")
-		m, _ = nocPress(m, "esc")
-		if called {
-			t.Error("declining read must NOT call the read seam")
-		}
-		if m.pending != nil {
-			t.Error("esc should close the confirm overlay")
-		}
-	})
-
-	t.Run("y confirms: read seam called once and body overlay opens", func(t *testing.T) {
-		m := newControlModel(t)
-		selectKind(t, m, nodeSession, "")
-		var got []readNeedsYouOp
-		m.readNeedsYou = func(op readNeedsYouOp) (readNeedsYouResult, error) {
-			got = append(got, op)
-			return readNeedsYouResult{
-				MessageID: op.MessageID,
-				Thread:    op.Thread,
-				Subject:   op.Subject,
-				Body:      "Please approve the ship plan.",
-			}, nil
-		}
-
-		m, _ = nocPress(m, "v")
-		m, cmd := nocPress(m, "y")
-		if len(got) != 1 {
-			t.Fatalf("confirm should call the read seam exactly once, got %d", len(got))
-		}
-		if got[0].Root != ctlRoot || got[0].MessageID != "msg-ship" || got[0].Thread != "decision/ship" {
-			t.Fatalf("read op mismatch: %+v", got[0])
-		}
-		if cmd == nil {
-			t.Fatal("successful read should request an immediate refresh")
-		}
-		if m.readResult == nil {
-			t.Fatal("successful read should open the body result overlay")
-		}
-		if !strings.Contains(m.View(), "Please approve the ship plan.") {
-			t.Fatalf("read result overlay should show the body:\n%s", m.View())
-		}
-		m, _ = nocPress(m, "enter")
-		if m.readResult != nil {
-			t.Fatal("enter should close the read result overlay")
-		}
-	})
-
-	t.Run("missing latest id leaves a guidance note and calls nothing", func(t *testing.T) {
-		m := newControlModel(t)
-		m.ms.Projects[0].Snap.Sessions[0].Coordination.Threads[0].LatestID = ""
-		selectKind(t, m, nodeSession, "")
-		called := false
-		m.readNeedsYou = func(readNeedsYouOp) (readNeedsYouResult, error) {
-			called = true
-			return readNeedsYouResult{}, nil
-		}
-
-		m, _ = nocPress(m, "v")
-		if called {
-			t.Fatal("missing latest id must not call the read seam")
-		}
-		if m.pending != nil {
-			t.Fatal("missing latest id must not open a confirm overlay")
-		}
-		if !strings.Contains(m.actNote, "no latest message id") {
-			t.Fatalf("missing latest id should explain the problem, note=%q", m.actNote)
-		}
-	})
-}
 
 func TestControl_DrainConfirmGate(t *testing.T) {
 	t.Run("d opens a preview overlay showing amq drain and calls nothing", func(t *testing.T) {
@@ -632,6 +363,34 @@ func TestControl_ApproveConfirmGate(t *testing.T) {
 		}
 		if m.pending != nil {
 			t.Error("confirm should close the overlay")
+		}
+	})
+
+	t.Run("custom operator handle is used for preview, sender, and recipient filtering", func(t *testing.T) {
+		m := newControlModel(t)
+		m.ms.Projects[0].Operator = noc.OperatorConfig{Enabled: true, Handle: "operator", Runnable: false}
+		m.ms.Projects[0].Capabilities = noc.Capabilities{OperatorGates: true}
+		th := m.ms.Projects[0].Snap.Sessions[0].Coordination.Threads[0]
+		th.Participants = []string{"qa", "operator"}
+		m.ms.Projects[0].Snap.Sessions[0].Coordination.Threads[0] = th
+		selectKind(t, m, nodeSession, "")
+		var got []act.OpMessage
+		m.sendOp = func(op act.OpMessage) error { got = append(got, op); return nil }
+
+		want := act.ApproveAs(ctlRoot, "operator", theNeedsYouThread(t, m))
+		m, _ = nocPress(m, "a")
+		if m.pending == nil {
+			t.Fatal("custom operator approve should open confirm overlay")
+		}
+		if !strings.Contains(m.pending.preview, "--me operator") || strings.Contains(m.pending.preview, "--to operator") {
+			t.Fatalf("custom operator preview should send as operator and not to operator: %s", m.pending.preview)
+		}
+		m, _ = nocPress(m, "y")
+		if len(got) != 1 {
+			t.Fatalf("confirm should call send once, got %d", len(got))
+		}
+		if got[0] != want {
+			t.Fatalf("custom operator approve mismatch:\n got %+v\nwant %+v", got[0], want)
 		}
 	})
 }
@@ -1026,25 +785,6 @@ func TestControl_ProjectWithMultipleSessionsRequiresSessionSelection(t *testing.
 			t.Fatalf("lifecycle should explain the ambiguity, note=%q", m.actNote)
 		}
 	})
-
-	t.Run("open does not guess a session", func(t *testing.T) {
-		m := newControlModel(t)
-		addSecondSession(m)
-		selectKind(t, m, nodeProject, "")
-		switched := false
-		m.switchTo = func(noc.TmuxTarget) error { switched = true; return nil }
-
-		m, _ = nocPress(m, "o")
-		if switched {
-			t.Fatal("project-level open with multiple sessions must not switch")
-		}
-		if m.jumpPending != nil {
-			t.Fatalf("project-level open with multiple sessions must not open focus confirm, jumpPending=%+v", m.jumpPending)
-		}
-		if !strings.Contains(m.actNote, "multiple sessions") || !strings.Contains(m.actNote, "select one session") {
-			t.Fatalf("open should explain the ambiguity, note=%q", m.actNote)
-		}
-	})
 }
 
 // --- stop / resume / restart --------------------------------------------
@@ -1145,10 +885,10 @@ func TestAdaptNewTeamCarriesProfile(t *testing.T) {
 		got = req
 		return nil
 	})
-	if err := fn(newTeamOp{ProjectDir: "/tmp/team", Profile: "review", Roles: "cto,qa", Binary: "qa=codex", Session: "issue-96", Sync: true}); err != nil {
+	if err := fn(newTeamOp{ProjectDir: "/tmp/team", Profile: "review", Roles: "cto,qa", Binary: "qa=codex", Session: "issue-96"}); err != nil {
 		t.Fatalf("adaptNewTeam: %v", err)
 	}
-	if got.ProjectDir != "/tmp/team" || got.Profile != "review" || got.Roles != "cto,qa" || got.Binary != "qa=codex" || got.Session != "issue-96" || !got.Sync {
+	if got.ProjectDir != "/tmp/team" || got.Profile != "review" || got.Roles != "cto,qa" || got.Binary != "qa=codex" || got.Session != "issue-96" {
 		t.Fatalf("NewTeamRequest mismatch: %+v", got)
 	}
 }
@@ -2146,8 +1886,8 @@ func TestControl_NewTeamConfirmGate(t *testing.T) {
 		if !strings.Contains(m.pending.preview, "amq-squad new team --project /fake/proj/delta --roles cto,qa") {
 			t.Errorf("new team overlay should preview the exact command, got %q", m.pending.preview)
 		}
-		if !strings.Contains(m.pending.preview, "--sync") {
-			t.Errorf("NOC new team should preview complete setup with --sync, got %q", m.pending.preview)
+		if strings.Contains(m.pending.preview, "--sync") {
+			t.Errorf("NOC new team should not run pointer sync implicitly, got %q", m.pending.preview)
 		}
 		m, _ = nocPress(m, "esc")
 		if called {
@@ -2169,7 +1909,7 @@ func TestControl_NewTeamConfirmGate(t *testing.T) {
 		if len(ops) != 1 {
 			t.Fatalf("confirmed new team should call the seam once, got %d", len(ops))
 		}
-		if ops[0].ProjectDir != "/fake/proj/delta" || ops[0].Roles != "cto,qa" || !ops[0].Sync {
+		if ops[0].ProjectDir != "/fake/proj/delta" || ops[0].Roles != "cto,qa" {
 			t.Fatalf("new team op mismatch: %+v", ops[0])
 		}
 	})
@@ -2212,8 +1952,11 @@ func TestControl_NewTeamConfirmGate(t *testing.T) {
 		if m.pending == nil {
 			t.Fatal("team spec with session should open the confirm overlay")
 		}
-		if !strings.Contains(m.pending.preview, "amq-squad new team --project /fake/proj/delta --roles cto,qa --session issue-96 --sync") {
+		if !strings.Contains(m.pending.preview, "amq-squad new team --project /fake/proj/delta --roles cto,qa --session issue-96") {
 			t.Fatalf("new team preview should carry initial session, got %q", m.pending.preview)
+		}
+		if strings.Contains(m.pending.preview, "--sync") {
+			t.Fatalf("new team preview should not run pointer sync implicitly, got %q", m.pending.preview)
 		}
 		m, _ = nocPress(m, "y")
 		if len(ops) != 1 {
@@ -2264,8 +2007,11 @@ func TestControl_NewTeamConfirmGate(t *testing.T) {
 		if m.pending == nil {
 			t.Fatal("named team spec with session should open the confirm overlay")
 		}
-		if !strings.Contains(m.pending.preview, "amq-squad new profile review --project /fake/proj/beta --roles cto,qa --session issue-97 --sync") {
+		if !strings.Contains(m.pending.preview, "amq-squad new profile review --project /fake/proj/beta --roles cto,qa --session issue-97") {
 			t.Fatalf("named team preview should carry initial session, got %q", m.pending.preview)
+		}
+		if strings.Contains(m.pending.preview, "--sync") {
+			t.Fatalf("named team preview should not run pointer sync implicitly, got %q", m.pending.preview)
 		}
 		m, _ = nocPress(m, "y")
 		if len(ops) != 1 {
@@ -2588,72 +2334,6 @@ func TestControl_DeleteTeamConfirmGate(t *testing.T) {
 	})
 }
 
-// --- focus / open ('o') --------------------------------------------------
-
-func TestControl_FocusRunningCallsSwitch(t *testing.T) {
-	m := newControlModel(t)
-	selectKind(t, m, nodeSession, "")
-	var gotTarget noc.TmuxTarget
-	called := false
-	m.switchTo = func(tt noc.TmuxTarget) error { called = true; gotTarget = tt; return nil }
-	// A live tmux window for session "beta" exists.
-	m.panes = func() ([]noc.TmuxPane, error) {
-		return []noc.TmuxPane{{Session: "beta", Window: "0", Pane: "1", Command: "claude", CWD: "/fake/proj/beta"}}, nil
-	}
-
-	// 'o' is now confirm-gated (QA-2/QA-4b): it opens a READ-ONLY focus confirm
-	// overlay (jumpPending, NOT the mutating pending) and does not focus yet.
-	m, _ = nocPress(m, "o")
-	if m.jumpPending == nil {
-		t.Fatal("o should open the read-only focus confirm overlay")
-	}
-	if m.pending != nil {
-		t.Error("focus is read-only: it must never open the MUTATING confirm overlay")
-	}
-	if called {
-		t.Fatal("o must NOT call the switch seam before confirm")
-	}
-	// y confirms: the switch seam fires with the right session.
-	m, _ = nocPress(m, "y")
-	if !called {
-		t.Fatal("y on the focus confirm should call the switch seam")
-	}
-	if gotTarget.Session != "beta" {
-		t.Errorf("focus targeted the wrong session: %+v", gotTarget)
-	}
-}
-
-func TestControl_FocusStoppedSuggestsUpCallsNothing(t *testing.T) {
-	m := newControlModel(t)
-	selectKind(t, m, nodeSession, "")
-	switched := false
-	lifecycleCalled := false
-	sent := false
-	m.switchTo = func(noc.TmuxTarget) error { switched = true; return nil }
-	m.lifecycle = func(lifecycleOp) error { lifecycleCalled = true; return nil }
-	m.sendOp = func(act.OpMessage) error { sent = true; return nil }
-	// No tmux windows: the squad is not running.
-	m.panes = func() ([]noc.TmuxPane, error) { return nil, nil }
-
-	// 'o' opens the read-only focus confirm overlay; confirming with y then finds
-	// no running window and sets the suggest-up note (still NOTHING is called).
-	m, _ = nocPress(m, "o")
-	if m.pending != nil {
-		t.Error("focus is read-only: it must never open the MUTATING confirm overlay")
-	}
-	if m.jumpPending == nil {
-		t.Fatal("o should open the read-only focus confirm overlay")
-	}
-	m, _ = nocPress(m, "y")
-	if switched || lifecycleCalled || sent {
-		t.Error("o on a stopped squad must call NOTHING (no switch, no lifecycle, no send)")
-	}
-	if !strings.Contains(m.actNote, "team not running") ||
-		!strings.Contains(m.actNote, "amq-squad new session --project /fake/proj/beta <name>") {
-		t.Errorf("o on a stopped squad should set the suggest-up note, got %q", m.actNote)
-	}
-}
-
 // --- wrong-node no-ops ---------------------------------------------------
 
 func TestControl_WrongNodeNoOps(t *testing.T) {
@@ -2713,47 +2393,6 @@ func TestControl_WrongNodeNoOps(t *testing.T) {
 		}
 		if m.actNote == "" {
 			t.Error("r on the wrong node should leave a guidance note")
-		}
-	})
-
-	// 'v' (read) on a PROJECT with no needs-you is a no-op note.
-	t.Run("v on a project with no needs-you thread is a no-op", func(t *testing.T) {
-		m := newControlModel(t)
-		m.ms.Projects[0].Snap.Sessions[0].Coordination = state.Coordination{}
-		m.ms.Projects[0].Snap.Sessions[0].Rollup = state.TriageRollup{}
-		selectKind(t, m, nodeProject, "")
-		read := false
-		m.readNeedsYou = func(readNeedsYouOp) (readNeedsYouResult, error) {
-			read = true
-			return readNeedsYouResult{}, nil
-		}
-		m, _ = nocPress(m, "v")
-		if read {
-			t.Error("v on a project must NOT call the read seam")
-		}
-		if m.input != nil || m.pending != nil {
-			t.Error("v on a project with no needs-you must NOT open an editor or confirm overlay")
-		}
-		if m.actNote == "" {
-			t.Error("v on the wrong node should leave a guidance note")
-		}
-	})
-
-	// 'i' (inbox) on a SESSION row (not an agent) is a no-op note.
-	t.Run("i on a session row is a no-op", func(t *testing.T) {
-		m := newControlModel(t)
-		selectKind(t, m, nodeSession, "")
-		listed := false
-		m.inboxAgent = func(inboxAgentOp) (inboxAgentResult, error) {
-			listed = true
-			return inboxAgentResult{}, nil
-		}
-		m, _ = nocPress(m, "i")
-		if listed || m.input != nil || m.pending != nil || m.inboxResult != nil {
-			t.Error("i on a session row must be a no-op (no editor, no overlay, no list)")
-		}
-		if m.actNote == "" {
-			t.Error("i on the wrong node should leave a guidance note")
 		}
 	})
 

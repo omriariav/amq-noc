@@ -15,10 +15,11 @@ import (
 func sortStrings(s []string) { sort.Strings(s) }
 
 const (
-	SchemaVersion = 2
-	DirName       = ".amq-squad"
-	FileName      = "team.json"
-	TeamsDirName  = "teams"
+	SchemaVersion         = 3
+	DirName               = ".amq-squad"
+	FileName              = "team.json"
+	TeamsDirName          = "teams"
+	DefaultOperatorHandle = "user"
 	// DefaultProfile names the implicit project-default profile. It maps to
 	// .amq-squad/team.json; a file at .amq-squad/teams/default.json is never
 	// created (the on-disk encoding is the project root, not the teams dir).
@@ -47,6 +48,19 @@ type Member struct {
 	// expected to forward the trailing args to Binary so bootstrap survives.
 	Launcher     string   `json:"launcher,omitempty"`
 	LauncherArgs []string `json:"launcher_args,omitempty"`
+}
+
+// OperatorConfig describes the virtual human mailbox for schema 3 teams. The
+// operator is an AMQ participant, not a runnable launch member.
+type OperatorConfig struct {
+	Enabled  bool   `json:"enabled"`
+	Handle   string `json:"handle,omitempty"`
+	Runnable bool   `json:"runnable"`
+}
+
+// Capabilities advertises machine-readable behavior JSON clients can rely on.
+type Capabilities struct {
+	OperatorGates bool `json:"operator_gates"`
 }
 
 // EffectiveCWD returns the member's working directory, falling back to the
@@ -79,11 +93,13 @@ type Team struct {
 	Schema  int    `json:"schema"`
 	Project string `json:"-"`
 	// Workstream: deprecated shim, see the Team doc comment. Removal in 2.1.
-	Workstream string              `json:"workstream,omitempty"`
-	Trust      string              `json:"trust,omitempty"`
-	BinaryArgs map[string][]string `json:"binary_args,omitempty"`
-	Members    []Member            `json:"members"`
-	CreatedAt  time.Time           `json:"created_at"`
+	Workstream   string              `json:"workstream,omitempty"`
+	Trust        string              `json:"trust,omitempty"`
+	Operator     OperatorConfig      `json:"operator,omitempty"`
+	Capabilities Capabilities        `json:"capabilities,omitempty"`
+	BinaryArgs   map[string][]string `json:"binary_args,omitempty"`
+	Members      []Member            `json:"members"`
+	CreatedAt    time.Time           `json:"created_at"`
 }
 
 // Path returns the team.json path for the default profile under projectDir.
@@ -254,6 +270,18 @@ func Validate(t Team) error {
 	if t.Trust != "" && t.Trust != "sandboxed" && t.Trust != "trusted" {
 		return fmt.Errorf("trust: invalid trust mode %q: use sandboxed or trusted", t.Trust)
 	}
+	operatorHandle := strings.TrimSpace(t.Operator.Handle)
+	if t.Operator.Enabled {
+		if operatorHandle == "" {
+			return fmt.Errorf("operator.handle: cannot be empty when operator is enabled")
+		}
+		if err := ValidateHandle(operatorHandle); err != nil {
+			return fmt.Errorf("operator.handle: %w", err)
+		}
+		if t.Operator.Runnable {
+			return fmt.Errorf("operator.runnable: virtual operator mailbox must not be runnable")
+		}
+	}
 	for binary, args := range t.BinaryArgs {
 		if err := ValidateDisplayValue("binary_args key", binary); err != nil {
 			return fmt.Errorf("binary_args[%q]: %w", binary, err)
@@ -277,6 +305,9 @@ func Validate(t Team) error {
 		if handle != "" {
 			if seenHandles[handle] {
 				return fmt.Errorf("%s: duplicate handle %q", prefix, handle)
+			}
+			if t.Operator.Enabled && handle == operatorHandle {
+				return fmt.Errorf("%s.handle: duplicates virtual operator handle %q", prefix, handle)
 			}
 			seenHandles[handle] = true
 		}

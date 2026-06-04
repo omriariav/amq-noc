@@ -26,6 +26,7 @@ func newSeededNOCModel(t *testing.T) *NOCModel {
 	m := newNOCModel(rebuild)
 	m.colorMode = ColorNone
 	m.th = newNOCTheme(ColorNone)
+	m.fullTree = true
 
 	mm, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	m2 := mm.(*NOCModel)
@@ -118,30 +119,57 @@ func TestNOCUpdate_DownKeepsCursorVisibleInTreeWindow(t *testing.T) {
 
 func TestNOCUpdate_CollapseAndExpand(t *testing.T) {
 	m := newSeededNOCModel(t)
-	// Cursor 0 is the most-urgent project (beta, needs-you), expanded by default,
-	// so its session/agent descendants follow it.
+	m.fullTree = false
+	// Cursor 0 is the most-urgent project (beta, needs-you), collapsed by
+	// default in the live NOC, so the first right/enter expands it.
 	top, ok := m.selectedNode()
 	if !ok || top.kind != nodeProject {
 		t.Fatalf("expected a project at cursor 0, got %+v ok=%v", top, ok)
 	}
 	before := len(m.nodes())
 
-	// Collapse it: its descendants disappear.
+	// Expand it: descendants appear.
+	m, _ = nocPress(m, "right")
+	if m.tree.isCollapsed(top.id) {
+		t.Errorf("right should expand the project node %q", top.id)
+	}
+	expanded := len(m.nodes())
+	if expanded <= before {
+		t.Errorf("expand should increase visible nodes: before=%d after=%d", before, expanded)
+	}
+
+	// Collapse it again: descendants disappear.
 	m, _ = nocPress(m, "left")
 	if !m.tree.isCollapsed(top.id) {
 		t.Errorf("left should collapse the project node %q", top.id)
 	}
-	if got := len(m.nodes()); got >= before {
-		t.Errorf("collapse should reduce visible nodes: before=%d after=%d", before, got)
-	}
-
-	// Expand it again: descendants return.
-	m, _ = nocPress(m, "right")
-	if m.tree.isCollapsed(top.id) {
-		t.Errorf("right should re-expand the project node %q", top.id)
-	}
 	if got := len(m.nodes()); got != before {
-		t.Errorf("re-expand should restore node count: before=%d after=%d", before, got)
+		t.Errorf("collapse should restore node count: before=%d after=%d", before, got)
+	}
+}
+
+func TestNOCUpdate_ProjectsCollapsedByDefault(t *testing.T) {
+	root, probe := seedNOCFixture(t)
+	rebuild := NOCRebuildConfig{Roots: []string{root}, Depth: noc.DefaultDepth, Probe: probe}
+	ms := noc.Collect(rebuild.Roots, rebuild.Depth, rebuild.Probe, rebuild.Thresholds)
+
+	m := newNOCModel(rebuild)
+	m.colorMode = ColorNone
+	m.th = newNOCTheme(ColorNone)
+	m.ms = ms
+	m.ready = true
+
+	ns := m.nodes()
+	if len(ns) != 3 {
+		t.Fatalf("default live tree should show only collapsed projects, got %d nodes: %+v", len(ns), ns)
+	}
+	for _, n := range ns {
+		if n.kind != nodeProject {
+			t.Fatalf("default live tree should contain only project rows, got %+v", ns)
+		}
+		if n.expanded {
+			t.Fatalf("project %q should be collapsed by default", n.label)
+		}
 	}
 }
 
@@ -169,8 +197,11 @@ func newLongTreeNOCModel(t *testing.T, count, height int) *NOCModel {
 
 func TestNOCUpdate_DrillIntoChild(t *testing.T) {
 	m := newSeededNOCModel(t)
-	// On an expanded parent, right drills to the first child (next node deeper).
+	m.fullTree = false
+	// First right expands the default-collapsed project; second right drills to
+	// the first child (next node deeper).
 	parent, _ := m.selectedNode()
+	m, _ = nocPress(m, "right")
 	m, _ = nocPress(m, "right")
 	child, ok := m.selectedNode()
 	if !ok {
@@ -181,138 +212,12 @@ func TestNOCUpdate_DrillIntoChild(t *testing.T) {
 	}
 }
 
-func TestNOCUpdate_JumpCallsSwitcherWithResolvedTarget(t *testing.T) {
-	m := newSeededNOCModel(t)
-
-	// Find beta's project dir (the alive claude agent lives there).
-	var beta noc.ProjectSnapshot
-	for _, n := range m.nodes() {
-		if n.kind == nodeProject && n.label == "beta" {
-			beta = n.project
-			break
-		}
-	}
-	if beta.Dir == "" {
-		t.Fatal("beta project not found")
-	}
-
-	var gotTarget noc.TmuxTarget
-	called := false
-	m.switchTo = func(tt noc.TmuxTarget) error { called = true; gotTarget = tt; return nil }
-	m.panes = func() ([]noc.TmuxPane, error) {
-		// A pane in beta's dir running claude resolves the beta/qa agent.
-		return []noc.TmuxPane{{
-			Session: "beta", Window: "0", Pane: "1", PID: 5001,
-			Command: "claude", CWD: beta.Dir,
-		}}, nil
-	}
-	m.pidTree = func(int) []int { return nil }
-
-	// Navigate to beta's qa agent node and press J.
-	agentIdx := -1
-	for i, n := range m.nodes() {
-		if n.kind == nodeAgent && n.agent.Handle == "qa" {
-			agentIdx = i
-			break
-		}
-	}
-	if agentIdx < 0 {
-		t.Fatalf("qa agent node not found; nodes=%d", len(m.nodes()))
-	}
-	m.cursor = agentIdx
-	// J is now confirm-gated (QA-2/QA-4b): it opens the read-only focus confirm
-	// overlay; the switcher fires only after y/enter.
-	m, _ = nocPress(m, "J")
-	if m.jumpPending == nil {
-		t.Fatal("J on a running agent should open the focus confirm overlay")
-	}
-	if called {
-		t.Fatal("J must NOT call the switcher before confirm")
-	}
-	m, _ = nocPress(m, "y")
-
-	if !called {
-		t.Fatal("y on the focus confirm should call the injected switcher")
-	}
-	if gotTarget.Session != "beta" || gotTarget.Window != "0" || gotTarget.Pane != "1" {
-		t.Errorf("switcher got wrong target: %+v", gotTarget)
-	}
-}
-
-func TestNOCUpdate_JumpNoPaneShowsSuggestionNotError(t *testing.T) {
-	m := newSeededNOCModel(t)
-	called := false
-	m.switchTo = func(noc.TmuxTarget) error { called = true; return nil }
-	m.panes = func() ([]noc.TmuxPane, error) { return nil, nil } // no panes resolve
-	m.pidTree = func(int) []int { return nil }
-
-	agentIdx := -1
-	for i, n := range m.nodes() {
-		if n.kind == nodeAgent && n.agent.Handle == "qa" {
-			agentIdx = i
-			break
-		}
-	}
-	if agentIdx < 0 {
-		t.Fatal("qa agent node not found")
-	}
-	m.cursor = agentIdx
-	// J opens the confirm overlay; confirm with y, then the unresolved jump sets a
-	// guidance note (and the switcher stays uncalled).
-	m, _ = nocPress(m, "J")
-	if m.jumpPending == nil {
-		t.Fatal("J should open the focus confirm overlay")
-	}
-	m, _ = nocPress(m, "y")
-
-	if called {
-		t.Error("switcher must NOT be called when no pane resolves")
-	}
-	if m.jumpNote == "" {
-		t.Error("an unresolved jump should set a guidance jumpNote, not error out")
-	}
-}
-
-func TestNOCUpdate_JumpNotInTmuxShowsSuggestion(t *testing.T) {
-	m := newSeededNOCModel(t)
-	var beta noc.ProjectSnapshot
-	for _, n := range m.nodes() {
-		if n.kind == nodeProject && n.label == "beta" {
-			beta = n.project
-		}
-	}
-	m.switchTo = func(tt noc.TmuxTarget) error {
-		return &noc.NotInTmuxError{Target: tt, Command: noc.SuggestJump(tt)}
-	}
-	m.panes = func() ([]noc.TmuxPane, error) {
-		return []noc.TmuxPane{{Session: "beta", Window: "0", Pane: "1", PID: 5001, Command: "claude", CWD: beta.Dir}}, nil
-	}
-	m.pidTree = func(int) []int { return nil }
-
-	for i, n := range m.nodes() {
-		if n.kind == nodeAgent && n.agent.Handle == "qa" {
-			m.cursor = i
-		}
-	}
-	// J opens the confirm overlay; confirm with y, then the not-in-tmux switch
-	// surfaces the suggested command.
-	m, _ = nocPress(m, "J")
-	if m.jumpPending == nil {
-		t.Fatal("J should open the focus confirm overlay")
-	}
-	m, _ = nocPress(m, "y")
-	if m.jumpNote == "" || !strings.Contains(m.jumpNote, "tmux switch-client") {
-		t.Errorf("not-in-tmux jump should surface the suggested command, got %q", m.jumpNote)
-	}
-}
-
-// TestNOCUpdate_EnterJumpGuard proves the jump guard (Codex): enter JUMPS only
-// on a RUNNING-AGENT row. On a project row it expands/drills and never calls the
-// injected switcher; on a running-agent row it calls the switcher with the right
-// target; on a STOPPED agent it does NOT jump and leaves a note.
+// TestNOCUpdate_EnterJumpGuard proves enter on a project row expands/drills and
+// never calls the injected switcher (enter is navigation/expand only).
 func TestNOCUpdate_EnterJumpGuard(t *testing.T) {
 	t.Run("project row expands, never jumps", func(t *testing.T) {
 		m := newSeededNOCModel(t)
+		m.fullTree = false
 		switched := false
 		m.switchTo = func(noc.TmuxTarget) error { switched = true; return nil }
 		m.panes = func() ([]noc.TmuxPane, error) { return nil, nil }
@@ -323,8 +228,6 @@ func TestNOCUpdate_EnterJumpGuard(t *testing.T) {
 		if !ok || top.kind != nodeProject {
 			t.Fatalf("expected a project at cursor 0, got %+v ok=%v", top, ok)
 		}
-		// Collapse it first so enter has a visible expand effect to assert.
-		m.tree.setCollapsed(top.id, true)
 		before := len(m.nodes())
 
 		m, _ = nocPress(m, "enter")
@@ -336,108 +239,6 @@ func TestNOCUpdate_EnterJumpGuard(t *testing.T) {
 		}
 		if got := len(m.nodes()); got <= before {
 			t.Errorf("enter on a project row should expand (more visible nodes): before=%d after=%d", before, got)
-		}
-	})
-
-	t.Run("running-agent row jumps to resolved target", func(t *testing.T) {
-		m := newSeededNOCModel(t)
-		var beta noc.ProjectSnapshot
-		for _, n := range m.nodes() {
-			if n.kind == nodeProject && n.label == "beta" {
-				beta = n.project
-				break
-			}
-		}
-		if beta.Dir == "" {
-			t.Fatal("beta project not found")
-		}
-		var gotTarget noc.TmuxTarget
-		called := false
-		m.switchTo = func(tt noc.TmuxTarget) error { called = true; gotTarget = tt; return nil }
-		m.panes = func() ([]noc.TmuxPane, error) {
-			return []noc.TmuxPane{{
-				Session: "beta", Window: "0", Pane: "1", PID: 5001,
-				Command: "claude", CWD: beta.Dir,
-			}}, nil
-		}
-		m.pidTree = func(int) []int { return nil }
-
-		// beta/qa is the alive claude agent (canJump).
-		for i, n := range m.nodes() {
-			if n.kind == nodeAgent && n.agent.Handle == "qa" {
-				if !n.canJump {
-					t.Fatal("beta/qa should be a running (canJump) agent")
-				}
-				m.cursor = i
-				break
-			}
-		}
-		// enter on a running-agent row now opens the focus confirm overlay
-		// (QA-2/QA-4b); the switcher fires only after y/enter confirms.
-		m, _ = nocPress(m, "enter")
-		if m.jumpPending == nil {
-			t.Fatal("enter on a running-agent row should open the focus confirm overlay")
-		}
-		if called {
-			t.Fatal("enter on a running-agent row must NOT call the switcher before confirm")
-		}
-		m, _ = nocPress(m, "y")
-		if !called {
-			t.Fatal("y on the focus confirm must call the switcher")
-		}
-		if gotTarget.Session != "beta" || gotTarget.Window != "0" || gotTarget.Pane != "1" {
-			t.Errorf("switcher got wrong target: %+v", gotTarget)
-		}
-	})
-
-	t.Run("stopped-agent row does not jump, shows a note", func(t *testing.T) {
-		m := newSeededNOCModel(t)
-		switched := false
-		m.switchTo = func(noc.TmuxTarget) error { switched = true; return nil }
-		m.panes = func() ([]noc.TmuxPane, error) {
-			return nil, nil
-		}
-		m.pidTree = func(int) []int { return nil }
-
-		// gamma/dev is the dead agent (stopped, !canJump). Find it (expanding
-		// gamma if the tree collapsed it).
-		stoppedIdx := -1
-		for i, n := range m.nodes() {
-			if n.kind == nodeAgent && n.agent.Handle == "dev" {
-				stoppedIdx = i
-				break
-			}
-		}
-		if stoppedIdx < 0 {
-			// gamma may be collapsed by default order; select + expand it.
-			for i, n := range m.nodes() {
-				if n.kind == nodeProject && n.label == "gamma" {
-					m.cursor = i
-					m.tree.setCollapsed(n.id, false)
-					break
-				}
-			}
-			for i, n := range m.nodes() {
-				if n.kind == nodeAgent && n.agent.Handle == "dev" {
-					stoppedIdx = i
-					break
-				}
-			}
-		}
-		if stoppedIdx < 0 {
-			t.Fatalf("gamma/dev stopped agent node not found in %d nodes", len(m.nodes()))
-		}
-		sel := m.nodes()[stoppedIdx]
-		if sel.canJump {
-			t.Fatal("gamma/dev should be a stopped (!canJump) agent")
-		}
-		m.cursor = stoppedIdx
-		m, _ = nocPress(m, "enter")
-		if switched {
-			t.Error("enter on a STOPPED agent row must NOT jump")
-		}
-		if m.jumpNote == "" {
-			t.Error("enter on a STOPPED agent row should leave a note explaining nothing is live to jump to")
 		}
 	})
 }

@@ -630,7 +630,6 @@ func TestConsoleNewTeamArgsDefaultProfile(t *testing.T) {
 		Roles:      "cto,qa",
 		Binary:     "qa=codex",
 		Session:    "issue-96",
-		Sync:       true,
 	})
 	if err != nil {
 		t.Fatalf("consoleNewTeamArgs: %v", err)
@@ -641,7 +640,6 @@ func TestConsoleNewTeamArgsDefaultProfile(t *testing.T) {
 		"--roles", "cto,qa",
 		"--binary", "qa=codex",
 		"--session", "issue-96",
-		"--sync",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("consoleNewTeamArgs = %#v, want %#v", got, want)
@@ -655,7 +653,6 @@ func TestConsoleNewTeamArgsNamedProfile(t *testing.T) {
 		Roles:      "cto,qa",
 		Binary:     "qa=codex",
 		Session:    "issue-96",
-		Sync:       true,
 	})
 	if err != nil {
 		t.Fatalf("consoleNewTeamArgs: %v", err)
@@ -666,7 +663,6 @@ func TestConsoleNewTeamArgsNamedProfile(t *testing.T) {
 		"--roles", "cto,qa",
 		"--binary", "qa=codex",
 		"--session", "issue-96",
-		"--sync",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("consoleNewTeamArgs = %#v, want %#v", got, want)
@@ -690,7 +686,6 @@ func TestNOCNewTeamTemplateCommandNamedProfile(t *testing.T) {
 		"--project '/tmp/team home'",
 		"--roles '<roles>'",
 		"--binary '<binary>'",
-		"--sync",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("named profile template missing %q: %s", want, got)
@@ -698,6 +693,9 @@ func TestNOCNewTeamTemplateCommandNamedProfile(t *testing.T) {
 	}
 	if strings.Contains(got, "new team --profile") {
 		t.Fatalf("named profile template should use new profile command: %s", got)
+	}
+	if strings.Contains(got, "--sync") {
+		t.Fatalf("new profile template should not run pointer sync implicitly: %s", got)
 	}
 }
 
@@ -916,6 +914,7 @@ func TestNOCSessionEnvelopeIncludesThreadIntegrationMetadata(t *testing.T) {
 func TestRunNOCJSONEnvelope(t *testing.T) {
 	root := t.TempDir()
 	proj := filepath.Join(root, "p")
+	seedNOCOperatorTeam(t, proj)
 	base := filepath.Join(proj, noc.AgentMailDirName)
 	sessionRoot := filepath.Join(base, "issue-96")
 	seedAgentRecord(t, base, "issue-96", "cto", launch.Record{
@@ -965,6 +964,7 @@ func TestRunNOCJSONEnvelope(t *testing.T) {
 func TestRunNOCActionsHumanTable(t *testing.T) {
 	root := t.TempDir()
 	proj := filepath.Join(root, "p")
+	seedNOCOperatorTeam(t, proj)
 	base := filepath.Join(proj, noc.AgentMailDirName)
 	seedAgentRecord(t, base, "issue-96", "cto", launch.Record{
 		Binary:  "codex",
@@ -1000,6 +1000,7 @@ func TestRunNOCActionsHumanTable(t *testing.T) {
 func TestRunNOCActionsHumanTableShowsProfileChoices(t *testing.T) {
 	root := t.TempDir()
 	proj := filepath.Join(root, "p")
+	seedNOCOperatorTeam(t, proj)
 	base := filepath.Join(proj, noc.AgentMailDirName)
 	seedAgentRecord(t, base, "issue-96", "cto", launch.Record{
 		Binary:      "codex",
@@ -1053,6 +1054,7 @@ func TestRunNOCActionsHumanTableShowsRoleExamples(t *testing.T) {
 func TestRunNOCActionsJSONEnvelope(t *testing.T) {
 	root := t.TempDir()
 	proj := filepath.Join(root, "p")
+	seedNOCOperatorTeam(t, proj)
 	base := filepath.Join(proj, noc.AgentMailDirName)
 	seedAgentRecord(t, base, "issue-96", "cto", launch.Record{
 		Binary:  "codex",
@@ -1804,7 +1806,7 @@ func TestExecuteNOCRunActionFillsBroadcastTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executeNOC --run-action broadcast: %v", err)
 	}
-	for _, want := range []string{"amq send", "--root " + sessionRoot, "--me user", "--to 'cto,qa'", "--subject 'Heads up'", "--body 'Deploying now'", "--kind status"} {
+	for _, want := range []string{"amq send", "--root " + sessionRoot, "--me user", "--to 'cto,qa'", "--subject 'Heads up'", "--body 'Deploying now'", "--thread broadcast/operator", "--kind status"} {
 		if !strings.Contains(ran, want) {
 			t.Fatalf("broadcast command missing %q: %s", want, ran)
 		}
@@ -1817,6 +1819,7 @@ func TestExecuteNOCRunActionFillsBroadcastTemplate(t *testing.T) {
 func TestExecuteNOCRunActionFillsApproveCommand(t *testing.T) {
 	root := t.TempDir()
 	proj := filepath.Join(root, "p")
+	seedNOCOperatorTeam(t, proj)
 	base := filepath.Join(proj, noc.AgentMailDirName)
 	sessionRoot := filepath.Join(base, "issue-96")
 	agentDir := seedAgentRecord(t, base, "issue-96", "cto", launch.Record{
@@ -1854,6 +1857,7 @@ func TestExecuteNOCRunActionFillsApproveCommand(t *testing.T) {
 func TestExecuteNOCRunActionFillsReadNeedsYouCommand(t *testing.T) {
 	root := t.TempDir()
 	proj := filepath.Join(root, "p")
+	seedNOCOperatorTeam(t, proj)
 	base := filepath.Join(proj, noc.AgentMailDirName)
 	sessionRoot := filepath.Join(base, "issue-96")
 	agentDir := seedAgentRecord(t, base, "issue-96", "cto", launch.Record{
@@ -1891,6 +1895,7 @@ func TestExecuteNOCRunActionFillsReadNeedsYouCommand(t *testing.T) {
 func TestExecuteNOCRunActionFillsReplyTemplate(t *testing.T) {
 	root := t.TempDir()
 	proj := filepath.Join(root, "p")
+	seedNOCOperatorTeam(t, proj)
 	base := filepath.Join(proj, noc.AgentMailDirName)
 	sessionRoot := filepath.Join(base, "issue-96")
 	agentDir := seedAgentRecord(t, base, "issue-96", "cto", launch.Record{
@@ -1932,6 +1937,7 @@ func TestExecuteNOCRunActionFillsReplyTemplate(t *testing.T) {
 func TestExecuteNOCRunActionFillsDenyTemplate(t *testing.T) {
 	root := t.TempDir()
 	proj := filepath.Join(root, "p")
+	seedNOCOperatorTeam(t, proj)
 	base := filepath.Join(proj, noc.AgentMailDirName)
 	sessionRoot := filepath.Join(base, "issue-96")
 	agentDir := seedAgentRecord(t, base, "issue-96", "cto", launch.Record{
@@ -2560,10 +2566,13 @@ func TestExecuteNOCRunActionFillsNewProfileTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executeNOC --run-action new_profile: %v", err)
 	}
-	for _, want := range []string{"amq-squad new profile review", "--project " + proj, "--roles 'cto,qa'", "--sync"} {
+	for _, want := range []string{"amq-squad new profile review", "--project " + proj, "--roles 'cto,qa'"} {
 		if !strings.Contains(ran, want) {
 			t.Fatalf("new_profile command missing %q: %s", want, ran)
 		}
+	}
+	if strings.Contains(ran, "--sync") {
+		t.Fatalf("new_profile should not run pointer sync implicitly: %s", ran)
 	}
 	if strings.Contains(ran, "--binary") {
 		t.Fatalf("new_profile without binary overrides should not include --binary: %s", ran)
@@ -2598,10 +2607,13 @@ func TestExecuteNOCRunActionFillsNewProfileSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executeNOC --run-action new_profile --set session: %v", err)
 	}
-	for _, want := range []string{"amq-squad new profile review", "--roles 'cto,qa'", "--session review-99", "--sync"} {
+	for _, want := range []string{"amq-squad new profile review", "--roles 'cto,qa'", "--session review-99"} {
 		if !strings.Contains(ran, want) {
 			t.Fatalf("new_profile command missing %q: %s", want, ran)
 		}
+	}
+	if strings.Contains(ran, "--sync") {
+		t.Fatalf("new_profile should not run pointer sync implicitly: %s", ran)
 	}
 }
 
@@ -2842,10 +2854,13 @@ func TestExecuteNOCRunActionYesFillsNewTeamTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executeNOC --run-action new_team: %v", err)
 	}
-	for _, want := range []string{"amq-squad new team", "--project " + proj, "--roles 'cto,qa'", "--sync"} {
+	for _, want := range []string{"amq-squad new team", "--project " + proj, "--roles 'cto,qa'"} {
 		if !strings.Contains(ran, want) {
 			t.Fatalf("new_team command missing %q: %s", want, ran)
 		}
+	}
+	if strings.Contains(ran, "--sync") {
+		t.Fatalf("new_team should not run pointer sync implicitly: %s", ran)
 	}
 	if strings.Contains(ran, "--binary") {
 		t.Fatalf("new_team without binary overrides should not include --binary: %s", ran)
@@ -2878,10 +2893,13 @@ func TestExecuteNOCRunActionFillsNewTeamBinaryOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executeNOC --run-action new_team --set binary: %v", err)
 	}
-	for _, want := range []string{"amq-squad new team", "--roles 'cto,qa'", "--binary qa=codex", "--sync"} {
+	for _, want := range []string{"amq-squad new team", "--roles 'cto,qa'", "--binary qa=codex"} {
 		if !strings.Contains(ran, want) {
 			t.Fatalf("new_team command missing %q: %s", want, ran)
 		}
+	}
+	if strings.Contains(ran, "--sync") {
+		t.Fatalf("new_team should not run pointer sync implicitly: %s", ran)
 	}
 }
 
@@ -2908,10 +2926,13 @@ func TestExecuteNOCRunActionFillsNewTeamSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executeNOC --run-action new_team --set session: %v", err)
 	}
-	for _, want := range []string{"amq-squad new team", "--roles 'cto,qa'", "--session issue-99", "--sync"} {
+	for _, want := range []string{"amq-squad new team", "--roles 'cto,qa'", "--session issue-99"} {
 		if !strings.Contains(ran, want) {
 			t.Fatalf("new_team command missing %q: %s", want, ran)
 		}
+	}
+	if strings.Contains(ran, "--sync") {
+		t.Fatalf("new_team should not run pointer sync implicitly: %s", ran)
 	}
 }
 
@@ -2938,10 +2959,13 @@ func TestExecuteNOCRunActionFillsInlineTeamSpecBinaryOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executeNOC --run-action new_team inline binary: %v", err)
 	}
-	for _, want := range []string{"amq-squad new team", "--roles 'cto,qa'", "--binary cto=codex", "--sync"} {
+	for _, want := range []string{"amq-squad new team", "--roles 'cto,qa'", "--binary cto=codex"} {
 		if !strings.Contains(ran, want) {
 			t.Fatalf("new_team command missing %q: %s", want, ran)
 		}
+	}
+	if strings.Contains(ran, "--sync") {
+		t.Fatalf("new_team should not run pointer sync implicitly: %s", ran)
 	}
 }
 
@@ -3353,7 +3377,7 @@ func TestRunNOCActionsCommandsOnlyConfiguredProjectActions(t *testing.T) {
 		"amq-squad roles",
 		"amq-squad team profiles --project " + proj,
 		"amq-squad new session --project " + proj + " --seed-from '<seed-from>' --target new-session --terminal-session '<tmux-session>' '<session>'",
-		"amq-squad new profile '<profile>' --project " + proj + " --roles '<roles>' --binary '<binary>' --session '<session>' --sync",
+		"amq-squad new profile '<profile>' --project " + proj + " --roles '<roles>' --binary '<binary>' --session '<session>'",
 		"amq-squad team sync --project " + proj + " '<allow-outside>' --apply",
 	} {
 		if !stringInSlice(lines, want) {
@@ -3388,7 +3412,7 @@ func TestRunNOCActionsCommandsOnlyCandidateProjectActions(t *testing.T) {
 	for _, want := range []string{
 		"amq-squad doctor --project " + proj + " --all-profiles",
 		"amq-squad roles",
-		"amq-squad new team --project " + proj + " --roles '<roles>' --binary '<binary>' --session '<session>' --sync",
+		"amq-squad new team --project " + proj + " --roles '<roles>' --binary '<binary>' --session '<session>'",
 	} {
 		if !stringInSlice(lines, want) {
 			t.Fatalf("candidate project action commands missing %q in:\n%s", want, stdout)
@@ -3859,11 +3883,14 @@ func TestNOCJSONReasonCodesDistinguishRollupStates(t *testing.T) {
 		wantReason string
 	}{
 		{name: "needs-user", rollup: state.TriageRollup{NeedsYou: 1}, total: 1, wantState: "needs-you", wantReason: "needs_user"},
-		{name: "blocked", rollup: state.TriageRollup{Blocked: 1}, total: 1, wantState: "blocked", wantReason: "blocked"},
-		{name: "gated", rollup: state.TriageRollup{Gated: 1}, total: 1, wantState: "gated", wantReason: "gated"},
-		{name: "at-risk", rollup: state.TriageRollup{AtRisk: 1}, total: 1, wantState: "at-risk", wantReason: "at_risk"},
+		// S4c source-backed contract: with NO operational agent (live==0), unowned or
+		// outstanding blocked/gated/at-risk evidence is NOT a live wait - it collapses
+		// to the stale primary state. The granular counts survive in the rollup detail.
+		{name: "unowned-blocked-is-stale", rollup: state.TriageRollup{Blocked: 1}, total: 1, wantState: "stale-blocked", wantReason: "stale_blocked"},
+		{name: "unowned-gated-is-stale", rollup: state.TriageRollup{Gated: 1}, total: 1, wantState: "stale-blocked", wantReason: "stale_blocked"},
+		{name: "unowned-at-risk-is-stale", rollup: state.TriageRollup{AtRisk: 1}, total: 1, wantState: "stale-blocked", wantReason: "stale_blocked"},
 		{name: "running", live: 1, total: 1, wantState: "running", wantReason: "running"},
-		{name: "running-with-blocked-history", rollup: state.TriageRollup{Blocked: 3, Gated: 1, AtRisk: 1}, live: 1, total: 1, wantState: "running", wantReason: "running"},
+		{name: "running-with-unowned-rollup-history", rollup: state.TriageRollup{Blocked: 3, Gated: 1, AtRisk: 1}, live: 1, total: 1, wantState: "running", wantReason: "running"},
 		{name: "stale-blocked", rollup: state.TriageRollup{BlockedStale: 1}, total: 1, wantState: "stale-blocked", wantReason: "stale_blocked"},
 		{name: "stopped", total: 1, wantState: "stopped", wantReason: "stopped"},
 		{name: "empty", wantState: "empty", wantReason: "empty"},
@@ -3883,6 +3910,81 @@ func TestNOCJSONReasonCodesDistinguishRollupStates(t *testing.T) {
 	env := nocRollupEnvelope(state.TriageRollup{Gated: 2, GatedStale: 3})
 	if env.Gated != 2 || env.GatedStale != 3 {
 		t.Fatalf("rollup gated fields = %d/%d, want 2/3", env.Gated, env.GatedStale)
+	}
+}
+
+// S4c regression: the JSON/API path must obey the same source-backed status
+// contract as the TUI. A session whose only agents are dead-mailbox-live (process
+// gone, only AMQ presence fresh) plus an aged peer review (unowned at-risk) must
+// report agents_alive=0 and a STALE primary state, never running or a live at-risk.
+// The raw evidence is retained in the rollup + unowned_evidence detail.
+func TestNOCSessionJSONAllDmblUnownedAtRiskIsStale(t *testing.T) {
+	row := nocSessionEnvelope(noc.ProjectSnapshot{Dir: "/root/api"}, state.Session{
+		Name: "issue-1",
+		Agents: []state.Agent{
+			{Handle: "cto", Liveness: state.LivenessDeadMailboxLive},
+			{Handle: "fullstack", Liveness: state.LivenessDeadMailboxLive},
+		},
+		Attention:        state.Attention{State: state.TriageClear},
+		UnownedAttention: state.Attention{State: state.TriageAtRisk},
+		Rollup:           state.TriageRollup{AtRisk: 1},
+	})
+	if row.AgentsAlive != 0 {
+		t.Fatalf("agents_alive = %d, want 0 (dead-mailbox-live is not live)", row.AgentsAlive)
+	}
+	if row.State != "stale-blocked" || row.ReasonCode != "stale_blocked" {
+		t.Fatalf("state/reason = %q/%q, want stale-blocked/stale_blocked (unowned at-risk is not a live wait)", row.State, row.ReasonCode)
+	}
+	if row.UnownedEvidence != "at-risk" {
+		t.Fatalf("unowned_evidence = %q, want at-risk (evidence retained as detail)", row.UnownedEvidence)
+	}
+}
+
+// S4c companion: one operational (alive) agent that OWNS the aged peer review keeps
+// the session in a live waiting/running-with-attention state, not stale. agents_alive
+// counts the live agent, and the owned attention drives the primary state.
+func TestNOCSessionJSONOneLiveAgentOwnsAtRiskIsWaiting(t *testing.T) {
+	row := nocSessionEnvelope(noc.ProjectSnapshot{Dir: "/root/api"}, state.Session{
+		Name: "issue-2",
+		Agents: []state.Agent{
+			{Handle: "cto", Liveness: state.LivenessAlive, Attention: state.Attention{State: state.TriageAtRisk}},
+		},
+		Attention: state.Attention{State: state.TriageAtRisk},
+		Rollup:    state.TriageRollup{AtRisk: 1},
+	})
+	if row.AgentsAlive != 1 {
+		t.Fatalf("agents_alive = %d, want 1", row.AgentsAlive)
+	}
+	if row.State != "at-risk" || row.ReasonCode != "at_risk" {
+		t.Fatalf("state/reason = %q/%q, want at-risk/at_risk (owned live wait)", row.State, row.ReasonCode)
+	}
+}
+
+// S4c project-level: a project whose only session is all dead-mailbox-live with
+// unowned at-risk is STALE, not running, and contributes zero live agents.
+func TestNOCProjectJSONAllDmblIsStaleNotRunning(t *testing.T) {
+	project := nocProjectEnvelope(noc.ProjectSnapshot{
+		Project: "api",
+		Dir:     "/root/api",
+		Snap: state.Snapshot{
+			Rollup: state.TriageRollup{AtRisk: 1},
+			Sessions: []state.Session{{
+				Name: "issue-1",
+				Agents: []state.Agent{
+					{Handle: "cto", Liveness: state.LivenessDeadMailboxLive},
+					{Handle: "fullstack", Liveness: state.LivenessDeadMailboxLive},
+				},
+				Attention:        state.Attention{State: state.TriageClear},
+				UnownedAttention: state.Attention{State: state.TriageAtRisk},
+				Rollup:           state.TriageRollup{AtRisk: 1},
+			}},
+		},
+	})
+	if project.AgentsAlive != 0 {
+		t.Fatalf("project agents_alive = %d, want 0", project.AgentsAlive)
+	}
+	if project.State != "stale-blocked" || project.ReasonCode != "stale_blocked" {
+		t.Fatalf("project state/reason = %q/%q, want stale-blocked/stale_blocked", project.State, project.ReasonCode)
 	}
 }
 
@@ -4116,10 +4218,13 @@ func TestNOCJSONActionsExposeControlCommands(t *testing.T) {
 		t.Fatalf("roles should be read-only role-market action: %+v", roles)
 	}
 	newProfile := requireNOCAction(t, project.Actions, "new_profile")
-	for _, want := range []string{"amq-squad new profile '<profile>'", "--project '/root/api service'", "--roles '<roles>'", "--binary '<binary>'", "--session '<session>'", "--sync"} {
+	for _, want := range []string{"amq-squad new profile '<profile>'", "--project '/root/api service'", "--roles '<roles>'", "--binary '<binary>'", "--session '<session>'"} {
 		if !strings.Contains(newProfile.Command, want) {
 			t.Fatalf("new_profile command missing %q: %s", want, newProfile.Command)
 		}
+	}
+	if strings.Contains(newProfile.Command, "--sync") {
+		t.Fatalf("new_profile action should not run pointer sync implicitly: %s", newProfile.Command)
 	}
 	profileSessionVar := requireNOCActionVar(t, newProfile.Vars, "session")
 	if profileSessionVar.Required {
@@ -4306,7 +4411,7 @@ func TestNOCJSONActionsExposeControlCommands(t *testing.T) {
 	if !broadcast.Mutates || !broadcast.RequiresConfirmation || !broadcast.Template {
 		t.Fatalf("broadcast should be confirm-required template mutation: %+v", broadcast)
 	}
-	for _, want := range []string{"amq send", "--root '/root/api service/.agent-mail/issue-96'", "--me user", "--to cto", "--subject '<subject>'", "--body '<body>'", "--kind status"} {
+	for _, want := range []string{"amq send", "--root '/root/api service/.agent-mail/issue-96'", "--me user", "--to cto", "--subject '<subject>'", "--body '<body>'", "--thread broadcast/operator", "--kind status"} {
 		if !strings.Contains(broadcast.Command, want) {
 			t.Fatalf("broadcast command missing %q: %s", want, broadcast.Command)
 		}
@@ -4551,10 +4656,13 @@ func TestNOCJSONCandidateActionsSuggestNewTeam(t *testing.T) {
 	if roles.Mutates || roles.Command != "amq-squad roles" {
 		t.Fatalf("roles should be read-only role-market action: %+v", roles)
 	}
-	for _, want := range []string{"amq-squad new team", "--project /root/candidate", "--roles '<roles>'", "--binary '<binary>'", "--session '<session>'", "--sync"} {
+	for _, want := range []string{"amq-squad new team", "--project /root/candidate", "--roles '<roles>'", "--binary '<binary>'", "--session '<session>'"} {
 		if !strings.Contains(newTeam.Command, want) {
 			t.Fatalf("new_team command missing %q: %s", want, newTeam.Command)
 		}
+	}
+	if strings.Contains(newTeam.Command, "--sync") {
+		t.Fatalf("new_team action should not run pointer sync implicitly: %s", newTeam.Command)
 	}
 	if strings.Contains(newTeam.Command, "binary-flag") {
 		t.Fatalf("new_team command should not expose internal binary-flag placeholder: %s", newTeam.Command)
@@ -5045,6 +5153,18 @@ func hasNOCActionID(actions []nocActionJSONData, id string) bool {
 		}
 	}
 	return false
+}
+
+func seedNOCOperatorTeam(t *testing.T, projectDir string) {
+	t.Helper()
+	dir := filepath.Join(projectDir, noc.SquadDirName)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"schema":3,"operator":{"enabled":true,"handle":"user","runnable":false},"capabilities":{"operator_gates":true}}`
+	if err := os.WriteFile(filepath.Join(dir, "team.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func seedNOCNeedsYouMessage(t *testing.T, agentDir, from, thread, subject string) {

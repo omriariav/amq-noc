@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>amq-noc</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #0f1419;
+      --panel: #151b22;
+      --text: #eef3f7;
+      --muted: #a7b0bb;
+      --line: #2b3440;
+      --accent: #6ee7b7;
+      --code: #101820;
+    }
+    body {
+      margin: 0;
+      font: 16px/1.55 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    main {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 48px 24px 72px;
+    }
+    h1, h2 {
+      line-height: 1.15;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 44px;
+    }
+    h2 {
+      margin-top: 40px;
+      padding-top: 20px;
+      border-top: 1px solid var(--line);
+      font-size: 24px;
+    }
+    p, li {
+      color: var(--muted);
+    }
+    strong, code {
+      color: var(--text);
+    }
+    .lead {
+      max-width: 760px;
+      font-size: 19px;
+      color: var(--text);
+    }
+    .badge {
+      display: inline-block;
+      margin: 14px 8px 0 0;
+      padding: 4px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--accent);
+      background: var(--panel);
+      font-size: 13px;
+    }
+    pre {
+      overflow-x: auto;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--code);
+    }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.95em;
+    }
+    a {
+      color: var(--accent);
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>amq-noc</h1>
+    <p class="lead">NOC command center for AMQ and amq-squad teams.</p>
+    <span class="badge">multi-project TUI</span>
+    <span class="badge">operator gates</span>
+    <span class="badge">preview-first controls</span>
+
+    <p><code>amq-noc</code> is the operator console for many AMQ and amq-squad workstreams. It discovers projects under one or more roots, shows which teams are alive, stale, waiting, or waiting for the human operator, and exposes preview-first controls for recovery and messaging.</p>
+    <p><code>amq-squad</code> remains the project-local lifecycle tool. <code>amq-noc</code> observes and orchestrates those teams from above.</p>
+
+    <h2>What It Shows</h2>
+    <ul>
+      <li><strong>running</strong>: at least one agent in the team/session is active.</li>
+      <li><strong>needs-you</strong>: an agent sent a structural question to the operator mailbox.</li>
+      <li><strong>waiting</strong>: work is not actively running and is not waiting on the operator.</li>
+      <li><strong>stale</strong>: the team/session is dead or old enough to demote.</li>
+    </ul>
+
+    <h2>Install</h2>
+    <pre><code>go install github.com/omriariav/amq-noc/cmd/amq-noc@latest</code></pre>
+    <p>Requires Go 1.25+, <code>amq</code>, <code>amq-squad</code> v1.4.1 or newer, and <code>tmux</code>.</p>
+
+    <h2>Quick Start</h2>
+    <pre><code>amq-noc --root ~/Code
+amq-noc --filter needs-you
+amq-noc --once --root ~/Code
+amq-noc --json --root ~/Code | jq .
+amq-noc --actions --root ~/Code --filter needs-you</code></pre>
+
+    <h2>Operator Gates</h2>
+    <p><code>needs-you</code> is deterministic. NOC does not infer human action from broad prose in agent-to-agent status messages. A team needs the human only when an agent sends a question, review request, or decision request to the configured operator handle.</p>
+    <pre><code>amq send \
+  --to user \
+  --thread gate/manual-rc \
+  --kind question \
+  --subject "APPROVAL: manual RC test + commit decision" \
+  --body "Please test the RC, then approve commit or request changes."</code></pre>
+    <pre><code>amq send \
+  --me user \
+  --to fullstack \
+  --thread gate/manual-rc \
+  --kind answer \
+  --subject "APPROVED: manual RC test + commit decision" \
+  --body "Approved after RC test."</code></pre>
+
+    <h2>Machine-readable Snapshots</h2>
+    <pre><code>amq-noc --root ~/Code --json | jq '.data.rollup'
+amq-noc --root ~/Code --actions --json | jq '.data.actions[] | {name, command}'</code></pre>
+    <p>Mutating actions are confirm-gated and can be rendered with <code>--dry-run</code> before execution.</p>
+
+    <h2>Team Compatibility</h2>
+    <ul>
+      <li>schema 3 teams advertise <code>operator</code> and <code>capabilities.operator_gates</code></li>
+      <li>legacy schema 1/2 teams default to a non-runnable <code>user</code> operator gate</li>
+      <li>teams can opt out with <code>--no-operator</code></li>
+      <li>custom operator handles are honored in reads and generated AMQ actions</li>
+      <li>legacy teams with a runnable member named <code>user</code> do not get an implicit operator gate</li>
+    </ul>
+
+    <h2>Release Checks</h2>
+    <pre><code>gofmt -l .
+git diff --check
+go test ./...
+go vet ./...
+make ci
+go build -o /tmp/amq-noc-rc ./cmd/amq-noc
+/tmp/amq-noc-rc --once --root ~/Code</code></pre>
+  </main>
+</body>
+</html>

@@ -195,6 +195,7 @@ func (a *threadAccumulator) summarize(now time.Time, th Thresholds, agents []Age
 		Historical:    historical,
 		AttnReason:    reason,
 		NeedsYouOwner: needsYouOwner,
+		LatestBody:    a.latest.Body,
 	}
 }
 
@@ -415,21 +416,28 @@ func computeTriage(a *threadAccumulator, status ThreadStatus, fresh Freshness, n
 	// NeedsYou: an unanswered ask addressed TO the operator, a block awaiting
 	// the human, or explicit prose that says the thread is waiting for the
 	// operator/user. The owner is the asker/declarer, never a sorted participant.
-	if status == ThreadAwaitingReply || status == ThreadBlocked {
-		if addressedTo(a.latest, op) {
-			switch a.latest.Kind {
-			case KindQuestion, KindReviewRequest, KindDecision:
-				if operatorMessageNeedsAction(a.latest) && (operatorStillUnread(a, op) || a.latest.From != op) {
-					return TriageNeedsYou, nonOperatorHandle(a.latest.From, op)
+	if op != "" {
+		if status == ThreadAwaitingReply || status == ThreadBlocked {
+			if addressedTo(a.latest, op) {
+				switch a.latest.Kind {
+				case KindQuestion, KindReviewRequest, KindDecision:
+					if operatorMessageNeedsAction(a.latest) && (operatorStillUnread(a, op) || a.latest.From != op) {
+						return TriageNeedsYou, nonOperatorHandle(a.latest.From, op)
+					}
 				}
 			}
+			if a.blockActive && a.blockOwner == op {
+				return TriageNeedsYou, nonOperatorHandle(a.blockSender, op)
+			}
 		}
-		if a.blockActive && a.blockOwner == op {
-			return TriageNeedsYou, nonOperatorHandle(a.blockSender, op)
+		// User-wait PROSE only promotes to needs-you when the message is structurally
+		// addressed TO the operator. This keeps the visible status model deterministic:
+		// an agent-to-agent status/ack that merely mentions "user"/"approval"/etc. in
+		// its text must NOT promote a p2p thread to needs-you - it falls through to the
+		// structural block/gate/at-risk/liveness rules below instead.
+		if addressedTo(a.latest, op) && declaresUserWait(a.latest) {
+			return TriageNeedsYou, nonOperatorHandle(a.latest.From, op)
 		}
-	}
-	if declaresUserWait(a.latest) {
-		return TriageNeedsYou, nonOperatorHandle(a.latest.From, op)
 	}
 
 	// Blocked: an explicitly declared, still-active block (owner may be another
@@ -444,15 +452,12 @@ func computeTriage(a *threadAccumulator, status ThreadStatus, fresh Freshness, n
 		return TriageGated, ""
 	}
 
-	// AtRisk: agent<->agent unanswered review/question aging past thresholds, or
-	// a quiet heartbeat on a participant.
+	// AtRisk is reserved for a STRUCTURAL agent-to-agent wait: an unanswered
+	// review/question/decision (awaiting-reply) that has aged past the threshold.
+	// Liveness-only signals do NOT create a work wait: a quiet heartbeat or a
+	// dead-mailbox-live participant is a liveness anomaly (handled on the liveness
+	// axis as degraded/stale), not "waiting on another agent".
 	if status == ThreadAwaitingReply && fresh.Stale {
-		return TriageAtRisk, ""
-	}
-	if heartbeatQuiet(a.participants, agents, now, th) && status == ThreadAwaitingReply {
-		return TriageAtRisk, ""
-	}
-	if deadMailboxLiveParticipant(a.participants, agents) {
 		return TriageAtRisk, ""
 	}
 
@@ -554,44 +559,6 @@ func primaryRecipient(m Message) string {
 		return m.To[0]
 	}
 	return ""
-}
-
-// heartbeatQuiet reports whether any thread participant that is a discovered
-// agent has gone quiet past the heartbeat threshold (last_seen too old), which
-// makes an outstanding ask at-risk.
-func heartbeatQuiet(participants map[string]bool, agents []Agent, now time.Time, th Thresholds) bool {
-	for _, ag := range agents {
-		if !participants[ag.Handle] {
-			continue
-		}
-		// A genuinely ALIVE agent (its process verified live by signal-0 + binary
-		// match) is NOT "quiet" just because its presence heartbeat FILE is stale.
-		// Presence and process liveness can disagree (e.g. an agent that does not
-		// rewrite presence.json on every turn); trusting a stale presence file
-		// here flips every awaiting-reply thread the live agent participates in to
-		// at-risk, inflating the count. Only a NOT-alive participant can be quiet.
-		if ag.Liveness == LivenessAlive {
-			continue
-		}
-		if ag.LastSeen.IsZero() {
-			continue
-		}
-		if now.Sub(ag.LastSeen) > th.Heartbeat {
-			return true
-		}
-	}
-	return false
-}
-
-// deadMailboxLiveParticipant reports whether any thread participant is in the
-// dead-mailbox-live state from PR1's liveness — a concrete at-risk signal.
-func deadMailboxLiveParticipant(participants map[string]bool, agents []Agent) bool {
-	for _, ag := range agents {
-		if participants[ag.Handle] && ag.Liveness == LivenessDeadMailboxLive {
-			return true
-		}
-	}
-	return false
 }
 
 // buildEdges tallies directed from->to message counts across the session.

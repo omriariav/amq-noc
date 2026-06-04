@@ -13,7 +13,6 @@ package console
 import (
 	"io"
 	"strconv"
-	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
@@ -145,6 +144,21 @@ const (
 	nocEmpty                        // dim - scaffolding / no agents
 )
 
+// visibleState collapses the granular triage tiers into the SIMPLIFIED visible
+// status model used for PRIMARY surfaces (tree rows + header): blocked, gated,
+// and at-risk all read as a single "waiting" - the team is waiting on another
+// agent / work lane, not three separate broken-vs-paused concepts. needs-you,
+// running, and the stale/stopped tiers are unchanged. The granular triage stays
+// available for detail panes and JSON; this collapse is display-only.
+func visibleState(s nocState) nocState {
+	switch s {
+	case nocBlocked, nocGated, nocAtRisk:
+		return nocWaiting
+	default:
+		return s
+	}
+}
+
 // nocStateText is the ALWAYS-PRESENT text label for a state. Glyph + color are
 // layered on top of this; this text alone is sufficient on a dumb terminal.
 func nocStateText(s nocState) string {
@@ -205,7 +219,9 @@ func (t nocTheme) nocStateStyle(s nocState) lipgloss.Style {
 	case nocAtRisk:
 		return t.atRisk
 	case nocWaiting:
-		return t.dim
+		// The unified "waiting" tier: visible amber (attention, not alarm), so a
+		// team waiting on another agent reads as active, not dim/idle.
+		return t.atRisk
 	case nocRunning:
 		return t.running
 	case nocStaleBlocked:
@@ -217,14 +233,22 @@ func (t nocTheme) nocStateStyle(s nocState) lipgloss.Style {
 
 // rollupState reduces a TriageRollup + liveness facts to a single display state.
 func rollupState(r state.TriageRollup, hasRunning, hasAny bool) nocState {
+	// This is the FALLBACK reached only when no operational agent OWNS a current
+	// attention (sessionRollupState/projectRollupState lead with the owned
+	// headline). So here any live blocked/at-risk/gated in the rollup is unowned or
+	// from a stopped session.
 	switch {
 	case r.NeedsYou > 0:
+		// needs-you is a human action item and shows even with no live agent.
 		return nocNeedsYou
 	case hasRunning:
+		// An operational agent exists but owns no current wait: running. Unowned
+		// raw-rollup blocked/at-risk is detail, not a primary work wait.
 		return nocRunning
-	case r.Blocked > 0 || r.AtRisk > 0 || r.Gated > 0:
-		return nocBlocked
-	case r.NeedsYouHistorical > 0 || r.AtRiskStale > 0 || r.BlockedStale > 0 || r.GatedStale > 0:
+	case r.Blocked > 0 || r.AtRisk > 0 || r.Gated > 0 || r.NeedsYouHistorical > 0 || r.AtRiskStale > 0 || r.BlockedStale > 0 || r.GatedStale > 0:
+		// Zero operational agents with only outstanding/decayed/unowned evidence:
+		// the evidence is retained (rollup/JSON/detail) but the primary status is
+		// stale, never live waiting.
 		return nocStaleBlocked
 	case hasAny:
 		return nocStopped
@@ -235,7 +259,8 @@ func rollupState(r state.TriageRollup, hasRunning, hasAny bool) nocState {
 
 // agentState maps a single agent's liveness to a display state. Per-agent triage
 // is carried by the session (the collapsed-thread bus), so an agent row reflects
-// liveness only: alive=running, dead-but-mailbox-live=degraded, dead=stopped.
+// liveness only: alive=running, dead-mailbox-live=stale (process gone; only the
+// AMQ wake/notifier presence is fresh), dead=stopped.
 func agentState(a state.Agent) nocState {
 	switch a.Liveness {
 	case state.LivenessAlive:
@@ -243,7 +268,9 @@ func agentState(a state.Agent) nocState {
 	case state.LivenessWakeLive:
 		return nocAtRisk
 	case state.LivenessDeadMailboxLive:
-		return nocAtRisk
+		// Process is gone (mailbox still touched) - a liveness anomaly, surfaced
+		// as stale/degraded, never a work "waiting".
+		return nocStopped
 	case state.LivenessDead:
 		return nocStopped
 	default:
@@ -251,34 +278,16 @@ func agentState(a state.Agent) nocState {
 	}
 }
 
-// agentNodeState is the work-facing agent state used by the NOC tree/detail.
-// Process liveness still controls jump availability, but an agent involved in a
-// current non-historical attention thread should not look calmly green.
-func agentNodeState(sess state.Session, ag state.Agent) nocState {
-	base := agentState(ag)
-	if !agentOperational(ag) {
-		return base
+// agentNodeState is the work-facing agent state used by the NOC tree/detail. It
+// reads the first-class state.Agent.Attention (derived in internal/state from
+// the current, non-historical/non-stale thread evidence the agent owns) and
+// falls back to process liveness when the agent carries no current attention.
+// Liveness still governs jump availability elsewhere; this only colors the row.
+func agentNodeState(_ state.Session, ag state.Agent) nocState {
+	if att := ag.Attention.State; att != "" && att != state.TriageClear {
+		return triageState(att)
 	}
-	best := nocEmpty
-	for _, th := range sess.Coordination.Threads {
-		if th.Historical || th.Stale || !threadHasParticipant(th, ag.Handle) {
-			continue
-		}
-		if th.Triage == state.TriageNeedsYou && !strings.EqualFold(threadAsker(th), ag.Handle) {
-			continue
-		}
-		st := triageState(th.Triage)
-		if st == nocRunning {
-			continue
-		}
-		if st < best {
-			best = st
-		}
-	}
-	if best != nocEmpty {
-		return best
-	}
-	return base
+	return agentState(ag)
 }
 
 // triageState maps a thread/agent triage class to a display state.
@@ -297,13 +306,19 @@ func triageState(tr state.Triage) nocState {
 	}
 }
 
-// projectRollupState computes a project's display state from its snapshot.
+// projectRollupState computes a project's display state. The headline leads with
+// the most severe CURRENT attention across the project's sessions (the
+// first-class state.Session.Attention, which already folds in agent attention
+// and unowned evidence); it falls back to the liveness/stale rollup tiers only
+// when no session carries current attention.
 func projectRollupState(ps noc.ProjectSnapshot) nocState {
 	if ps.Warning != "" {
 		return nocAtRisk
 	}
 	hasRunning := false
 	hasAny := false
+	best := nocRunning
+	hasAttention := false
 	for _, sess := range ps.Snap.Sessions {
 		for _, ag := range sess.Agents {
 			hasAny = true
@@ -311,12 +326,27 @@ func projectRollupState(ps noc.ProjectSnapshot) nocState {
 				hasRunning = true
 			}
 		}
+		if att := sess.Attention.State; att != "" && att != state.TriageClear {
+			if st := triageState(att); !hasAttention || st < best {
+				best = st
+				hasAttention = true
+			}
+		}
+	}
+	if hasAttention {
+		return best
 	}
 	return rollupState(ps.Snap.Rollup, hasRunning, hasAny)
 }
 
-// sessionRollupState computes a session's display state.
+// sessionRollupState computes a session's display state. It leads with the
+// first-class state.Session.Attention headline (max severity over agent
+// attention plus unowned evidence), falling back to the liveness/stale rollup
+// tiers only when the session carries no current attention.
 func sessionRollupState(sess state.Session) nocState {
+	if att := sess.Attention.State; att != "" && att != state.TriageClear {
+		return triageState(att)
+	}
 	hasRunning := false
 	hasAny := false
 	for _, ag := range sess.Agents {
@@ -328,9 +358,10 @@ func sessionRollupState(sess state.Session) nocState {
 	return rollupState(sess.Rollup, hasRunning, hasAny)
 }
 
-// hasRunningAgentSnap reports whether any agent in the snapshot is live
-// (alive or dead-mailbox-live). Console-side mirror of noc.hasRunningAgent so the
-// digest can decide liveness without re-exporting the noc helper.
+// hasRunningAgentSnap reports whether any agent in the snapshot is a verified
+// foreground agent (alive or wake-live). Console-side mirror of noc.hasRunningAgent
+// so the digest can decide liveness without re-exporting the noc helper.
+// dead-mailbox-live is NOT running (process gone; only AMQ presence is fresh).
 func hasRunningAgentSnap(snap state.Snapshot) bool {
 	for _, sess := range snap.Sessions {
 		for _, ag := range sess.Agents {
@@ -383,7 +414,7 @@ func projectAgentLiveness(ps noc.ProjectSnapshot) (live, wakeLive, total int) {
 		for _, ag := range sess.Agents {
 			total++
 			switch ag.Liveness {
-			case state.LivenessAlive, state.LivenessDeadMailboxLive:
+			case state.LivenessAlive:
 				live++
 			case state.LivenessWakeLive:
 				wakeLive++
@@ -395,7 +426,7 @@ func projectAgentLiveness(ps noc.ProjectSnapshot) (live, wakeLive, total int) {
 
 func agentOperational(ag state.Agent) bool {
 	switch ag.Liveness {
-	case state.LivenessAlive, state.LivenessWakeLive, state.LivenessDeadMailboxLive:
+	case state.LivenessAlive, state.LivenessWakeLive:
 		return true
 	default:
 		return false

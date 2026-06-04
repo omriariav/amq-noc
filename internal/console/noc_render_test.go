@@ -49,7 +49,8 @@ func nocSeedTeamProfile(t *testing.T, projectDir string) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir squad dir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "team.json"), []byte(`{"schema":2}`), 0o600); err != nil {
+	body := `{"schema":3,"operator":{"enabled":true,"handle":"user","runnable":false},"capabilities":{"operator_gates":true}}`
+	if err := os.WriteFile(filepath.Join(dir, "team.json"), []byte(body), 0o600); err != nil {
 		t.Fatalf("write team profile: %v", err)
 	}
 }
@@ -173,12 +174,12 @@ func TestNOCOnce_MultiProjectBoard(t *testing.T) {
 func TestNOCHeaderUsesSimplifiedPrimaryStatusModel(t *testing.T) {
 	root, probe := seedNOCFixture(t)
 	out := renderNOCOnce(t, root, probe, ColorNone)
-	for _, want := range []string{"3 squads", "2 running", "1 needs-you", "0 blocked"} {
+	for _, want := range []string{"3 squads", "2 running", "1 needs-you", "0 waiting"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("header missing %q:\n%s", want, out)
 		}
 	}
-	for _, noisy := range []string{"at-risk(live)", "blocked(live)", "gated(live)"} {
+	for _, noisy := range []string{"at-risk(live)", "blocked(live)", "gated(live)", "0 blocked"} {
 		if strings.Contains(out, noisy) {
 			t.Fatalf("header should not expose noisy primary segment %q:\n%s", noisy, out)
 		}
@@ -198,10 +199,13 @@ func TestNOCStoppedAgentNeedsYouRendersAsHistoryNotLive(t *testing.T) {
 		Now:          func() time.Time { return nocTestNow },
 	}
 	out := renderNOCOnce(t, root, probe, ColorNone)
-	for _, want := range []string{"1 squad", "0 running", "0 needs-you", "1 stale", "needs-you history"} {
+	for _, want := range []string{"1 squad", "0 running", "0 needs-you", "1 stale"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stopped needs-you render missing %q:\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, "needs-you history") {
+		t.Fatalf("stopped needs-you history should collapse to the simplified stale surface:\n%s", out)
 	}
 	if strings.Contains(out, "NEEDS YOU") {
 		t.Fatalf("stopped agent ask must not render live NEEDS YOU section:\n%s", out)
@@ -299,13 +303,54 @@ func TestNOCSessionDetailCapsThreadHistory(t *testing.T) {
 		project: noc.ProjectSnapshot{Project: "proj"},
 		session: state.Session{Name: "main", Coordination: state.Coordination{Threads: threads}},
 	})
-	for _, want := range []string{"threads: newest 8 of 10", "+2 older hidden"} {
+	header := fmt.Sprintf("threads: newest %d of %d", sessionThreadPreviewLimit, sessionThreadPreviewLimit+2)
+	for _, want := range []string{header, "+2 older hidden"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("session detail missing capped-history marker %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "status 09") {
-		t.Fatalf("session detail should hide older thread rows:\n%s", out)
+	hidden := fmt.Sprintf("status %02d", sessionThreadPreviewLimit) // first thread beyond the cap
+	if strings.Contains(out, hidden) {
+		t.Fatalf("session detail should hide older thread rows (%s):\n%s", hidden, out)
+	}
+}
+
+// S4b: a session whose only agents are dead-mailbox-live (non-operational) with
+// unowned at-risk evidence shows STALE, not waiting - waiting requires an
+// operational agent to be the waiter. The evidence is retained in the rollup.
+func TestNOCSessionVisible_AllDmblUnownedAtRiskIsStale(t *testing.T) {
+	sess := state.Session{
+		Name: "issue-96",
+		Agents: []state.Agent{
+			{Handle: "cto", Liveness: state.LivenessDeadMailboxLive},
+			{Handle: "fullstack", Liveness: state.LivenessDeadMailboxLive},
+		},
+		Attention:        state.Attention{State: state.TriageClear},  // no operational owner
+		UnownedAttention: state.Attention{State: state.TriageAtRisk}, // retained as detail
+		Rollup:           state.TriageRollup{AtRisk: 1},
+	}
+	got := visibleState(sessionRollupState(sess))
+	if got == nocNeedsYou || got == nocWaiting {
+		t.Fatalf("dmbl session with unowned at-risk must be stale, got %s", nocStateText(got))
+	}
+	if nocStateText(got) != "stale" {
+		t.Fatalf("visible status = %s, want stale", nocStateText(got))
+	}
+}
+
+// S4b companion: one operational (alive) agent that OWNS an aged peer review
+// (at-risk) is genuinely waiting.
+func TestNOCSessionVisible_OneLiveAgentOwnsAtRiskIsWaiting(t *testing.T) {
+	sess := state.Session{
+		Name: "issue-96",
+		Agents: []state.Agent{
+			{Handle: "cto", Liveness: state.LivenessAlive, Attention: state.Attention{State: state.TriageAtRisk}},
+		},
+		Attention: state.Attention{State: state.TriageAtRisk},
+		Rollup:    state.TriageRollup{AtRisk: 1},
+	}
+	if got := visibleState(sessionRollupState(sess)); got != nocWaiting {
+		t.Fatalf("one live agent owning an aged at-risk must be waiting, got %s", nocStateText(got))
 	}
 }
 
@@ -323,32 +368,299 @@ func TestNOCRunningSessionPrimaryStateIgnoresBlockedHistory(t *testing.T) {
 	}
 }
 
+// A needs-you parent row names who the operator is needed by (the agents carrying
+// needs-you attention), across a session and a project scope.
+func TestNeedsYouParentRowOwner(t *testing.T) {
+	sess := state.Session{
+		Name: "main",
+		Agents: []state.Agent{
+			{Handle: "cpo", Attention: state.Attention{State: state.TriageNeedsYou}},
+			{Handle: "cto", Attention: state.Attention{State: state.TriageBlocked}},
+			{Handle: "qa", Attention: state.Attention{State: state.TriageBlocked}},
+		},
+	}
+	sNode := nocNode{kind: nodeSession, session: sess}
+	if owners := needsYouOwners(sNode); len(owners) != 1 || owners[0] != "cpo" {
+		t.Fatalf("session needs-you owners = %v, want [cpo]", owners)
+	}
+	pNode := nocNode{kind: nodeProject, project: noc.ProjectSnapshot{Snap: state.Snapshot{Sessions: []state.Session{sess}}}}
+	if owners := needsYouOwners(pNode); len(owners) != 1 || owners[0] != "cpo" {
+		t.Fatalf("project needs-you owners = %v, want [cpo]", owners)
+	}
+}
+
+// S5 follow-up: a structural operator gate (fullstack->user) keeps the parent
+// narrative OWNER-LED even when the owner agent is non-operational (here
+// dead-mailbox-live). The thread's NeedsYouOwner is the source of truth, so the
+// session/project reads "fullstack needs you", not generic "team needs you". The
+// agent row itself stays liveness-true (stopped), not pretended-running.
+func TestNeedsYouParentRowOwner_StoppedOwnerFromThread(t *testing.T) {
+	sess := state.Session{
+		Name: "amq-noc-0-1-0",
+		Agents: []state.Agent{
+			{Handle: "cto", Liveness: state.LivenessAlive, Attention: state.Attention{State: state.TriageClear}},
+			{Handle: "fullstack", Liveness: state.LivenessDeadMailboxLive, Attention: state.Attention{State: state.TriageClear}},
+		},
+		Coordination: state.Coordination{Threads: []state.ThreadSummary{
+			{ID: "gate/manual-rc", Triage: state.TriageNeedsYou, AttnReason: state.AttnApprove,
+				NeedsYouOwner: "fullstack", Participants: []string{"fullstack", "user"}},
+		}},
+	}
+	sNode := nocNode{kind: nodeSession, session: sess}
+	if owners := needsYouOwners(sNode); len(owners) != 1 || owners[0] != "fullstack" {
+		t.Fatalf("session needs-you owners = %v, want [fullstack] (owner-led even when stopped)", owners)
+	}
+	pNode := nocNode{kind: nodeProject, project: noc.ProjectSnapshot{Snap: state.Snapshot{Sessions: []state.Session{sess}}}}
+	if owners := needsYouOwners(pNode); len(owners) != 1 || owners[0] != "fullstack" {
+		t.Fatalf("project needs-you owners = %v, want [fullstack]", owners)
+	}
+
+	m := NOCModel{th: newNOCTheme(ColorNone)}
+	narrative := m.needsYouNarrative(sNode)
+	if !strings.Contains(narrative, "fullstack needs you") {
+		t.Fatalf("narrative = %q, want 'fullstack needs you'", narrative)
+	}
+	if strings.Contains(narrative, "team needs you") {
+		t.Fatalf("narrative must not fall back to 'team needs you' when the owner is known: %q", narrative)
+	}
+
+	// Agent row stays liveness-true: a dead-mailbox-live owner renders stopped.
+	if got := agentNodeState(sess, sess.Agents[1]); got != nocStopped {
+		t.Fatalf("fullstack agent node state = %s, want stopped (liveness-true, not pretended-running)", nocStateText(got))
+	}
+}
+
+func TestNOCOnce_NeedsYouProjectDigestDoesNotLeakRawWaiting(t *testing.T) {
+	sess := state.Session{
+		Name: "amq-noc-0-1-0",
+		Agents: []state.Agent{
+			{Handle: "cto", Liveness: state.LivenessDeadMailboxLive},
+			{Handle: "fullstack", Liveness: state.LivenessDeadMailboxLive},
+		},
+		Attention:        state.Attention{State: state.TriageNeedsYou, Reason: state.AttnApprove},
+		UnownedAttention: state.Attention{State: state.TriageAtRisk},
+		Rollup:           state.TriageRollup{NeedsYou: 1, Blocked: 1, AtRisk: 1},
+		Coordination: state.Coordination{Threads: []state.ThreadSummary{
+			{
+				ID: "gate/manual-rc", Subject: "APPROVAL: manual RC", Triage: state.TriageNeedsYou,
+				AttnReason: state.AttnApprove, NeedsYouOwner: "fullstack",
+				Participants: []string{"fullstack", "user"}, LastEventAt: nocTestNow,
+			},
+			{ID: "p2p/cto__fullstack", Subject: "review", Triage: state.TriageBlocked, Participants: []string{"cto", "fullstack"}},
+			{ID: "decision/status-model", Subject: "old review", Triage: state.TriageAtRisk, Participants: []string{"cto", "fullstack"}},
+		}},
+	}
+	m := newNOCModel(NOCRebuildConfig{})
+	m.colorMode = ColorNone
+	m.th = newNOCTheme(ColorNone)
+	m.ready = true
+	m.ms = noc.MultiSnapshot{
+		ObservedAt: nocTestNow,
+		Projects: []noc.ProjectSnapshot{{
+			Project:        "amq-noc",
+			Dir:            "/repo/amq-noc",
+			TeamConfigured: true,
+			DefaultTeam:    true,
+			SessionStore:   true,
+			Snap: state.Snapshot{
+				Rollup:   state.TriageRollup{NeedsYou: 1, Blocked: 1, AtRisk: 1},
+				Sessions: []state.Session{sess},
+			},
+		}},
+	}
+
+	out := m.staticView()
+	if !strings.Contains(out, "0 waiting") {
+		t.Fatalf("header should count visible operational waiting only:\n%s", out)
+	}
+	if !strings.Contains(out, "fullstack needs you") {
+		t.Fatalf("digest project row should stay owner-led:\n%s", out)
+	}
+	for _, noisy := range []string{"2 waiting", "amq-noc stopped"} {
+		if strings.Contains(out, noisy) {
+			t.Fatalf("digest leaked raw/stale status %q:\n%s", noisy, out)
+		}
+	}
+}
+
+// The full tree's needs-you parent rows lead with the owner narrative ("qa needs
+// you"), not a leading rollup count.
+func TestNOCTree_NeedsYouParentRowIsOwnerLed(t *testing.T) {
+	root, probe := seedNOCFixture(t)
+	rebuild := NOCRebuildConfig{Roots: []string{root}, Depth: noc.DefaultDepth, Probe: probe}
+	ms := noc.Collect(rebuild.Roots, rebuild.Depth, rebuild.Probe, rebuild.Thresholds)
+	m := newNOCModel(rebuild)
+	m.colorMode = ColorNone
+	m.th = newNOCTheme(ColorNone)
+	m.ms = ms
+	m.ready = true
+	m.fullTree = true
+	m.refreshGuidance()
+	full := m.staticView()
+	if !strings.Contains(full, "qa needs you") {
+		t.Fatalf("needs-you parent row should be owner-led (qa needs you):\n%s", full)
+	}
+}
+
+func TestNOCTree_ProjectParentTallyCountsChildTeams(t *testing.T) {
+	sessions := []state.Session{
+		{
+			Name:      "waiting",
+			Attention: state.Attention{State: state.TriageBlocked},
+			Agents:    []state.Agent{{Handle: "dev", Liveness: state.LivenessAlive}},
+			Rollup:    state.TriageRollup{Blocked: 9},
+		},
+		{
+			Name:   "old-a",
+			Agents: []state.Agent{{Handle: "cto", Liveness: state.LivenessDead}},
+			Rollup: state.TriageRollup{BlockedStale: 16},
+		},
+		{
+			Name:   "old-b",
+			Agents: []state.Agent{{Handle: "qa", Liveness: state.LivenessDead}},
+			Rollup: state.TriageRollup{AtRiskStale: 5, GatedStale: 3},
+		},
+	}
+	ms := noc.MultiSnapshot{Roots: []string{"/repo"}, Projects: []noc.ProjectSnapshot{{
+		Project: "taboola-pm-os",
+		Dir:     "/repo/taboola-pm-os",
+		Snap: state.Snapshot{
+			Sessions: sessions,
+			Rollup:   state.TriageRollup{Blocked: 9, BlockedStale: 16, AtRiskStale: 5, GatedStale: 3},
+		},
+	}}}
+	m := newNOCModel(NOCRebuildConfig{Roots: []string{"/repo"}})
+	m.colorMode = ColorNone
+	m.th = newNOCTheme(ColorNone)
+	m.ms = ms
+	m.ready = true
+	out := m.treeView()
+	if !strings.Contains(out, "taboola-pm-os (1 waiting, 2 stale)") {
+		t.Fatalf("project row should count child teams/sessions by visible status:\n%s", out)
+	}
+	for _, noisy := range []string{"9 waiting", "16 blocked stale", "5 at-risk stale", "3 gated stale"} {
+		if strings.Contains(out, noisy) {
+			t.Fatalf("project row should not expose thread/evidence rollup %q:\n%s", noisy, out)
+		}
+	}
+}
+
+// The NEEDS YOU block is owner-led: the agent that needs the operator (from the
+// first-class NeedsYouOwner) is the subject, and the thread reads as the
+// evidence ("why:"), not as the primary status item.
+func TestNOCOnce_NeedsYouRowOwnerLedThreadAsEvidence(t *testing.T) {
+	root, probe := seedNOCFixture(t)
+	out := renderNOCOnce(t, root, probe, ColorAscii)
+	if !strings.Contains(out, "main - qa") {
+		t.Fatalf("needs-you row should lead with the owning agent (main - qa):\n%s", out)
+	}
+	if !strings.Contains(out, "why: ship the migration?") {
+		t.Fatalf("needs-you row should frame the thread as evidence (why: ...):\n%s", out)
+	}
+	if !strings.Contains(out, "qa asks") {
+		t.Fatalf("needs-you phrase should name the owning agent from the model (qa asks):\n%s", out)
+	}
+}
+
+// squadKindTag is the deterministic surface marker from structural snapshot
+// fields: configured team metadata => squad, plain session store => amq.
+func TestSquadKindTag(t *testing.T) {
+	if got := squadKindTag(noc.ProjectSnapshot{TeamConfigured: true, SessionStore: true}); got != "squad" {
+		t.Fatalf("configured team = %q, want squad", got)
+	}
+	if got := squadKindTag(noc.ProjectSnapshot{SessionStore: true}); got != "amq" {
+		t.Fatalf("plain session store = %q, want amq", got)
+	}
+	if got := squadKindTag(noc.ProjectSnapshot{Candidate: true}); got != "" {
+		t.Fatalf("candidate = %q, want empty", got)
+	}
+}
+
+// kickRecoverLines delegates to amq-squad for squad-managed projects and to amq
+// for plain AMQ surfaces, scoped to the project/session.
+func TestKickRecoverLines(t *testing.T) {
+	squad := kickRecoverLines(noc.ProjectSnapshot{Dir: "/repo/app", TeamConfigured: true, SessionStore: true}, "issue-96", "")
+	joined := strings.Join(squad, "\n")
+	if !strings.Contains(joined, "amq-squad status --project /repo/app --session issue-96") ||
+		!strings.Contains(joined, "amq-squad resume --project /repo/app --session issue-96") {
+		t.Fatalf("squad session commands wrong:\n%s", joined)
+	}
+	plain := kickRecoverLines(noc.ProjectSnapshot{Dir: "/repo/app", SessionStore: true}, "", "/repo/app/.agent-mail")
+	pj := strings.Join(plain, "\n")
+	for _, want := range []string{
+		"amq who --root /repo/app/.agent-mail",
+		"amq list --root /repo/app/.agent-mail",
+		"amq read --root /repo/app/.agent-mail",
+		"amq thread --root /repo/app/.agent-mail",
+		"amq send --root /repo/app/.agent-mail",
+	} {
+		if !strings.Contains(pj, want) {
+			t.Fatalf("plain amq commands missing %q:\n%s", want, pj)
+		}
+	}
+	if strings.Contains(pj, "amq-squad") {
+		t.Fatalf("plain amq must not suggest amq-squad:\n%s", pj)
+	}
+}
+
+// needsYouCTA pairs deny with its peer choice (approve for approval/decision,
+// reply for a plain ask), never as a cryptic global key.
+func TestNeedsYouCTA(t *testing.T) {
+	m := NOCModel{colorMode: ColorNone, th: newNOCTheme(ColorNone)}
+	if got := m.needsYouCTA(state.AttnApprove); !strings.Contains(got, "approve (a)") || !strings.Contains(got, "deny (x)") {
+		t.Fatalf("approve CTA = %q, want approve+deny", got)
+	}
+	if got := m.needsYouCTA(state.AttnGeneric); !strings.Contains(got, "reply (r)") || !strings.Contains(got, "deny (x)") {
+		t.Fatalf("generic CTA = %q, want reply+deny", got)
+	}
+}
+
+// The session detail pane shows, for a needs-you thread, the ask context inline,
+// the approve/deny CTA, and the kick/recover commands for a squad-managed project.
+func TestNOCSessionDetail_NeedsYouContextCTAAndCommands(t *testing.T) {
+	m := newNOCModel(NOCRebuildConfig{})
+	m.colorMode = ColorNone
+	m.th = newNOCTheme(ColorNone)
+	m.width = 120
+	sess := state.Session{
+		Name: "issue-96",
+		Root: "/repo/app/.agent-mail/issue-96",
+		Agents: []state.Agent{
+			{Handle: "cpo", Liveness: state.LivenessAlive, Attention: state.Attention{State: state.TriageNeedsYou, Reason: state.AttnApprove}},
+		},
+		Coordination: state.Coordination{Threads: []state.ThreadSummary{{
+			ID: "ask/ship", Subject: "APPROVAL: ship?", Participants: []string{"cpo", "user"},
+			Triage: state.TriageNeedsYou, AttnReason: state.AttnApprove, NeedsYouOwner: "cpo",
+			LatestBody:  "Please approve the prod deploy before the freeze.",
+			LastEventAt: nocTestNow.Add(-5 * time.Minute), Freshness: state.Freshness{Age: 5 * time.Minute},
+		}}},
+	}
+	out := m.sessionDetail(nocNode{
+		kind: nodeSession, label: "issue-96",
+		project: noc.ProjectSnapshot{Project: "app", Dir: "/repo/app", TeamConfigured: true, DefaultTeam: true, SessionStore: true},
+		session: sess,
+	})
+	if !strings.Contains(out, "cpo paused") {
+		t.Fatalf("session detail missing inline needs-you context:\n%s", out)
+	}
+	if !strings.Contains(out, "Please approve the prod deploy before the freeze.") {
+		t.Fatalf("session detail must show the full ask body inline:\n%s", out)
+	}
+	if !strings.Contains(out, "approve (a)") || !strings.Contains(out, "deny (x)") {
+		t.Fatalf("session detail missing approve/deny CTA:\n%s", out)
+	}
+	if !strings.Contains(out, "amq-squad resume --project /repo/app") {
+		t.Fatalf("session detail missing squad kick/recover commands:\n%s", out)
+	}
+}
+
 func TestNOCAgentNodeStateReflectsCurrentAttention(t *testing.T) {
 	sess := state.Session{
 		Name: "main",
 		Agents: []state.Agent{
-			{Handle: "cto", Liveness: state.LivenessAlive},
-			{Handle: "qa", Liveness: state.LivenessAlive},
+			{Handle: "cto", Liveness: state.LivenessAlive, Attention: state.Attention{State: state.TriageBlocked}},
+			{Handle: "qa", Liveness: state.LivenessAlive, Attention: state.Attention{State: state.TriageNeedsYou, Reason: state.AttnGeneric}},
 		},
-		Coordination: state.Coordination{Threads: []state.ThreadSummary{
-			{
-				ID:           "release/hold",
-				Participants: []string{"qa", "user"},
-				Subject:      "release held",
-				Triage:       state.TriageNeedsYou,
-				AttnReason:   state.AttnGeneric,
-				LastEventAt:  nocTestNow.Add(-3 * time.Hour),
-				Freshness:    state.Freshness{Age: 3 * time.Hour},
-			},
-			{
-				ID:           "cto/blocked",
-				Participants: []string{"cto", "qa"},
-				Subject:      "blocked on release",
-				Triage:       state.TriageBlocked,
-				LastEventAt:  nocTestNow.Add(-3 * time.Hour),
-				Freshness:    state.Freshness{Age: 3 * time.Hour},
-			},
-		}},
 	}
 	if got := agentNodeState(sess, sess.Agents[0]); got != nocBlocked {
 		t.Fatalf("cto state = %s, want blocked", nocStateText(got))
@@ -405,20 +717,13 @@ func TestNOCHelpIncludesSymbolLegend(t *testing.T) {
 	m.width = 120
 	out := m.helpView()
 	for _, want := range []string{
-		"PRIMARY STATE MODEL",
+		"PRIMARY STATUS MODEL",
 		"team is alive and working",
 		"operator action now",
-		"SYMBOL LEGEND",
 		"needs-you",
-		"blocked",
-		"gated",
-		"at-risk",
 		"running",
-		"stopped",
-		"stale-blocked",
 		"waiting",
-		"APPROVE",
-		"GOAL-REACHED",
+		"stale",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("help missing legend entry %q:\n%s", want, out)

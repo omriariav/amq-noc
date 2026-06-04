@@ -50,6 +50,7 @@ func TestCollect_MergesRollsUpAndSortsAttentionFirst(t *testing.T) {
 
 	// --- Project "needsyou": a question addressed to the operator (tier 0). ---
 	needs := filepath.Join(root, "needsyou")
+	writeOperatorTeamProfile(t, needs, 3, true, "user")
 	qDir := writeAgentLaunch(t, needs, "main", "claude", launch.Record{
 		Binary: "claude", AgentPID: 5001, Root: filepath.Join(needs, AgentMailDirName, "main"),
 	})
@@ -130,13 +131,7 @@ func TestCollect_NeverFatalOnEmptyRoot(t *testing.T) {
 func TestCollect_IncludesConfiguredTeamWithoutSessions(t *testing.T) {
 	root := t.TempDir()
 	project := filepath.Join(root, "configured")
-	squadDir := filepath.Join(project, SquadDirName)
-	if err := os.MkdirAll(squadDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(squadDir, "team.json"), []byte(`{"schema":2}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeOperatorTeamProfile(t, project, 3, true, "user")
 
 	ms := Collect([]string{root}, DefaultDepth, deterministicProbe(time.Unix(0, 0)), state.Thresholds{})
 	if len(ms.Projects) != 1 {
@@ -148,6 +143,9 @@ func TestCollect_IncludesConfiguredTeamWithoutSessions(t *testing.T) {
 	}
 	if len(ps.Profiles) != 1 || ps.Profiles[0] != "default" {
 		t.Fatalf("configured team profiles mismatch: %+v", ps.Profiles)
+	}
+	if !ps.Operator.Enabled || ps.Operator.Handle != "user" || ps.Operator.Runnable || !ps.Capabilities.OperatorGates {
+		t.Fatalf("operator metadata mismatch: op=%+v caps=%+v", ps.Operator, ps.Capabilities)
 	}
 	if len(ps.Snap.Sessions) != 0 || ps.Warning != "" {
 		t.Fatalf("configured team without sessions should be quiet, got sessions=%d warning=%q", len(ps.Snap.Sessions), ps.Warning)
@@ -244,6 +242,125 @@ func TestCollect_ZeroProbeFillsClock(t *testing.T) {
 	}
 }
 
+func TestCollect_LegacyTeamProfileKeepsDefaultOperatorGate(t *testing.T) {
+	root := t.TempDir()
+	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	project := filepath.Join(root, "legacy")
+	writeOperatorTeamProfile(t, project, 2, false, "")
+	agentDir := writeAgentLaunch(t, project, "main", "cto", launch.Record{
+		Binary: "codex", AgentPID: 1001, Root: filepath.Join(project, AgentMailDirName, "main"),
+	})
+	writeQuestionToOperator(t, agentDir, "cto", now)
+
+	ms := Collect([]string{root}, DefaultDepth, state.Probe{
+		PIDAlive:     func(pid int) bool { return pid == 1001 },
+		ProcessMatch: func(pid int, predicate func(args string) bool) bool { return predicate("codex") },
+		Now:          func() time.Time { return now },
+	}, state.Thresholds{})
+
+	if len(ms.Projects) != 1 {
+		t.Fatalf("projects = %d, want 1", len(ms.Projects))
+	}
+	ps := ms.Projects[0]
+	if !ps.Capabilities.OperatorGates || !ps.Operator.Enabled || ps.Operator.Handle != "user" {
+		t.Fatalf("schema-2 amq-squad profile should preserve legacy operator gate: op=%+v caps=%+v", ps.Operator, ps.Capabilities)
+	}
+	if ps.Snap.Rollup.NeedsYou != 1 || ms.Rollup.NeedsYou != 1 {
+		t.Fatalf("legacy operator gate should surface needs-you: project=%+v global=%+v", ps.Snap.Rollup, ms.Rollup)
+	}
+}
+
+func TestCollect_LegacyRunnableUserMemberDisablesImplicitOperatorGate(t *testing.T) {
+	root := t.TempDir()
+	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	project := filepath.Join(root, "legacy-user")
+	squadDir := filepath.Join(project, SquadDirName)
+	if err := os.MkdirAll(squadDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"schema":2,"members":[{"role":"operator-like","handle":"user","binary":"codex"}]}`
+	if err := os.WriteFile(filepath.Join(squadDir, "team.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	agentDir := writeAgentLaunch(t, project, "main", "user", launch.Record{
+		Binary: "codex", AgentPID: 1001, Root: filepath.Join(project, AgentMailDirName, "main"),
+	})
+	writeQuestionToOperator(t, agentDir, "cto", now)
+
+	ms := Collect([]string{root}, DefaultDepth, state.Probe{
+		PIDAlive:     func(pid int) bool { return pid == 1001 },
+		ProcessMatch: func(pid int, predicate func(args string) bool) bool { return predicate("codex") },
+		Now:          func() time.Time { return now },
+	}, state.Thresholds{})
+
+	if len(ms.Projects) != 1 {
+		t.Fatalf("projects = %d, want 1", len(ms.Projects))
+	}
+	ps := ms.Projects[0]
+	if ps.Capabilities.OperatorGates || ps.Operator.Enabled {
+		t.Fatalf("legacy runnable user member must disable implicit operator gate: op=%+v caps=%+v", ps.Operator, ps.Capabilities)
+	}
+	if ps.Snap.Rollup.NeedsYou != 0 || ms.Rollup.NeedsYou != 0 {
+		t.Fatalf("runnable user member should not create false needs-you: project=%+v global=%+v", ps.Snap.Rollup, ms.Rollup)
+	}
+}
+
+func TestCollect_DoesNotTreatUserMailboxAsNeedsYouWhenOperatorOptedOut(t *testing.T) {
+	root := t.TempDir()
+	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	project := filepath.Join(root, "optout")
+	writeOperatorTeamProfile(t, project, 3, false, "")
+	agentDir := writeAgentLaunch(t, project, "main", "cto", launch.Record{
+		Binary: "codex", AgentPID: 1001, Root: filepath.Join(project, AgentMailDirName, "main"),
+	})
+	writeQuestionToOperator(t, agentDir, "cto", now)
+
+	ms := Collect([]string{root}, DefaultDepth, state.Probe{
+		PIDAlive:     func(pid int) bool { return pid == 1001 },
+		ProcessMatch: func(pid int, predicate func(args string) bool) bool { return predicate("codex") },
+		Now:          func() time.Time { return now },
+	}, state.Thresholds{})
+
+	if len(ms.Projects) != 1 {
+		t.Fatalf("projects = %d, want 1", len(ms.Projects))
+	}
+	ps := ms.Projects[0]
+	if ps.Capabilities.OperatorGates || ps.Operator.Enabled {
+		t.Fatalf("schema-3 opt-out must not advertise operator gates: op=%+v caps=%+v", ps.Operator, ps.Capabilities)
+	}
+	if ps.Snap.Rollup.NeedsYou != 0 || ms.Rollup.NeedsYou != 0 {
+		t.Fatalf("opt-out project should not surface needs-you: project=%+v global=%+v", ps.Snap.Rollup, ms.Rollup)
+	}
+}
+
+func TestCollect_Schema3CustomOperatorHandleNeedsYou(t *testing.T) {
+	root := t.TempDir()
+	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	project := filepath.Join(root, "custom")
+	writeOperatorTeamProfile(t, project, 3, true, "operator")
+	agentDir := writeAgentLaunch(t, project, "main", "cto", launch.Record{
+		Binary: "codex", AgentPID: 1001, Root: filepath.Join(project, AgentMailDirName, "main"),
+	})
+	writeQuestionToHandle(t, agentDir, "cto", "operator", now)
+
+	ms := Collect([]string{root}, DefaultDepth, state.Probe{
+		PIDAlive:     func(pid int) bool { return pid == 1001 },
+		ProcessMatch: func(pid int, predicate func(args string) bool) bool { return predicate("codex") },
+		Now:          func() time.Time { return now },
+	}, state.Thresholds{})
+
+	if len(ms.Projects) != 1 {
+		t.Fatalf("projects = %d, want 1", len(ms.Projects))
+	}
+	ps := ms.Projects[0]
+	if !ps.Capabilities.OperatorGates || !ps.Operator.Enabled || ps.Operator.Handle != "operator" {
+		t.Fatalf("custom operator metadata mismatch: op=%+v caps=%+v", ps.Operator, ps.Capabilities)
+	}
+	if ps.Snap.Rollup.NeedsYou != 1 || ms.Rollup.NeedsYou != 1 {
+		t.Fatalf("custom operator gate should surface needs-you: project=%+v global=%+v", ps.Snap.Rollup, ms.Rollup)
+	}
+}
+
 // writeQuestionToOperator drops a maildir message of kind=question addressed to
 // the operator ("user") into a DISCOVERED agent's inbox/new, so the
 // coordination model (which only scans discovered agents' mailboxes) sees it and
@@ -252,12 +369,17 @@ func TestCollect_ZeroProbeFillsClock(t *testing.T) {
 // needs to belong to a discovered agent so coordinateSession scans it.
 func writeQuestionToOperator(t *testing.T, agentDir, from string, created time.Time) {
 	t.Helper()
+	writeQuestionToHandle(t, agentDir, from, "user", created)
+}
+
+func writeQuestionToHandle(t *testing.T, agentDir, from, to string, created time.Time) {
+	t.Helper()
 	inbox := filepath.Join(agentDir, "inbox", "new")
 	if err := os.MkdirAll(inbox, 0o755); err != nil {
 		t.Fatalf("mkdir inbox: %v", err)
 	}
 	msg := "---json\n" +
-		`{"schema":1,"id":"q1","thread":"decision/ship","from":"` + from + `","to":["user"],` +
+		`{"schema":1,"id":"q1","thread":"decision/ship","from":"` + from + `","to":["` + to + `"],` +
 		`"kind":"question","subject":"need a decision",` +
 		`"created":"` + created.UTC().Format(time.RFC3339Nano) + `"}` + "\n" +
 		"---\n" +
@@ -265,6 +387,33 @@ func writeQuestionToOperator(t *testing.T, agentDir, from string, created time.T
 	if err := os.WriteFile(filepath.Join(inbox, "q1.md"), []byte(msg), 0o600); err != nil {
 		t.Fatalf("write msg: %v", err)
 	}
+}
+
+func writeOperatorTeamProfile(t *testing.T, projectDir string, schema int, enabled bool, handle string) {
+	t.Helper()
+	squadDir := filepath.Join(projectDir, SquadDirName)
+	if err := os.MkdirAll(squadDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"schema":` + string(rune('0'+schema))
+	if schema >= 3 {
+		body += `,"operator":{"enabled":` + boolJSON(enabled)
+		if handle != "" {
+			body += `,"handle":"` + handle + `"`
+		}
+		body += `,"runnable":false},"capabilities":{"operator_gates":` + boolJSON(enabled) + `}`
+	}
+	body += `}`
+	if err := os.WriteFile(filepath.Join(squadDir, "team.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func boolJSON(v bool) string {
+	if v {
+		return "true"
+	}
+	return "false"
 }
 
 func deterministicProbe(now time.Time) state.Probe {

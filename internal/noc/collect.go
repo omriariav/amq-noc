@@ -4,9 +4,11 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/omriariav/amq-noc/internal/state"
+	"github.com/omriariav/amq-noc/internal/team"
 )
 
 // ProjectSnapshot is one discovered amq-squad project plus its computed
@@ -20,11 +22,38 @@ type ProjectSnapshot struct {
 	TeamConfigured bool           // true when .amq-squad contains any team profile
 	DefaultTeam    bool           // true when .amq-squad/team.json exists
 	Profiles       []string       // valid team profiles, with "default" first when present
+	Operator       OperatorConfig // virtual human mailbox metadata, when supported
+	Capabilities   Capabilities   // machine-readable project capabilities
 	SessionStore   bool           // true when .agent-mail exists
 	SessionNames   []string       // existing AMQ session directories under .agent-mail
 	Candidate      bool           // true when this is an unconfigured team-home candidate
 	Snap           state.Snapshot // per-project discovery + coordination snapshot
 	Warning        string         // non-empty when collection failed for this project
+}
+
+// OperatorConfig is the NOC-facing copy of schema-3 team operator metadata. The
+// operator is a mailbox participant, never a runnable agent.
+type OperatorConfig struct {
+	Enabled  bool
+	Handle   string
+	Runnable bool
+}
+
+// Capabilities advertises behaviors JSON/API clients can rely on.
+type Capabilities struct {
+	OperatorGates bool
+}
+
+// OperatorGateHandle returns the configured human mailbox handle only when the
+// project explicitly supports structural operator gates.
+func (ps ProjectSnapshot) OperatorGateHandle() string {
+	if !ps.Capabilities.OperatorGates || !ps.Operator.Enabled {
+		return ""
+	}
+	if h := strings.TrimSpace(ps.Operator.Handle); h != "" {
+		return h
+	}
+	return state.DefaultOperatorHandle
 }
 
 // MultiSnapshot is the full NOC view across every discovered project, plus a
@@ -93,8 +122,17 @@ func Collect(roots []string, depth int, probe state.Probe, th state.Thresholds) 
 			SessionStore:   dirExists(filepath.Join(dir, AgentMailDirName)),
 			SessionNames:   listAMQSessionNames(dir),
 		}
+		ps.Operator, ps.Capabilities = readProjectOperatorMetadata(dir, ps.Profiles)
 		ps.Candidate = !ps.TeamConfigured && !ps.SessionStore
-		snap, buildErr := state.BuildWithThresholds(dir, baseRoot, probe, th)
+		projectThresholds := th
+		if handle := ps.OperatorGateHandle(); handle != "" {
+			projectThresholds.OperatorHandle = handle
+			projectThresholds.DisableOperatorGates = false
+		} else {
+			projectThresholds.OperatorHandle = ""
+			projectThresholds.DisableOperatorGates = true
+		}
+		snap, buildErr := state.BuildWithThresholds(dir, baseRoot, probe, projectThresholds)
 		if buildErr != nil {
 			ps.Warning = buildErr.Error()
 		} else {
@@ -150,6 +188,40 @@ func listTeamProfiles(projectDir string, defaultTeam bool) []string {
 	}
 	sort.Strings(named)
 	return append(out, named...)
+}
+
+func readProjectOperatorMetadata(projectDir string, profiles []string) (OperatorConfig, Capabilities) {
+	for _, profile := range profiles {
+		t, err := team.ReadProfile(projectDir, profile)
+		if err != nil {
+			continue
+		}
+		op, caps := teamOperatorMetadata(t)
+		if caps.OperatorGates {
+			return op, caps
+		}
+	}
+	return OperatorConfig{}, Capabilities{}
+}
+
+func teamOperatorMetadata(t team.Team) (OperatorConfig, Capabilities) {
+	if t.Schema >= 3 && !t.Operator.Enabled {
+		return OperatorConfig{}, Capabilities{}
+	}
+	handle := strings.TrimSpace(t.Operator.Handle)
+	if handle == "" {
+		handle = state.DefaultOperatorHandle
+	}
+	for _, member := range t.Members {
+		if strings.TrimSpace(member.Handle) == handle {
+			return OperatorConfig{}, Capabilities{}
+		}
+	}
+	return OperatorConfig{
+		Enabled:  true,
+		Handle:   handle,
+		Runnable: false,
+	}, Capabilities{OperatorGates: true}
 }
 
 func listAMQSessionNames(projectDir string) []string {
@@ -285,12 +357,14 @@ func projectRecentlyActive(snap state.Snapshot, now time.Time, staleWindow time.
 	return false
 }
 
-// hasRunningAgent reports whether any agent in the snapshot is currently
-// operational (alive, wake-live, or dead-mailbox-live).
+// hasRunningAgent reports whether any agent in the snapshot is a verified
+// foreground agent (alive or wake-live). dead-mailbox-live is NOT running: its
+// process is gone and only AMQ notifier/wake infrastructure (presence) is fresh,
+// which is a diagnostic, not a work/run state.
 func hasRunningAgent(snap state.Snapshot) bool {
 	for _, sess := range snap.Sessions {
 		for _, ag := range sess.Agents {
-			if ag.Liveness == state.LivenessAlive || ag.Liveness == state.LivenessWakeLive || ag.Liveness == state.LivenessDeadMailboxLive {
+			if ag.Liveness == state.LivenessAlive || ag.Liveness == state.LivenessWakeLive {
 				return true
 			}
 		}

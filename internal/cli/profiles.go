@@ -14,10 +14,22 @@ import (
 // the human tabwriter output and the team_profiles JSON envelope so the
 // two views can never drift.
 type profileRow struct {
-	Profile    string `json:"profile"`
-	Path       string `json:"path"`
-	Members    int    `json:"members"`
-	Workstream string `json:"workstream,omitempty"`
+	Profile      string                 `json:"profile"`
+	Path         string                 `json:"path"`
+	Members      int                    `json:"members"`
+	Workstream   string                 `json:"workstream,omitempty"`
+	Operator     profileOperatorRow     `json:"operator"`
+	Capabilities profileCapabilitiesRow `json:"capabilities"`
+}
+
+type profileOperatorRow struct {
+	Enabled  bool   `json:"enabled"`
+	Handle   string `json:"handle,omitempty"`
+	Runnable bool   `json:"runnable"`
+}
+
+type profileCapabilitiesRow struct {
+	OperatorGates bool `json:"operator_gates"`
 }
 
 // teamProfilesEnvelopeData is the kind="team_profiles" payload.
@@ -81,10 +93,12 @@ Examples:
 			fmt.Fprintf(os.Stderr, "warning: read profile %s: %v\n", team.DefaultProfile, err)
 		} else {
 			rows = append(rows, profileRow{
-				Profile:    team.DefaultProfile,
-				Path:       team.Path(projectDir),
-				Members:    len(t.Members),
-				Workstream: profileDisplayWorkstream(t),
+				Profile:      team.DefaultProfile,
+				Path:         team.Path(projectDir),
+				Members:      len(t.Members),
+				Workstream:   profileDisplayWorkstream(t),
+				Operator:     profileOperator(t),
+				Capabilities: profileCapabilities(t),
 			})
 		}
 	}
@@ -102,10 +116,12 @@ Examples:
 			continue
 		}
 		rows = append(rows, profileRow{
-			Profile:    name,
-			Path:       team.ProfilePath(projectDir, name),
-			Members:    len(t.Members),
-			Workstream: profileDisplayWorkstream(t),
+			Profile:      name,
+			Path:         team.ProfilePath(projectDir, name),
+			Members:      len(t.Members),
+			Workstream:   profileDisplayWorkstream(t),
+			Operator:     profileOperator(t),
+			Capabilities: profileCapabilities(t),
 		})
 	}
 	if *jsonOut {
@@ -125,6 +141,18 @@ Examples:
 		fmt.Fprintf(w, "%s\t%s\t%d\t%s\n", r.Profile, r.Path, r.Members, ws)
 	}
 	return w.Flush()
+}
+
+func profileOperator(t team.Team) profileOperatorRow {
+	return profileOperatorRow{
+		Enabled:  t.Operator.Enabled,
+		Handle:   t.Operator.Handle,
+		Runnable: t.Operator.Runnable,
+	}
+}
+
+func profileCapabilities(t team.Team) profileCapabilitiesRow {
+	return profileCapabilitiesRow{OperatorGates: t.Capabilities.OperatorGates}
 }
 
 func profileDisplayWorkstream(t team.Team) string {

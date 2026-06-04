@@ -26,8 +26,14 @@ import (
 
 const (
 	sessionNowLimit           = 3
-	sessionThreadPreviewLimit = 8
-	agentThreadPreviewLimit   = 5
+	sessionThreadPreviewLimit = 12
+	agentThreadPreviewLimit   = 8
+	// detailThreadTitleWidth bounds thread subjects in the detail pane. It is
+	// generous on purpose: the two-pane composer re-clamps each row to the real
+	// right-pane width, so a wide terminal shows more of the thread evidence while
+	// a narrow one stays bounded. The left tree no longer repeats subjects, so the
+	// detail pane is where the thread text belongs.
+	detailThreadTitleWidth = 72
 )
 
 // View implements tea.Model. Pointer receiver to match Update / Init: *NOCModel
@@ -298,26 +304,31 @@ func (m NOCModel) needsYouSection(projects []noc.ProjectSnapshot) string {
 	return b.String()
 }
 
-// needsYouRow renders one NEEDS YOU line:
+// needsYouRow renders one NEEDS YOU line. The SUBJECT is the owner that needs
+// the operator (the agent waiting on the human, or the team/session when the
+// evidence is unowned); the thread is the EVIDENCE that explains why:
 //
-//	⏸ APPROVE       <project>/<session>  <who> paused · <subject> · <age>
-//	✓ GOAL-REACHED  <project>/<session>  team done · review and close · <age>
+//	⏸ APPROVE       <project>/<session> · <owner>  <who> paused · why: <subject> · <age>
+//	✓ GOAL-REACHED  <project>/<session>            team done · review and close · <age>
 //
-// The reason label + glyph lead (text always present); the squad path, a short
-// human phrase, the subject, and the age follow, all dim. APPROVE is painted hot;
-// GOAL-REACHED cyan (review); generic stays in the needs-you accent.
+// The reason label + glyph lead (text always present); the squad path + owner
+// follow in the brand accent, then a dim evidence trail (phrase, the thread
+// subject prefixed "why:", and the age). APPROVE is hot; GOAL-REACHED cyan.
 func (m NOCModel) needsYouRow(it nocNeedsYouItem) string {
 	glyph, label, style := m.attnReasonChrome(it.thread.AttnReason)
 	var b strings.Builder
 	b.WriteString(m.th.paint(style, glyph+" "+padRight(label, 13)))
 
+	dot := " " + m.dot() + " "
 	loc := it.project + "/" + it.session
+	if owner := strings.TrimSpace(it.thread.NeedsYouOwner); owner != "" {
+		loc += dot + owner
+	}
 	b.WriteString(" " + m.th.paint(m.th.brand, loc))
 
-	dot := " " + m.dot() + " "
 	parts := []string{attnReasonPhrase(it.thread)}
 	if subj := strings.TrimSpace(threadTitle(it.thread)); subj != "" {
-		parts = append(parts, truncate(subj, 40))
+		parts = append(parts, "why: "+truncate(subj, 40))
 	}
 	if age := nocThreadAge(it.thread); age != "" {
 		parts = append(parts, age)
@@ -365,7 +376,10 @@ func (m NOCModel) attnReasonInline(r state.AttnReason) string {
 // "<who> paused" for approve, "team done · review and close" for goal-reached,
 // "<who> asks" for a plain question.
 func attnReasonPhrase(th state.ThreadSummary) string {
-	who := threadAsker(th)
+	who := strings.TrimSpace(th.NeedsYouOwner)
+	if who == "" {
+		who = "the team"
+	}
 	switch th.AttnReason {
 	case state.AttnApprove:
 		return who + " paused"
@@ -374,17 +388,6 @@ func attnReasonPhrase(th state.ThreadSummary) string {
 	default:
 		return who + " asks"
 	}
-}
-
-// threadAsker is the non-operator participant a needs-you thread is waiting on
-// (the agent that addressed the human), or "an agent" when none is recoverable.
-func threadAsker(th state.ThreadSummary) string {
-	for _, p := range th.Participants {
-		if p != "" && p != state.DefaultOperatorHandle {
-			return p
-		}
-	}
-	return "an agent"
 }
 
 // rollupView is the --once digest: a NEEDS YOU block (operator action required)
@@ -444,7 +447,7 @@ func (m NOCModel) rollupView() string {
 // live counts are emphasized (it heads the NEEDS ATTENTION section).
 func (m NOCModel) projectRollupLine(ps noc.ProjectSnapshot, attn bool) string {
 	var b strings.Builder
-	st := projectRollupState(ps)
+	st := visibleState(projectRollupState(ps))
 	b.WriteString(m.th.paint(m.th.nocStateStyle(st), nocStateGlyph(st, m.colorMode)+" "))
 
 	nameStyle := m.th.brand
@@ -472,9 +475,14 @@ func (m NOCModel) projectRollupLine(ps noc.ProjectSnapshot, attn bool) string {
 		return b.String()
 	}
 
+	if st == nocNeedsYou {
+		b.WriteString(" " + m.needsYouNarrative(nocNode{kind: nodeProject, project: ps}))
+		return b.String()
+	}
+
 	b.WriteString(" " + m.th.paint(m.th.dim, projectLivenessPhrase(ps)))
 
-	if tally := m.tallyText(ps.Snap.Rollup); tally != "" {
+	if tally := m.childTallyText(childTallySessions(ps.Snap.Sessions)); tally != "" {
 		b.WriteString(" " + tally)
 	}
 	return b.String()
@@ -561,6 +569,32 @@ func scopedRollup(projects []noc.ProjectSnapshot) (r state.TriageRollup, squads,
 	return r, squads, live
 }
 
+// operationalWaitingAgents counts the agents that DRIVE the visible "waiting"
+// status: an OPERATIONAL agent whose own attention is a non-human wait
+// (blocked/gated/at-risk). Orphaned/unowned evidence and stopped/dead-mailbox-live
+// sessions do not count - they are stale, retained only as detail/JSON. This is
+// why the header does NOT sum the raw thread rollup from stopped sessions.
+func operationalWaitingAgents(projects []noc.ProjectSnapshot) int {
+	n := 0
+	for _, ps := range projects {
+		if ps.Warning != "" {
+			continue
+		}
+		for _, sess := range ps.Snap.Sessions {
+			for _, ag := range sess.Agents {
+				if !agentOperational(ag) {
+					continue
+				}
+				switch ag.Attention.State {
+				case state.TriageBlocked, state.TriageGated, state.TriageAtRisk:
+					n++
+				}
+			}
+		}
+	}
+	return n
+}
+
 // headerView renders the brand rule + the rollup pulse line + a last-activity
 // summary line.
 func (m NOCModel) headerView() string {
@@ -607,11 +641,14 @@ func (m NOCModel) pulseLine() string {
 		segs = append(segs, dim(nyText))
 	}
 
-	blocked := r.Blocked
-	if r.Blocked > 0 {
-		segs = append(segs, m.th.paint(m.th.blocked, strconv.Itoa(blocked)+" blocked"))
+	// waiting: agents that are OPERATIONALLY waiting on non-human work. Counts the
+	// agents driving the visible state, not the raw thread rollup - stopped/
+	// dead-mailbox-live sessions and orphaned evidence do not inflate it.
+	waiting := operationalWaitingAgents(m.scopedProjects())
+	if waiting > 0 {
+		segs = append(segs, m.th.paint(m.th.atRisk, strconv.Itoa(waiting)+" waiting"))
 	} else {
-		segs = append(segs, dim("0 blocked"))
+		segs = append(segs, dim("0 waiting"))
 	}
 
 	stale := r.NeedsYouHistorical + r.AtRiskStale + r.BlockedStale + r.GatedStale
@@ -861,10 +898,15 @@ func (m NOCModel) renderNode(n nocNode, selected bool) string {
 		b.WriteString("  ")
 	}
 
-	// State glyph + TEXT label (text always present).
-	glyph := nocStateGlyph(n.state, m.colorMode)
-	label := nocStateText(n.state)
-	style := m.th.nocStateStyle(n.state)
+	// State glyph + TEXT label (text always present). The row shows the SIMPLIFIED
+	// visible status (running / stale / waiting / needs-you): blocked/gated/at-risk
+	// collapse to "waiting" via visibleState. Granular triage stays in the detail
+	// pane. Sorting still uses the granular n.state, so waiting subtiers order
+	// sensibly within the group.
+	vs := visibleState(n.state)
+	glyph := nocStateGlyph(vs, m.colorMode)
+	label := nocStateText(vs)
+	style := m.th.nocStateStyle(vs)
 	b.WriteString(m.th.paint(style, glyph+" "+label))
 	b.WriteString(" ")
 
@@ -879,26 +921,35 @@ func (m NOCModel) renderNode(n nocNode, selected bool) string {
 		}
 	}
 	b.WriteString(m.th.paint(nameStyle, n.label))
+	// Compact, deterministic surface marker on a project row: amq-squad-managed
+	// (configured team metadata) vs a plain AMQ session store. Quiet (dim) but
+	// visible, so the operator knows which CLI drives the team.
+	if n.kind == nodeProject {
+		if tag := squadKindTag(n.project); tag != "" {
+			b.WriteString(m.th.paint(m.th.dim, " "+tag))
+		}
+	}
 
-	// Triage tally for parents.
+	// Parent rows use team-level status, not thread evidence counts. Projects
+	// count child sessions/teams; sessions count child agents; roots count child
+	// projects. Granular thread rollups stay in the right detail pane.
 	if n.kind == nodeProject || n.kind == nodeSession || n.kind == nodeRoot {
-		tally := m.tallyText(n.rollup)
-		if tally != "" {
+		if n.state == nocNeedsYou {
+			b.WriteString(" " + m.needsYouNarrative(n))
+			// Show the informative reason (APPROVE / GOAL-REACHED) for a session;
+			// a plain ask is already conveyed by "needs you", so its chip is omitted
+			// to avoid a redundant "needs you NEEDS-YOU".
+			if n.kind == nodeSession {
+				switch n.session.Attention.Reason {
+				case state.AttnApprove, state.AttnGoalReached:
+					if rl := m.attnReasonInline(n.session.Attention.Reason); rl != "" {
+						b.WriteString(" " + rl)
+					}
+				}
+			}
+		} else if tally := m.childTallyText(n.child); tally != "" {
 			b.WriteString(" " + tally)
 		}
-	}
-
-	// Needs-you reason inline on a session node: a needs-you session shows WHY
-	// the human is needed (approve / goal-reached / a plain ask) right on the row.
-	if n.kind == nodeSession && n.rollup.NeedsYou > 0 {
-		if rl := m.attnReasonInline(n.session.Coordination.TopAttnReason()); rl != "" {
-			b.WriteString(" " + rl)
-		}
-	}
-
-	// Jump affordance for running agents.
-	if n.canJump {
-		b.WriteString(" " + m.th.paint(m.th.running, nocGlyphJump.glyph(m.colorMode)))
 	}
 
 	// Recent action / title (dim).
@@ -907,6 +958,173 @@ func (m NOCModel) renderNode(n nocNode, selected bool) string {
 	}
 
 	return b.String()
+}
+
+// needsYouNarrative renders the team-level "who needs you" phrase for a needs-you
+// parent row: "<owner> needs you" (or "<a>, <b> need you", or "<a> +N need you"
+// for many), or "team needs you" when the needs-you evidence is unowned (a
+// dead/missing asker or an operator-only thread). Painted in the needs-you accent.
+func (m NOCModel) needsYouNarrative(n nocNode) string {
+	owners := needsYouOwners(n)
+	var phrase string
+	switch len(owners) {
+	case 0:
+		phrase = "team needs you"
+	case 1:
+		phrase = owners[0] + " needs you"
+	case 2:
+		phrase = owners[0] + ", " + owners[1] + " need you"
+	default:
+		phrase = owners[0] + " +" + strconv.Itoa(len(owners)-1) + " need you"
+	}
+	return m.th.paint(m.th.needsYou, phrase)
+}
+
+// needsYouOwners returns the handles that own a node's needs-you evidence (session
+// or project scope), so a parent row can name who the team needs. The thread's
+// NeedsYouOwner is the source of truth: a structural operator gate stays owner-led
+// ("<owner> needs you") even when the owner agent is NON-OPERATIONAL (stopped /
+// dead-mailbox-live), which is exactly the live manual-RC case. Operational agents
+// carrying attached needs-you attention are also included (some needs-you nodes are
+// built straight from agent attention, with no thread carried on the node). Empty
+// means the evidence is genuinely unowned (operator-only or a dead/missing asker),
+// surfaced by the caller as the team itself. Liveness is unaffected: this changes
+// only the narrative attribution, never an agent row's displayed run-state.
+func needsYouOwners(n nocNode) []string {
+	seen := map[string]bool{}
+	var out []string
+	addOwner := func(handle string) {
+		handle = strings.TrimSpace(handle)
+		if handle == "" || seen[handle] {
+			return
+		}
+		seen[handle] = true
+		out = append(out, handle)
+	}
+	add := func(sess state.Session) {
+		for _, ag := range sess.Agents {
+			if ag.Attention.State == state.TriageNeedsYou {
+				addOwner(ag.Handle)
+			}
+		}
+		// A CURRENT needs-you thread (the same set that drives rollup.NeedsYou: not
+		// Historical) names its owner regardless of that owner's liveness.
+		for _, th := range sess.Coordination.Threads {
+			if th.Triage == state.TriageNeedsYou && !th.Historical {
+				addOwner(th.NeedsYouOwner)
+			}
+		}
+	}
+	switch n.kind {
+	case nodeSession:
+		add(n.session)
+	case nodeProject:
+		for _, sess := range n.project.Snap.Sessions {
+			add(sess)
+		}
+	}
+	return out
+}
+
+// squadKindTag returns a compact, deterministic surface marker for a project:
+// "squad" when it is amq-squad-managed (it carries configured team metadata),
+// "amq" for a plain AMQ session store with no squad config, and "" otherwise
+// (e.g. an unconfigured candidate team-home). Detection is structural - it reads
+// the noc.ProjectSnapshot discovery fields, never prose.
+func squadKindTag(ps noc.ProjectSnapshot) string {
+	switch {
+	case ps.TeamConfigured:
+		return "squad"
+	case ps.SessionStore:
+		return "amq"
+	default:
+		return ""
+	}
+}
+
+// kickRecoverLines returns deterministic, copy-pasteable commands to kick off or
+// recover work, chosen structurally by whether the project is amq-squad-managed
+// (delegate to the amq-squad CLI) or a plain AMQ surface (use the amq CLI scoped
+// to the resolved root). sessionName/amqRoot narrow to a session when known.
+// Display-only: nothing here is executed.
+func kickRecoverLines(ps noc.ProjectSnapshot, sessionName, amqRoot string) []string {
+	switch squadKindTag(ps) {
+	case "squad":
+		dir := shellToken(strings.TrimSpace(ps.Dir))
+		if strings.TrimSpace(sessionName) != "" {
+			s := shellToken(sessionName)
+			return []string{
+				"amq-squad status --project " + dir + " --session " + s,
+				"amq-squad resume --project " + dir + " --session " + s,
+			}
+		}
+		return []string{
+			"amq-squad status --project " + dir,
+			"amq-squad resume --project " + dir,
+			"amq-squad up --project " + dir,
+		}
+	case "amq":
+		root := strings.TrimSpace(amqRoot)
+		if root == "" {
+			return nil
+		}
+		rt := shellToken(root)
+		// Plain AMQ: the resolved root is known; AGENT / MESSAGE_ID / THREAD_ID are
+		// placeholders the operator fills in. Covers inspect (who/list/drain),
+		// read/thread, and send.
+		return []string{
+			"amq who --root " + rt,
+			"amq list --root " + rt + " --me AGENT",
+			"amq drain --root " + rt + " --me AGENT --include-body",
+			"amq read --root " + rt + " --me AGENT --id MESSAGE_ID",
+			"amq thread --root " + rt + " --id THREAD_ID --include-body",
+			"amq send --root " + rt + " --me AGENT --to AGENT --thread THREAD_ID",
+		}
+	}
+	return nil
+}
+
+// commandsSection renders the right-pane "commands (kick off / recover)" helper
+// for a project (sessionName == "") or a session, or "" when there is nothing
+// deterministic to show. Quiet (dim), inline - never a shortcut or palette.
+func (m NOCModel) commandsSection(ps noc.ProjectSnapshot, sessionName, amqRoot string) string {
+	lines := kickRecoverLines(ps, sessionName, amqRoot)
+	if len(lines) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(m.detailRule() + "\n")
+	b.WriteString(m.th.paint(m.th.dim, "commands (kick off / recover)") + "\n")
+	for _, l := range lines {
+		b.WriteString(m.th.paint(m.th.dim, "  "+l) + "\n")
+	}
+	return b.String()
+}
+
+// childTallyText is a compact per-parent tally over visible immediate children.
+// It deliberately uses the simplified primary states so a project row says, for
+// example, "(1 waiting, 2 stale)" rather than repeating thread-level evidence
+// like "16 blocked stale, 5 at-risk stale".
+func (m NOCModel) childTallyText(t nocChildTally) string {
+	var parts []string
+	if t.NeedsYou > 0 {
+		parts = append(parts, m.th.paint(m.th.needsYou, strconv.Itoa(t.NeedsYou)+" needs-you"))
+	}
+	if t.Waiting > 0 {
+		parts = append(parts, m.th.paint(m.th.atRisk, strconv.Itoa(t.Waiting)+" waiting"))
+	}
+	if t.Running > 0 {
+		parts = append(parts, m.th.paint(m.th.running, strconv.Itoa(t.Running)+" running"))
+	}
+	if t.Stale > 0 {
+		parts = append(parts, m.th.paint(m.th.dim, strconv.Itoa(t.Stale)+" stale"))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	open := m.th.paint(m.th.dim, "(")
+	closep := m.th.paint(m.th.dim, ")")
+	return open + strings.Join(parts, m.th.paint(m.th.dim, ", ")) + closep
 }
 
 // tallyText is a compact per-parent triage tally. LIVE classes lead, colored;
@@ -918,14 +1136,10 @@ func (m NOCModel) tallyText(r state.TriageRollup) string {
 	if r.NeedsYou > 0 {
 		live = append(live, m.th.paint(m.th.needsYou, strconv.Itoa(r.NeedsYou)+" needs-you"))
 	}
-	if r.Blocked > 0 {
-		live = append(live, m.th.paint(m.th.blocked, strconv.Itoa(r.Blocked)+" blocked"))
-	}
-	if r.Gated > 0 {
-		live = append(live, m.th.paint(m.th.review, strconv.Itoa(r.Gated)+" gated"))
-	}
-	if r.AtRisk > 0 {
-		live = append(live, m.th.paint(m.th.atRisk, strconv.Itoa(r.AtRisk)+" at-risk"))
+	// Simplified visible model: blocked + gated + at-risk collapse to one
+	// "waiting" count. The granular split stays in the detail pane / JSON.
+	if n := r.Blocked + r.Gated + r.AtRisk; n > 0 {
+		live = append(live, m.th.paint(m.th.atRisk, strconv.Itoa(n)+" waiting"))
 	}
 
 	var stale []string
@@ -1015,7 +1229,7 @@ func (m NOCModel) projectDetail(n nocNode) string {
 		}
 	}
 	for _, sess := range sessions {
-		ss := sessionRollupState(sess)
+		ss := visibleState(sessionRollupState(sess))
 		b.WriteString("  " + m.th.paint(m.th.nocStateStyle(ss), nocStateGlyph(ss, m.colorMode)+" "+nocStateText(ss)))
 		b.WriteString(" " + m.th.paint(m.th.brand, sessionLabel(sess)))
 		b.WriteString(m.th.paint(m.th.dim, fmt.Sprintf("  (%d agents)", len(sess.Agents))))
@@ -1026,9 +1240,7 @@ func (m NOCModel) projectDetail(n nocNode) string {
 	if m.showFlow {
 		b.WriteString(m.flowSection(projectCoordination(n)))
 	}
-	if m.jumpNote != "" {
-		b.WriteString(m.detailRule() + "\n" + m.th.paint(m.th.dim, m.jumpNote) + "\n")
-	}
+	b.WriteString(m.commandsSection(n.project, "", projectDetailAMQRoot(n.project)))
 	return b.String()
 }
 
@@ -1128,13 +1340,15 @@ func (m NOCModel) sessionDetail(n nocNode) string {
 			shown = shown[:sessionNowLimit]
 		}
 		for _, th := range shown {
-			b.WriteString("  " + m.compactThreadRow(th, 40) + "\n")
+			b.WriteString("  " + m.compactThreadRow(th, detailThreadTitleWidth) + "\n")
+			b.WriteString(m.needsYouContextLines(th))
 		}
 		if len(nowThreads) > len(shown) {
 			b.WriteString(m.th.paint(m.th.dim, "  +"+strconv.Itoa(len(nowThreads)-len(shown))+" more current attention") + "\n")
 		}
 	} else if th, ok := topThread(n.session); ok {
-		b.WriteString("  " + m.compactThreadRow(th, 44) + "\n")
+		b.WriteString("  " + m.compactThreadRow(th, detailThreadTitleWidth) + "\n")
+		b.WriteString(m.needsYouContextLines(th))
 	} else {
 		b.WriteString(m.th.paint(m.th.dim, "  (no current thread signal)") + "\n")
 	}
@@ -1157,7 +1371,7 @@ func (m NOCModel) sessionDetail(n nocNode) string {
 		shownThreads = shownThreads[:sessionThreadPreviewLimit]
 	}
 	for _, th := range shownThreads {
-		b.WriteString("  " + m.compactThreadRow(th, 38) + "\n")
+		b.WriteString("  " + m.compactThreadRow(th, detailThreadTitleWidth) + "\n")
 	}
 	if len(threads) > len(shownThreads) {
 		b.WriteString(m.th.paint(m.th.dim, "  +"+strconv.Itoa(len(threads)-len(shownThreads))+" older hidden") + "\n")
@@ -1165,9 +1379,9 @@ func (m NOCModel) sessionDetail(n nocNode) string {
 
 	// Agents table.
 	b.WriteString(m.detailRule() + "\n")
-	b.WriteString(m.th.paint(m.th.dim, "agents: work state, jump if live") + "\n")
+	b.WriteString(m.th.paint(m.th.dim, "agents: work state") + "\n")
 	for _, ag := range sortedAgentsForSession(n.session) {
-		st := agentNodeState(n.session, ag)
+		st := visibleState(agentNodeState(n.session, ag))
 		b.WriteString("  " + m.th.paint(m.th.nocStateStyle(st), nocStateGlyph(st, m.colorMode)+" "+nocStateText(st)))
 		b.WriteString(" " + m.th.paint(m.th.brand, agentLabel(ag)))
 		if ag.Engine != "" {
@@ -1188,7 +1402,7 @@ func (m NOCModel) sessionDetail(n nocNode) string {
 		b.WriteString(m.th.paint(m.th.dim, "recent") + "\n")
 		shown := 0
 		for _, ev := range n.session.Coordination.Timeline {
-			b.WriteString(m.th.paint(m.th.dim, "  "+truncate(ev.Summary, 44)) + "\n")
+			b.WriteString(m.th.paint(m.th.dim, "  "+truncate(ev.Summary, detailThreadTitleWidth)) + "\n")
 			shown++
 			if shown >= 5 {
 				break
@@ -1198,17 +1412,84 @@ func (m NOCModel) sessionDetail(n nocNode) string {
 			b.WriteString(m.th.paint(m.th.dim, "  (no recent events)") + "\n")
 		}
 	}
+	b.WriteString(m.commandsSection(n.project, n.session.Name, n.session.Root))
 	return b.String()
 }
 
-// agentDetail shows the selected agent's latest signal, recent threads, and a
-// jump hint.
+// needsYouContextLines renders, for a NEEDS-YOU thread, the ask context inline
+// (who is waiting on the operator and why, from the snapshot - no fetch) followed
+// by the visible CTA. For non-needs-you threads it renders nothing. This is why
+// the standalone context/read keys were removed: the context is always inline.
+func (m NOCModel) needsYouContextLines(th state.ThreadSummary) string {
+	if th.Triage != state.TriageNeedsYou || th.Historical {
+		return ""
+	}
+	var b strings.Builder
+	ctx := attnReasonPhrase(th)
+	if age := nocThreadAge(th); age != "" {
+		ctx += " " + m.dot() + " " + age
+	}
+	b.WriteString(m.th.paint(m.th.dim, "      "+ctx) + "\n")
+	// The actual ask/context inline: the latest message body, capped + indented,
+	// so the operator sees what is being asked before the CTA (no re-fetch).
+	for _, ln := range askBodyLines(th.LatestBody) {
+		b.WriteString(m.th.paint(m.th.dim, "      "+ln) + "\n")
+	}
+	b.WriteString(m.th.paint(m.th.needsYou, "      "+m.needsYouCTA(th.AttnReason)) + "\n")
+	return b.String()
+}
+
+// askBodyLines renders the needs-you ask body for the right pane: non-empty lines
+// each truncated to the detail width, capped to a few lines with an ellipsis,
+// prefixed "ask: " on the first line and aligned under it after. Empty when there
+// is no body.
+func askBodyLines(body string) []string {
+	const maxLines = 5
+	var raw []string
+	for _, ln := range strings.Split(body, "\n") {
+		if s := strings.TrimSpace(ln); s != "" {
+			raw = append(raw, s)
+		}
+	}
+	if len(raw) == 0 {
+		return nil
+	}
+	var out []string
+	for i, s := range raw {
+		if i >= maxLines {
+			out = append(out, "     …")
+			break
+		}
+		prefix := "     " // align continuation lines under the first line's text
+		if i == 0 {
+			prefix = "ask: "
+		}
+		out = append(out, prefix+truncate(s, detailThreadTitleWidth))
+	}
+	return out
+}
+
+// needsYouCTA returns the visible call-to-action for a needs-you thread: an
+// approval/decision offers approve+deny together; a plain ask offers reply+deny.
+// Deny sits next to its peer choice, never as a cryptic global key.
+func (m NOCModel) needsYouCTA(r state.AttnReason) string {
+	sep := " " + m.dot() + " "
+	switch r {
+	case state.AttnApprove, state.AttnGoalReached:
+		return "action: approve (a)" + sep + "deny (x)"
+	default:
+		return "action: reply (r)" + sep + "deny (x)"
+	}
+}
+
+// agentDetail shows the selected agent's latest signal and recent threads.
 func (m NOCModel) agentDetail(n nocNode) string {
 	var b strings.Builder
 	st := agentNodeState(n.session, n.agent)
 	processState := agentState(n.agent)
+	vs := visibleState(st)
 	b.WriteString(m.th.paint(m.th.brand, "AGENT  ") + m.th.paint(m.th.brand, agentLabel(n.agent)))
-	b.WriteString("  " + m.th.paint(m.th.nocStateStyle(st), nocStateGlyph(st, m.colorMode)+" "+nocStateText(st)) + "\n")
+	b.WriteString("  " + m.th.paint(m.th.nocStateStyle(vs), nocStateGlyph(vs, m.colorMode)+" "+nocStateText(vs)) + "\n")
 
 	meta := []string{}
 	if n.agent.Role != "" {
@@ -1226,7 +1507,7 @@ func (m NOCModel) agentDetail(n nocNode) string {
 
 	if agentOperational(n.agent) {
 		if th, ok := newestThreadForAgent(n.session, n.agent.Handle); ok {
-			parts := []string{truncate(threadTitle(th), 46)}
+			parts := []string{truncate(threadTitle(th), detailThreadTitleWidth)}
 			if age := nocThreadAge(th); age != "" {
 				parts = append(parts, age)
 			}
@@ -1247,7 +1528,7 @@ func (m NOCModel) agentDetail(n nocNode) string {
 		if !threadHasParticipant(th, n.agent.Handle) {
 			continue
 		}
-		b.WriteString("  " + m.compactThreadRow(th, 38) + "\n")
+		b.WriteString("  " + m.compactThreadRow(th, detailThreadTitleWidth) + "\n")
 		shown++
 		if shown >= agentThreadPreviewLimit {
 			break
@@ -1255,18 +1536,6 @@ func (m NOCModel) agentDetail(n nocNode) string {
 	}
 	if shown == 0 {
 		b.WriteString(m.th.paint(m.th.dim, "  (no open threads)") + "\n")
-	}
-
-	// Jump hint.
-	b.WriteString(m.detailRule() + "\n")
-	if n.canJump {
-		hint := nocGlyphJump.glyph(m.colorMode) + "  enter / J to jump to this agent's tmux window"
-		b.WriteString(m.th.paint(m.th.running, hint) + "\n")
-	} else {
-		b.WriteString(m.th.paint(m.th.dim, noJumpReason(n.agent.Liveness)) + "\n")
-	}
-	if m.jumpNote != "" {
-		b.WriteString(m.th.paint(m.th.dim, m.jumpNote) + "\n")
 	}
 	return b.String()
 }
@@ -1302,9 +1571,9 @@ func (m NOCModel) footerView() string {
 		prompt := "/filter: " + m.filter + cursor
 		return m.th.paint(m.th.rule, m.thinRule()) + "\n" + m.th.paint(m.th.atRisk, prompt)
 	}
-	keys := "↑↓/jk move · →/l/⏎ expand/drill · ← collapse · ⏎/J jump · p palette · A alerts · / filter · h hide-stale · t timeline · g refresh · esc back · ? help · q quit"
+	keys := "↑↓/jk move · →/l/⏎ expand/drill · ← collapse · / filter · h hide-stale · g refresh · esc back · ? help · q quit"
 	if m.colorMode == ColorAscii {
-		keys = "up/down move | right/l/enter expand | left collapse | enter/J jump | p palette | A alerts | / filter | h hide-stale | t timeline | g refresh | esc back | ? help | q quit"
+		keys = "up/down move | right/l/enter expand | left collapse | / filter | h hide-stale | g refresh | esc back | ? help | q quit"
 	}
 	var b strings.Builder
 	b.WriteString(m.th.paint(m.th.rule, m.thinRule()) + "\n")
@@ -1319,9 +1588,6 @@ func (m NOCModel) footerView() string {
 	// jumpNote for the read-only jump) so a confirm / cancel / failure is legible.
 	if m.actNote != "" {
 		notes = append(notes, m.th.paint(m.th.dim, m.actNote))
-	}
-	if m.jumpNote != "" {
-		notes = append(notes, m.th.paint(m.th.dim, m.jumpNote))
 	}
 	// refreshNote flashes "refreshed (just now)" after an explicit g press so the
 	// operator sees g worked; it clears on the next keypress (set only by g, never
@@ -1346,65 +1612,27 @@ func (m NOCModel) helpView() string {
 	b.WriteString(m.th.paint(m.th.brand, "amq-noc NOC help") + "\n")
 	b.WriteString(m.th.paint(m.th.rule, m.rule()) + "\n\n")
 	lines := []string{
-		"NAVIGATION",
+		"NAVIGATION (read-only; no tmux focus side effects in 0.1.0)",
 		"  ↑ / k, ↓ / j      move selection",
 		"  → / l             expand a collapsed node, or drill into it",
 		"  ←                 collapse the node, or ascend to its parent",
-		"  enter             expand/drill; on a RUNNING agent: JUMP",
-		"  J                 jump to the selected running agent's tmux window",
+		"  enter             expand/drill (navigation only)",
 		"",
 		"VIEW",
-		"  p                 command palette: find projects, actions, teams, and agents",
-		"  A                 toggle needs-you alerts (terminal bell + banner)",
-		"  /                 filter (needs-you / needs-user / gated / at-risk / blocked / stale-blocked / agent: / model: / project: / session:)",
-		"  h                 toggle hiding stopped/archived (stale) squads — focus on what is alive",
-		"  t                 toggle the timeline in the detail pane",
+		"  /                 filter (needs-you / waiting / running / stale / agent: / model: / project: / session:)",
+		"  h                 toggle hiding stopped/stale squads",
 		"  f                 toggle the inter-agent flow graph in the detail pane",
 		"  g                 refresh now",
 		"  esc               clear filter / collapse / back",
 		"  ?                 toggle this help",
 		"  q                 quit",
 		"",
-		"PRIMARY STATE MODEL",
-		"  running           team is alive and working",
+		"PRIMARY STATUS MODEL",
+		"  running           team is alive and working, nothing outstanding",
+		"  waiting           an operational agent is waiting on non-human work (peer review, block, or gate)",
 		"  needs-you         an agent is explicitly waiting for operator action now",
-		"  blocked           the team is not making progress or has a hard problem",
-		"  stale             old, stopped, historical, or lower-priority context",
-		"",
-		"SYMBOL LEGEND",
-		"  needs-you         operator action is required; approve means permission is pending",
-		"  blocked           team or thread is not making progress",
-		"  gated             paused by policy, release, QA, or authorization gate",
-		"  at-risk           reply or heartbeat is aging but not hard-blocked",
-		"  running           live agent or working team",
-		"  stopped           no live agent process is known",
-		"  stale-blocked     old blocked signal, shown lower priority",
-		"  waiting           configured or alive, with no higher attention state",
-		"  APPROVE           user approval or permission is pending",
-		"  GOAL-REACHED      review and closeout is pending",
-		"  jump              selected row can focus a running tmux pane",
+		"  stale             stopped, aged, or historical context",
 		"  Text labels are authoritative; color and glyphs are hints.",
-		"",
-		"COMMAND PALETTE (p): type to fuzzy-filter projects, actions, teams, and",
-		"agents. project/action/status opens the project board; project/action/amq-env shows AMQ env JSON; project/action/amq-who lists AMQ sessions and agents; project/action/doctor opens all-profile project health; project/action/history opens launch records; project/action/resume-plan opens a recovery plan; project/action/team-rules shows durable team rules; project/action/roles opens",
-		"the in-NOC role market; project/action/team-profiles lists configured profiles.",
-		"Creation and repair rows include project/action/new-team, project/action/new-profile, project/action/new-session, project/action/delete-team, and project/action/sync-pointers.",
-		"New-team input accepts role specs plus optional session refs like cto,qa,session=issue-96.",
-		"New-session input accepts session names alone or session seed refs like issue-97 seed-from=issue:31 and rejects existing names.",
-		"Session/action rows include status, threads, thread-context-any, brief, brief-seed, fork-plan, stop, resume, restart, presence, in-NOC thread-context, read-needs-you, reply, approve, deny, broadcast, amq-ops, amq-cleanup, archive, and remove;",
-		"agent/action rows include in-NOC thread-context, read-needs-you, reply, approve, deny, dlq, dlq-read, dlq-retry, dlq-purge, dlq-retry-all, receipts, receipts-wait, inbox, message, message-wait, drain, and agent-resume flows. up/down or ctrl+n/ctrl+p move;",
-		"enter selects. Running agents jump, team rows focus if present, and creation",
-		"actions open preview-gated T/N editors. Aliases like doctor, create team,",
-		"sync pointers, delete team, role market, team rules, team profiles, history, resume plan, fork plan, amq env, amq who, project status, session status, threads, thread context by id, brief, seed brief, presence, stop session, resume session, restart session, start session, context, read needs-you, reply, approve, deny, broadcast, dlq, read DLQ, retry DLQ, purge DLQ, retry all DLQ, receipts, wait receipts, inbox, message, wait message, drain, resume agent, archive session, remove session, amq cleanup, and amq ops also match action rows. esc closes.",
-		"",
-		"ALERTS (A / --no-bell): when a session first NEEDS YOU (its needs-you count goes",
-		"0→N) the NOC rings the terminal bell once and shows a 🔔 banner. It fires only on",
-		"the transition, never repeatedly while it stays needs-you. A mutes; --no-bell",
-		"starts muted. Read-only: the bell + banner never touch squad state.",
-		"",
-		"NAV IS READ-ONLY: the only nav side effect is the tmux jump (it moves your",
-		"view, never squad state). Control actions below are SEPARATE, deliberate,",
-		"and every one previews + confirms before it touches a squad.",
 		"",
 	}
 	lines = append(lines, controlHelpLines()...)

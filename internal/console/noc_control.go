@@ -228,7 +228,6 @@ type newTeamOp struct {
 	Roles      string
 	Binary     string
 	Session    string
-	Sync       bool
 }
 
 // teamDeleteOp is the exact team-profile removal effect a confirmed NOC action
@@ -279,17 +278,18 @@ func (op pointerSyncOp) command() string {
 // readNeedsYouOp is the exact AMQ read effect a confirmed NOC read action runs.
 // It marks the operator's top needs-you message read and returns its body.
 type readNeedsYouOp struct {
-	Root      string
-	MessageID string
-	Thread    string
-	Subject   string
+	Root           string
+	OperatorHandle string
+	MessageID      string
+	Thread         string
+	Subject        string
 }
 
 func (op readNeedsYouOp) command() string {
 	return strings.Join([]string{
 		"amq", "read",
 		"--root", shellToken(op.Root),
-		"--me", state.DefaultOperatorHandle,
+		"--me", shellToken(operatorHandleOrDefault(op.OperatorHandle)),
 		"--id", shellToken(op.MessageID),
 		"--json",
 	}, " ")
@@ -531,17 +531,18 @@ type receiptsWaitResultOverlay struct {
 // messageWaitOp is the exact AMQ send --wait-for effect a NOC action runs. It
 // sends a direct operator message to one agent and waits for a drained receipt.
 type messageWaitOp struct {
-	Root    string
-	Handle  string
-	Body    string
-	Timeout string
+	Root           string
+	OperatorHandle string
+	Handle         string
+	Body           string
+	Timeout        string
 }
 
 func (op messageWaitOp) command() string {
 	return strings.Join([]string{
 		"amq", "send",
 		"--root", shellToken(op.Root),
-		"--me", state.DefaultOperatorHandle,
+		"--me", shellToken(operatorHandleOrDefault(op.OperatorHandle)),
 		"--to", shellToken(op.Handle),
 		"--subject", shellToken("Message from operator"),
 		"--body", shellToken(op.Body),
@@ -1014,9 +1015,6 @@ func (op newTeamOp) command() string {
 	if session := strings.TrimSpace(op.Session); session != "" {
 		parts = append(parts, "--session", shellToken(session))
 	}
-	if op.Sync {
-		parts = append(parts, "--sync")
-	}
 	return strings.Join(parts, " ")
 }
 
@@ -1210,14 +1208,6 @@ func (m *NOCModel) handleControlKey(key string) (tea.Cmd, bool) {
 	switch key {
 	case "delete", "backspace":
 		return m.beginDeleteTeam(), true
-	case "c":
-		return m.beginThreadContext(), true
-	case "D":
-		return m.beginDLQAgent(), true
-	case "i":
-		return m.beginInboxAgent(), true
-	case "v":
-		return m.beginReadNeedsYou(), true
 	case "d":
 		return m.beginDrainAgent(), true
 	case "a":
@@ -1240,8 +1230,6 @@ func (m *NOCModel) handleControlKey(key string) (tea.Cmd, bool) {
 		return m.beginNewSession(), true
 	case "T":
 		return m.beginNewTeam(), true
-	case "o":
-		return m.focusTeam(), true
 	}
 	return nil, false
 }
@@ -1969,11 +1957,12 @@ func (m *NOCModel) beginReadNeedsYou() tea.Cmd {
 		m.actNote = "read applies to a needs-you thread (a paused agent / open ask) - nothing here needs you"
 		return nil
 	}
-	return m.beginReadNeedsYouFor(sess.Root, th)
+	return m.beginReadNeedsYouFor(sess.Root, th, m.selectedOperatorHandle())
 }
 
-func (m *NOCModel) beginReadNeedsYouFor(root string, th state.ThreadSummary) tea.Cmd {
+func (m *NOCModel) beginReadNeedsYouFor(root string, th state.ThreadSummary, operatorHandle string) tea.Cmd {
 	root = strings.TrimSpace(root)
+	operatorHandle = operatorHandleOrDefault(operatorHandle)
 	messageID := strings.TrimSpace(th.LatestID)
 	if root == "" {
 		m.actNote = "read: selected session has no session root"
@@ -1984,16 +1973,17 @@ func (m *NOCModel) beginReadNeedsYouFor(root string, th state.ThreadSummary) tea
 		return nil
 	}
 	op := readNeedsYouOp{
-		Root:      root,
-		MessageID: messageID,
-		Thread:    th.ID,
-		Subject:   th.Subject,
+		Root:           root,
+		OperatorHandle: operatorHandle,
+		MessageID:      messageID,
+		Thread:         th.ID,
+		Subject:        th.Subject,
 	}
 	m.pending = &pendingAction{
 		kind:     ctlRead,
 		preview:  op.command(),
 		read:     &op,
-		affected: []string{state.DefaultOperatorHandle},
+		affected: []string{operatorHandle},
 	}
 	return nil
 }
@@ -2041,19 +2031,20 @@ func (m *NOCModel) beginApproveOrDeny(kind controlKind) tea.Cmd {
 		m.actNote = strings.ToLower(kind.label()) + " applies to a needs-you thread (a paused agent / open ask) - nothing here needs you"
 		return nil
 	}
-	return m.beginApproveOrDenyFor(sess.Root, sess.Name, th, kind)
+	return m.beginApproveOrDenyFor(sess.Root, sess.Name, th, kind, m.selectedOperatorHandle())
 }
 
-func (m *NOCModel) beginApproveOrDenyFor(root, session string, th state.ThreadSummary, kind controlKind) tea.Cmd {
+func (m *NOCModel) beginApproveOrDenyFor(root, session string, th state.ThreadSummary, kind controlKind, operatorHandle string) tea.Cmd {
 	root = strings.TrimSpace(root)
 	session = strings.TrimSpace(session)
+	operatorHandle = operatorHandleOrDefault(operatorHandle)
 	if root == "" {
 		m.actNote = strings.ToLower(kind.label()) + ": selected session has no session root"
 		return nil
 	}
-	recipients := nonOperator(th.Participants)
+	recipients := nonOperatorFor(th.Participants, operatorHandle)
 	if kind == ctlApprove {
-		op := act.Approve(root, session, th)
+		op := act.ApproveAs(root, operatorHandle, th)
 		m.pending = &pendingAction{
 			kind:     ctlApprove,
 			preview:  act.Preview(op),
@@ -2067,7 +2058,7 @@ func (m *NOCModel) beginApproveOrDenyFor(root, session string, th state.ThreadSu
 		kind:  ctlDeny,
 		stage: 1, // body == reason
 		build: func(_, reason, _ string) pendingAction {
-			op := act.Deny(root, session, th, reason)
+			op := act.DenyAs(root, operatorHandle, th, reason)
 			return pendingAction{kind: ctlDeny, preview: act.Preview(op), op: op, affected: recipients}
 		},
 	}
@@ -2083,22 +2074,23 @@ func (m *NOCModel) beginReply() tea.Cmd {
 		m.actNote = "reply applies to a needs-you thread (a paused agent / open ask) - nothing here needs you"
 		return nil
 	}
-	return m.beginReplyFor(sess.Root, sess.Name, th)
+	return m.beginReplyFor(sess.Root, sess.Name, th, m.selectedOperatorHandle())
 }
 
-func (m *NOCModel) beginReplyFor(root, session string, th state.ThreadSummary) tea.Cmd {
+func (m *NOCModel) beginReplyFor(root, session string, th state.ThreadSummary, operatorHandle string) tea.Cmd {
 	root = strings.TrimSpace(root)
 	session = strings.TrimSpace(session)
+	operatorHandle = operatorHandleOrDefault(operatorHandle)
 	if root == "" {
 		m.actNote = "reply: selected session has no session root"
 		return nil
 	}
-	recipients := nonOperator(th.Participants)
+	recipients := nonOperatorFor(th.Participants, operatorHandle)
 	m.input = &inputAction{
 		kind:  ctlReply,
 		stage: 1,
 		build: func(_, body, _ string) pendingAction {
-			op := act.Reply(root, session, th, body)
+			op := act.ReplyAs(root, operatorHandle, th, body)
 			return pendingAction{kind: ctlReply, preview: act.Preview(op), op: op, affected: recipients}
 		},
 	}
@@ -2116,12 +2108,13 @@ func (m *NOCModel) beginMessage() tea.Cmd {
 		m.actNote = "message applies to an agent row - select an agent first"
 		return nil
 	}
-	return m.beginMessageFor(n.session.Root, n.agent.Handle)
+	return m.beginMessageFor(n.session.Root, n.agent.Handle, m.selectedOperatorHandle())
 }
 
-func (m *NOCModel) beginMessageFor(root, handle string) tea.Cmd {
+func (m *NOCModel) beginMessageFor(root, handle, operatorHandle string) tea.Cmd {
 	root = strings.TrimSpace(root)
 	handle = strings.TrimSpace(handle)
+	operatorHandle = operatorHandleOrDefault(operatorHandle)
 	if root == "" {
 		m.actNote = "message: selected agent has no session root"
 		return nil
@@ -2140,7 +2133,7 @@ func (m *NOCModel) beginMessageFor(root, handle string) tea.Cmd {
 			// preview the exact `amq send` via act.Preview.
 			op := act.OpMessage{
 				Root:    root,
-				Me:      state.DefaultOperatorHandle,
+				Me:      operatorHandle,
 				To:      handle,
 				Subject: "Message from operator",
 				Body:    body,
@@ -2153,8 +2146,13 @@ func (m *NOCModel) beginMessageFor(root, handle string) tea.Cmd {
 }
 
 func (m *NOCModel) beginMessageWaitFor(root, handle string) tea.Cmd {
+	return m.beginMessageWaitForOperator(root, handle, m.selectedOperatorHandle())
+}
+
+func (m *NOCModel) beginMessageWaitForOperator(root, handle, operatorHandle string) tea.Cmd {
 	root = strings.TrimSpace(root)
 	handle = strings.TrimSpace(handle)
+	operatorHandle = operatorHandleOrDefault(operatorHandle)
 	if root == "" {
 		m.actNote = "message wait: selected agent has no session root"
 		return nil
@@ -2169,7 +2167,7 @@ func (m *NOCModel) beginMessageWaitFor(root, handle string) tea.Cmd {
 		hint:            "timeout, for example 60s or 5m",
 		validateSubject: validateNOCMessageWaitTimeout,
 		build: func(timeout, body, _ string) pendingAction {
-			op := messageWaitOp{Root: root, Handle: handle, Body: strings.TrimSpace(body), Timeout: strings.TrimSpace(timeout)}
+			op := messageWaitOp{Root: root, OperatorHandle: operatorHandle, Handle: handle, Body: strings.TrimSpace(body), Timeout: strings.TrimSpace(timeout)}
 			return pendingAction{kind: ctlMessageWait, preview: op.command(), msgWait: &op, affected: []string{handle}}
 		},
 	}
@@ -2188,17 +2186,18 @@ func (m *NOCModel) beginBroadcast() tea.Cmd {
 		m.actNote = squadSelectionNote(note, "broadcast applies to a session or project (a squad); select one first")
 		return nil
 	}
-	return m.beginBroadcastFor(root, session, handles)
+	return m.beginBroadcastFor(root, session, handles, m.selectedOperatorHandle())
 }
 
-func (m *NOCModel) beginBroadcastFor(root, session string, handles []string) tea.Cmd {
+func (m *NOCModel) beginBroadcastFor(root, session string, handles []string, operatorHandle string) tea.Cmd {
 	root = strings.TrimSpace(root)
 	session = strings.TrimSpace(session)
+	operatorHandle = operatorHandleOrDefault(operatorHandle)
 	if root == "" {
 		m.actNote = "broadcast: selected session has no session root"
 		return nil
 	}
-	recipients := nonOperator(handles)
+	recipients := nonOperatorFor(handles, operatorHandle)
 	if len(recipients) == 0 {
 		m.actNote = "broadcast: no agents in this squad to address"
 		return nil
@@ -2207,7 +2206,7 @@ func (m *NOCModel) beginBroadcastFor(root, session string, handles []string) tea
 		kind:  ctlBroadcast,
 		stage: 0, // subject first, then body
 		build: func(subject, body, _ string) pendingAction {
-			op := act.Broadcast(root, session, handles, subject, body)
+			op := act.BroadcastAs(root, operatorHandle, handles, subject, body)
 			return pendingAction{kind: ctlBroadcast, preview: act.Preview(op), op: op, affected: recipients}
 		},
 	}
@@ -2503,7 +2502,7 @@ func (m *NOCModel) beginNewTeamForProject(project noc.ProjectSnapshot) tea.Cmd {
 		validateSubject: validateSubject,
 		build: func(profile, specText, _ string) pendingAction {
 			spec, _ := parseNOCTeamSpec(specText)
-			op := newTeamOp{ProjectDir: projectDir, Profile: profileForOp(profile), Roles: spec.Roles, Binary: spec.Binary, Session: spec.Session, Sync: true}
+			op := newTeamOp{ProjectDir: projectDir, Profile: profileForOp(profile), Roles: spec.Roles, Binary: spec.Binary, Session: spec.Session}
 			return pendingAction{kind: ctlNewTeam, preview: op.command(), team: &op, affected: []string{projectDir}}
 		},
 	}
@@ -3452,6 +3451,28 @@ func (m *NOCModel) selectedProjectSnapshot() (noc.ProjectSnapshot, bool) {
 	return n.project, true
 }
 
+func (m *NOCModel) selectedOperatorHandle() string {
+	n, ok := m.selectedNode()
+	if !ok {
+		return state.DefaultOperatorHandle
+	}
+	return operatorHandleForProject(n.project)
+}
+
+func operatorHandleForProject(project noc.ProjectSnapshot) string {
+	if handle := project.OperatorGateHandle(); handle != "" {
+		return handle
+	}
+	return state.DefaultOperatorHandle
+}
+
+func operatorHandleOrDefault(handle string) string {
+	if h := strings.TrimSpace(handle); h != "" {
+		return h
+	}
+	return state.DefaultOperatorHandle
+}
+
 // agentHandles collects the (non-empty) handles of a session's agents.
 func agentHandles(agents []state.Agent) []string {
 	out := make([]string, 0, len(agents))
@@ -3466,10 +3487,15 @@ func agentHandles(agents []state.Agent) []string {
 // nonOperator drops the operator handle from a participant/handle list so a
 // preview never shows the operator addressing itself. Order is preserved.
 func nonOperator(in []string) []string {
+	return nonOperatorFor(in, state.DefaultOperatorHandle)
+}
+
+func nonOperatorFor(in []string, operatorHandle string) []string {
+	operatorHandle = operatorHandleOrDefault(operatorHandle)
 	out := make([]string, 0, len(in))
 	for _, h := range in {
 		h = strings.TrimSpace(h)
-		if h == "" || h == state.DefaultOperatorHandle {
+		if h == "" || h == operatorHandle {
 			continue
 		}
 		out = append(out, h)
@@ -4581,35 +4607,28 @@ func (m NOCModel) inputOverlayView() string {
 // controlFooterKeys is the additive control-key legend appended to the footer.
 func controlFooterKeys(ascii bool) string {
 	if ascii {
-		return "c context | D dlq | i inbox | v read | d drain | a approve | r reply | x deny | m message | b broadcast | S stop | R resume | X restart | N new-session | T new-team | o open"
+		return "Del delete | d drain | a approve | r reply | x deny | m message | b broadcast | S stop | R resume | X restart | N new-session | T new-team"
 	}
-	return "c context · D dlq · i inbox · v read · d drain · a approve · r reply · x deny · m message · b broadcast · S stop · R resume · X restart · N new-session · T new-team · o open"
+	return "Del delete · d drain · a approve · r reply · x deny · m message · b broadcast · S stop · R resume · X restart · N new-session · T new-team"
 }
 
 // controlHelpLines is the CONTROL section of the help overlay.
 func controlHelpLines() []string {
 	return []string{
-		"CONTROL (read-only context/DLQ/inbox; mutating actions preview + confirm first)",
-		"  c                 show the selected needs-you thread context (read-only)",
-		"  D                 list the selected agent DLQ (read-only)",
-		"  i                 list the selected agent unread inbox (read-only)",
-		"  v                 read the selected needs-you message body (moves unread to cur)",
-		"  d                 drain the selected agent inbox (include bodies, moves unread to cur)",
-		"  a                 approve the selected needs-you thread (into AMQ as user)",
-		"  r                 reply to the selected needs-you thread (type a body)",
-		"  x                 deny the selected needs-you thread (type a reason)",
-		"  m                 message the selected agent (type a body)",
-		"  b                 broadcast to the selected squad (type subject + body)",
-		"  S                 stop the selected squad (lifecycle)",
-		"  R                 resume the selected squad in a detached tmux session",
-		"  X                 restart the selected squad (stop, then detached resume)",
+		"CONTROL (every mutating key previews + confirms before it touches a squad)",
+		"  Del               delete a team profile (preview + confirm)",
+		"  d                 drain the selected agent inbox with bodies (preview + confirm)",
+		"  a                 approve the selected needs-you thread",
+		"  r                 reply to the selected needs-you thread",
+		"  x                 deny the selected needs-you thread",
+		"  m                 message the selected agent",
+		"  b                 broadcast to the selected squad",
+		"  S / R / X         stop / resume / restart the selected squad",
 		"  N                 start a new workstream session (rejects existing names)",
-		"  T                 create a team profile + pointer stubs (IDs, numbers, all, role=binary, session=name)",
-		"  o                 open/focus the squad's tmux window (read-only; never spawns)",
+		"  T                 create a team profile + pointer stubs",
 		"",
-		"Every mutating key opens a CONFIRM overlay showing the EXACT command",
-		"(amq send, lifecycle, new session, new team, or AMQ cleanup). y/enter confirms; any other key",
-		"or esc cancels with ZERO effect. 'o' is read-only view movement only.",
+		"Every mutating key opens a CONFIRM overlay showing the EXACT command;",
+		"y/enter confirms; any other key or esc cancels with ZERO effect.",
 	}
 }
 

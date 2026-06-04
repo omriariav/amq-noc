@@ -133,8 +133,14 @@ type Thresholds struct {
 	// live attention. This is the window that separates "what is alive / what
 	// needs me now" from ancient noise on long-stopped squads.
 	StaleAfter time.Duration
-	// OperatorHandle is the human's mailbox handle (default "user").
+	// OperatorHandle is the human's mailbox handle (default "user"). It is
+	// ignored when DisableOperatorGates is true.
 	OperatorHandle string
+	// DisableOperatorGates turns off operator-addressed needs-you classification
+	// and the extra virtual-operator mailbox scan. Build() leaves this false for
+	// backwards compatibility; NOC collection sets it true unless team metadata
+	// advertises schema-3 operator gate support.
+	DisableOperatorGates bool
 }
 
 // Default threshold values.
@@ -160,6 +166,10 @@ func withThresholdDefaults(t Thresholds) Thresholds {
 	}
 	if t.StaleAfter <= 0 {
 		t.StaleAfter = DefaultStaleAfter
+	}
+	if t.DisableOperatorGates {
+		t.OperatorHandle = ""
+		return t
 	}
 	if strings.TrimSpace(t.OperatorHandle) == "" {
 		t.OperatorHandle = DefaultOperatorHandle
@@ -198,6 +208,10 @@ type ThreadSummary struct {
 	// goal-reached vs a plain question). It is AttnNone on every non-needs-you
 	// thread. See AttnReason.
 	AttnReason AttnReason
+	// LatestBody is the body of the thread's latest message, carried so a surface
+	// can render the actual ask/context inline without a re-fetch. It is the raw
+	// body; renderers cap/indent it for layout.
+	LatestBody string
 	// NeedsYouOwner is the handle of the agent actually waiting on the operator
 	// for a needs-you thread: the sender of the ask (operator-addressed question /
 	// review / decision, or user-wait prose) or the agent that declared a block
@@ -504,11 +518,12 @@ func messageSignalText(m Message) string {
 // "GO" / "unblocked" / "resolved" signal forward progress.
 func clearsBlock(m Message) bool {
 	if m.Kind == KindReviewResponse || m.Kind == KindAnswer {
-		body := strings.ToLower(m.Body)
+		text := messageSignalText(m)
 		// A bare "GO" decision (not "NO-GO") clears.
-		if (strings.Contains(body, "\ngo ") || strings.HasPrefix(body, "go ") ||
-			strings.Contains(body, "go for") || strings.Contains(body, "unblocked") ||
-			strings.Contains(body, "resolved")) && !declaresBlock(m) {
+		if (strings.Contains(text, "\ngo ") || strings.HasPrefix(text, "go ") ||
+			strings.Contains(text, "go for") || strings.Contains(text, "unblocked") ||
+			strings.Contains(text, "resolved") || strings.Contains(text, "approved") ||
+			strings.Contains(text, "green")) && !declaresBlock(m) {
 			return true
 		}
 	}

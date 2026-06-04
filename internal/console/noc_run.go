@@ -190,7 +190,6 @@ type NewTeamRequest struct {
 	Roles      string
 	Binary     string
 	Session    string
-	Sync       bool
 }
 
 // TeamDeleteRequest is the public, cli-facing shape of a confirmed NOC
@@ -212,10 +211,11 @@ type PointerSyncRequest struct {
 // ReadNeedsYouRequest is the public, cli-facing shape of a confirmed NOC
 // needs-you read action.
 type ReadNeedsYouRequest struct {
-	Root      string
-	MessageID string
-	Thread    string
-	Subject   string
+	Root           string
+	OperatorHandle string
+	MessageID      string
+	Thread         string
+	Subject        string
 }
 
 // ReadNeedsYouResult is the public body returned by the cli read seam.
@@ -360,10 +360,11 @@ type ReceiptsWaitResult struct {
 // MessageWaitRequest is the public, cli-facing shape of a confirmed NOC direct
 // message with send --wait-for drained.
 type MessageWaitRequest struct {
-	Root    string
-	Handle  string
-	Body    string
-	Timeout string
+	Root           string
+	OperatorHandle string
+	Handle         string
+	Body           string
+	Timeout        string
 }
 
 // MessageWaitResult is the public output returned by the cli message wait seam.
@@ -646,7 +647,6 @@ func adaptNewTeam(fn func(NewTeamRequest) error) func(newTeamOp) error {
 			Roles:      op.Roles,
 			Binary:     op.Binary,
 			Session:    op.Session,
-			Sync:       op.Sync,
 		})
 	}
 }
@@ -683,10 +683,11 @@ func adaptReadNeedsYou(fn func(ReadNeedsYouRequest) (ReadNeedsYouResult, error))
 	}
 	return func(op readNeedsYouOp) (readNeedsYouResult, error) {
 		res, err := fn(ReadNeedsYouRequest{
-			Root:      op.Root,
-			MessageID: op.MessageID,
-			Thread:    op.Thread,
-			Subject:   op.Subject,
+			Root:           op.Root,
+			OperatorHandle: op.OperatorHandle,
+			MessageID:      op.MessageID,
+			Thread:         op.Thread,
+			Subject:        op.Subject,
 		})
 		if err != nil {
 			return readNeedsYouResult{}, err
@@ -889,10 +890,11 @@ func adaptMessageWait(fn func(MessageWaitRequest) (MessageWaitResult, error)) fu
 	}
 	return func(op messageWaitOp) (messageWaitResult, error) {
 		res, err := fn(MessageWaitRequest{
-			Root:    op.Root,
-			Handle:  op.Handle,
-			Body:    op.Body,
-			Timeout: op.Timeout,
+			Root:           op.Root,
+			OperatorHandle: op.OperatorHandle,
+			Handle:         op.Handle,
+			Body:           op.Body,
+			Timeout:        op.Timeout,
 		})
 		if err != nil {
 			return messageWaitResult{}, err

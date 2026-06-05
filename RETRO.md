@@ -1,12 +1,56 @@
-# amq-noc 0.1.0 Sprint Retro
+# amq-noc Sprint Retro
 
-## Context
+## 0.2.0 Notes
+
+This sprint focused on making the TUI more trustworthy as an operator control
+surface, not adding more labels or speculative status inference.
+
+What worked:
+
+- Treating `running`, `needs-you`, `waiting`, and `stale` as the only visible
+  states kept the interface deterministic. Thread evidence still matters, but it
+  belongs in detail panes and tests, not the primary scan path.
+- The keymap manifest made help/footer/router drift testable. Once `noc --help`,
+  `?`, the footer, and handled keys shared one source, dead keys stopped leaking
+  into user-facing copy.
+- Context-sensitive footer actions were the right UX compromise. The full action
+  surface remains available in help, but the operator sees only actions that can
+  actually run on the selected row.
+- Regression tests around old at-risk evidence versus current activity captured
+  a real trust issue: `now` must mean current work unless an active human CTA
+  takes priority.
+
+What hurt:
+
+- The copied console surface still carries dormant 0.1.x code and comments for
+  deferred features such as palette, jump/open, inbox/read, timeline, and DLQ.
+  We can keep that code dormant, but release-facing help must stay generated from
+  live behavior.
+- Footer availability needed a second pass because row-kind filtering was too
+  coarse. For control clients, advertised actions must mirror handler guards,
+  including data availability.
+- The sprint included more handoffs than ideal in `internal/console/*`. Explicit
+  ownership plus AMQ drains prevented damage, but the package remains a collision
+  hotspot.
+
+Recommendations for 0.3.0:
+
+- Split dormant/deferred console features into explicit follow-up issues before
+  re-advertising them.
+- Add golden TUI snapshots for 80x24, 120x40, ASCII, and no-color modes so visual
+  regressions are caught before manual RC.
+- Continue reducing copied lifecycle code that is not part of the public
+  `amq-noc` operator surface.
+- Keep mutating actions preview-first and generated from the same data used for
+  execution, so preview/exec drift cannot return.
+
+## 0.1.0 Context
 
 This sprint shipped the first `amq-noc` release: a multi-project NOC for AMQ and
 amq-squad teams, with deterministic operator gates, simplified visible statuses,
 and release documentation.
 
-## CTO Notes
+## 0.1.0 CTO Notes
 
 - The operator mailbox model was the right pivot. Treating the human as a
   first-class non-runnable mailbox gave `needs-you` a structural signal instead
@@ -20,7 +64,7 @@ and release documentation.
 - We should continue separating NOC product behavior from copied amq-squad
   support code. The 0.1.0 copy-first path worked, but it leaves cleanup work.
 
-## Fullstack Notes
+## 0.1.0 Fullstack Notes
 
 What worked:
 
@@ -72,7 +116,7 @@ Recommendations for 0.2.0:
 - Treat unit and regression fixtures as the spec for states live data cannot
   reproduce (zero-operational `dead-mailbox-live`, most gate transitions).
 
-## Follow-ups
+## 0.1.0 Follow-ups
 
 - Harden the remaining `GO` block-clear signal. Tracked in:
   https://github.com/omriariav/amq-noc/issues/2

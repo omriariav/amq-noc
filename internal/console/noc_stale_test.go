@@ -152,17 +152,17 @@ func TestNOC_HeadlineSeparatesLiveFromStale(t *testing.T) {
 	m.ready = true
 	pulse := m.pulseLine()
 
-	if !strings.Contains(pulse, "1 running") {
-		t.Errorf("headline should lead with '1 running':\n%s", pulse)
+	if !strings.Contains(pulse, "0 running") {
+		t.Errorf("headline should show zero running squad rows because the live squad is waiting:\n%s", pulse)
 	}
 	if strings.Contains(pulse, "at-risk(live)") {
 		t.Errorf("headline should not expose at-risk(live) as primary:\n%s", pulse)
 	}
-	// S4b: the header counts OPERATIONAL agents in a wait state, not raw threads.
-	// Both live participants own the aged at-risk review, so the live squad shows
-	// "2 waiting"; the stale block (stopped squad) must not leak into waiting.
-	if !strings.Contains(pulse, "2 waiting") {
-		t.Errorf("headline should count the 2 operational agents waiting on the aged at-risk:\n%s", pulse)
+	// The header counts visible squad rows in a wait state, not raw threads or
+	// waiting agents. The live at-risk squad is one waiting squad; the stopped
+	// stale squad must not leak into waiting.
+	if !strings.Contains(pulse, "1 waiting") {
+		t.Errorf("headline should count the 1 visible waiting squad:\n%s", pulse)
 	}
 	if strings.Contains(pulse, "blocked") {
 		t.Errorf("simplified header should not show a primary 'blocked' segment:\n%s", pulse)

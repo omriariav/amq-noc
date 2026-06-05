@@ -162,3 +162,46 @@ func TestReviewNonApprovalDoesNotClearPriorBlockedThread(t *testing.T) {
 		})
 	}
 }
+
+func TestGoClearSignalRespectsNegation(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name      string
+		body      string
+		wantClear bool
+	}{
+		{name: "bare-go", body: "go", wantClear: true},
+		{name: "go-for-it", body: "go for it", wantClear: true},
+		{name: "good-to-go", body: "good to go", wantClear: true},
+		{name: "not-go", body: "not go", wantClear: false},
+		{name: "no-go", body: "no go", wantClear: false},
+		{name: "no-go-for-it", body: "no go for it", wantClear: false},
+		{name: "never-go", body: "never go", wantClear: false},
+		{name: "ongoing", body: "ongoing cleanup", wantClear: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			msgs := []Message{
+				{ID: "b1", From: "fullstack", To: []string{"cto"}, Thread: "p2p/cto__fullstack",
+					Subject: "Review: release gate", Kind: KindReviewResponse,
+					Created: now.Add(-10 * time.Minute), Owner: "cto", State: MailboxCur,
+					Body: "BLOCKER: release cannot proceed."},
+				{ID: "b2", From: "cto", To: []string{"fullstack"}, Thread: "p2p/cto__fullstack",
+					Subject: "Review response", Kind: KindAnswer,
+					Created: now.Add(-1 * time.Minute), Owner: "fullstack", State: MailboxNew,
+					Body: tc.body},
+			}
+			coord := buildCoordination(collapseInput{messages: msgs, agents: []Agent{opAgent("cto"), opAgent("fullstack")}}, now, Thresholds{})
+			th := findThread(t, coord, "p2p/cto__fullstack")
+			if tc.wantClear {
+				if th.Status != ThreadResolved || th.Triage != TriageClear {
+					t.Fatalf("go clear body %q should clear, got status=%q triage=%q", tc.body, th.Status, th.Triage)
+				}
+				return
+			}
+			if th.Status != ThreadBlocked || th.Triage != TriageBlocked {
+				t.Fatalf("go clear body %q should not clear, got status=%q triage=%q", tc.body, th.Status, th.Triage)
+			}
+		})
+	}
+}

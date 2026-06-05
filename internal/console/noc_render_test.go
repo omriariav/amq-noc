@@ -139,15 +139,19 @@ func TestNOCOnce_MultiProjectBoard(t *testing.T) {
 	root, probe := seedNOCFixture(t)
 	out := renderNOCOnce(t, root, probe, ColorNone)
 
-	// Header pulse counts: 3 squads, 2 running (alpha+beta running), 1 needs-you.
+	// Header pulse counts visible squad rows by primary state:
+	// beta needs-you, alpha running, gamma stale.
 	if !strings.Contains(out, "3 squads") {
 		t.Errorf("header pulse missing '3 squads':\n%s", out)
 	}
-	if !strings.Contains(out, "2 running") {
-		t.Errorf("header pulse missing '2 running':\n%s", out)
+	if !strings.Contains(out, "1 running") {
+		t.Errorf("header pulse missing '1 running':\n%s", out)
 	}
 	if !strings.Contains(out, "1 needs-you") {
 		t.Errorf("header pulse missing '1 needs-you':\n%s", out)
+	}
+	if !strings.Contains(out, "1 stale") {
+		t.Errorf("header pulse missing '1 stale':\n%s", out)
 	}
 
 	// Project grouping: every project label appears.
@@ -174,7 +178,7 @@ func TestNOCOnce_MultiProjectBoard(t *testing.T) {
 func TestNOCHeaderUsesSimplifiedPrimaryStatusModel(t *testing.T) {
 	root, probe := seedNOCFixture(t)
 	out := renderNOCOnce(t, root, probe, ColorNone)
-	for _, want := range []string{"3 squads", "2 running", "1 needs-you", "0 waiting"} {
+	for _, want := range []string{"3 squads", "1 running", "1 needs-you", "0 waiting", "1 stale"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("header missing %q:\n%s", want, out)
 		}
@@ -280,6 +284,52 @@ func TestNOCSessionDetailLabelsOpenThreadSortAndNeedsYouReason(t *testing.T) {
 	old := strings.Index(threadsSection, "APPROVAL: run cleanup")
 	if fresh < 0 || old < 0 || fresh > old {
 		t.Fatalf("session detail should lead with newest activity, got:\n%s", out)
+	}
+}
+
+func TestNOCSessionDetailNowUsesNewestWhenNoNeedsYou(t *testing.T) {
+	m := newNOCModel(NOCRebuildConfig{})
+	m.colorMode = ColorNone
+	m.th = newNOCTheme(ColorNone)
+	m.width = 120
+	now := nocTestNow
+	sess := state.Session{
+		Name: "main",
+		Coordination: state.Coordination{Threads: []state.ThreadSummary{
+			{
+				ID:          "decision/status-model",
+				Subject:     "Review: S1 first-class team/agent attention state (green)",
+				Triage:      state.TriageAtRisk,
+				Status:      state.ThreadAwaitingReply,
+				LastEventAt: now.Add(-24 * time.Hour),
+				Freshness:   state.Freshness{Age: 24 * time.Hour},
+			},
+			{
+				ID:          "p2p/cto__fullstack",
+				Subject:     "Retro: add sprint learnings to RETRO.md",
+				Triage:      state.TriageClear,
+				Status:      state.ThreadOpen,
+				LastEventAt: now.Add(-41 * time.Second),
+				Freshness:   state.Freshness{Age: 41 * time.Second},
+			},
+		}},
+	}
+	out := m.sessionDetail(nocNode{
+		label:   "main",
+		project: noc.ProjectSnapshot{Project: "proj"},
+		session: sess,
+	})
+	nowIdx := strings.Index(out, "now")
+	freshIdx := strings.Index(out, "Retro: add sprint learnings to RETRO.md")
+	oldIdx := strings.Index(out, "Review: S1 first-class team/agent attention state")
+	if nowIdx < 0 || freshIdx < 0 || oldIdx < 0 {
+		t.Fatalf("session detail missing expected rows:\n%s", out)
+	}
+	if freshIdx < nowIdx || oldIdx < nowIdx {
+		t.Fatalf("expected both thread rows after now:\n%s", out)
+	}
+	if oldIdx < freshIdx {
+		t.Fatalf("old at-risk evidence must not lead now over newest current thread:\n%s", out)
 	}
 }
 

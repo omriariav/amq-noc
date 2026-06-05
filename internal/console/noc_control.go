@@ -4605,31 +4605,19 @@ func (m NOCModel) inputOverlayView() string {
 }
 
 // controlFooterKeys is the additive control-key legend appended to the footer.
+// controlFooterKeys renders the control legend for the footer from the
+// single-source keymap (noc_keymap.go) so it cannot drift from the router.
 func controlFooterKeys(ascii bool) string {
 	if ascii {
-		return "Del delete | d drain | a approve | r reply | x deny | m message | b broadcast | S stop | R resume | X restart | N new-session | T new-team"
+		return nocFooterLegend(keyGroupAction, true, " | ")
 	}
-	return "Del delete · d drain · a approve · r reply · x deny · m message · b broadcast · S stop · R resume · X restart · N new-session · T new-team"
+	return nocFooterLegend(keyGroupAction, false, " · ")
 }
 
-// controlHelpLines is the CONTROL section of the help overlay.
+// controlHelpLines renders the CONTROL section of the help overlay from the same
+// single-source keymap, for the same reason.
 func controlHelpLines() []string {
-	return []string{
-		"CONTROL (every mutating key previews + confirms before it touches a squad)",
-		"  Del               delete a team profile (preview + confirm)",
-		"  d                 drain the selected agent inbox with bodies (preview + confirm)",
-		"  a                 approve the selected needs-you thread",
-		"  r                 reply to the selected needs-you thread",
-		"  x                 deny the selected needs-you thread",
-		"  m                 message the selected agent",
-		"  b                 broadcast to the selected squad",
-		"  S / R / X         stop / resume / restart the selected squad",
-		"  N                 start a new workstream session (rejects existing names)",
-		"  T                 create a team profile + pointer stubs",
-		"",
-		"Every mutating key opens a CONFIRM overlay showing the EXACT command;",
-		"y/enter confirms; any other key or esc cancels with ZERO effect.",
-	}
+	return nocControlHelpLines()
 }
 
 func validateNOCSessionName(name string) error {

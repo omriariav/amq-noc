@@ -188,11 +188,10 @@ func seedNOCFixtureCalm(t *testing.T) (string, state.Probe) {
 	return root, probe
 }
 
-// TestNOCHeadline_ReconcilesWithPerProjectBlocked proves PR13c part A: the
-// headline LIVE-blocked total equals the SUM of the per-project live-blocked
-// counts over the rendered (in-view) squads — the count leak the reviewer caught
-// (headline said "6 blocked(live)" while a project row showed "5 blocked").
-func TestNOCHeadline_ReconcilesWithPerProjectBlocked(t *testing.T) {
+// TestNOCHeadline_ReconcilesWithVisibleProjectStates proves the pulse counts the
+// SAME visible project-row states the tree renders. Raw blocked/gated/at-risk
+// thread buckets collapse into the primary "waiting" status.
+func TestNOCHeadline_ReconcilesWithVisibleProjectStates(t *testing.T) {
 	root := t.TempDir()
 
 	// Two running projects, each with a live blocked agent<->agent thread.
@@ -228,38 +227,24 @@ func TestNOCHeadline_ReconcilesWithPerProjectBlocked(t *testing.T) {
 	m.ms = ms
 	m.ready = true
 
-	// Sum the per-project LIVE blocked over the SAME in-view squads the digest
-	// renders.
 	scope := m.scopedProjects()
-	sum := 0
-	for _, ps := range scope {
-		sum += ps.Snap.Rollup.Blocked
-	}
-	if sum < 2 {
-		t.Fatalf("fixture should produce >=2 live blocked across projects, got %d", sum)
-	}
-
-	// The headline rollup (computed over the same scope) must agree.
-	headline, _, _ := scopedRollup(scope)
-	if headline.Blocked != sum {
-		t.Fatalf("headline live-blocked %d != sum(project live-blocked) %d", headline.Blocked, sum)
+	tally := childTallyProjects(scope)
+	if tally.Waiting != 2 {
+		t.Fatalf("fixture should produce 2 visible waiting projects, got tally=%+v", tally)
 	}
 
 	// And the rendered pulse line must show the reconciled count under the
 	// simplified visible model: blocked/gated/at-risk collapse into "waiting".
 	pulse := m.pulseLine()
-	waiting := headline.Blocked + headline.Gated + headline.AtRisk
-	want := fmt.Sprintf("%d waiting", waiting)
+	want := fmt.Sprintf("%d waiting", tally.Waiting)
 	if !strings.Contains(pulse, want) {
 		t.Errorf("pulse line should show reconciled %q:\n%s", want, pulse)
 	}
 }
 
 // TestNOCHeadline_ReconcilesUnderHideStale proves the reconciliation holds when
-// a stale-only squad carrying blocked threads is HIDDEN: the headline drops the
-// hidden squad's blocked from BOTH the total and the rendered rows, so they
-// still add up (no orphaned count in the headline). This is the precise shape of
-// the leak the reviewer caught.
+// a stale-only squad carrying blocked threads is HIDDEN: the pulse drops the
+// hidden squad from BOTH the total and the rendered rows.
 func TestNOCHeadline_ReconcilesUnderHideStale(t *testing.T) {
 	root := t.TempDir()
 
@@ -301,16 +286,15 @@ func TestNOCHeadline_ReconcilesUnderHideStale(t *testing.T) {
 	m.hideStale = true
 
 	scope := m.scopedProjects()
-	sum := 0
-	for _, ps := range scope {
-		sum += ps.Snap.Rollup.Blocked
+	tally := childTallyProjects(scope)
+	if tally.Waiting != 1 {
+		t.Fatalf("under hide-stale, pulse should count only the visible waiting project, got tally=%+v", tally)
 	}
-	headline, _, _ := scopedRollup(scope)
-	if headline.Blocked != sum {
-		t.Fatalf("under hide-stale, headline live-blocked %d != sum(visible project live-blocked) %d", headline.Blocked, sum)
+	pulse := m.pulseLine()
+	if !strings.Contains(pulse, "1 waiting") {
+		t.Errorf("pulse should count only the 1 visible waiting project:\n%s", pulse)
 	}
-	// The hidden stale squad's block must NOT inflate the headline.
-	if headline.Blocked != 1 {
-		t.Errorf("headline should count only the 1 visible live block, got %d (stale block leaked?)", headline.Blocked)
+	if strings.Contains(pulse, "1 stale") {
+		t.Errorf("hidden stale squad should not appear in the pulse:\n%s", pulse)
 	}
 }

@@ -1,4 +1,63 @@
-# amq-noc 0.1.0 / amq-squad 1.3.0 Split Plan
+# amq-noc Release Plan
+
+## amq-noc 0.2.0 Goal
+
+Work through the open GitHub issues and ship `amq-noc v0.2.0` as a more
+trustworthy terminal operator client for many AMQ / amq-squad teams.
+
+Open issue scope:
+
+- [#2](https://github.com/omriariav/amq-noc/issues/2): harden the remaining
+  `GO` block-clear signal against negated phrasing.
+- [#3](https://github.com/omriariav/amq-noc/issues/3): make session detail
+  `now` lead with active `needs-you`, otherwise latest/current activity.
+- [#4](https://github.com/omriariav/amq-noc/issues/4): implement the Peirce TUI
+  operator-story contract: truthful keymap/help, context-sensitive footer,
+  visible-unit header counts, quiet tree, inline CTAs, and regression coverage.
+
+0.2.0 slice status:
+
+- Phase A (CTO): state/order/header foundation. DONE.
+  - Route `go` through the same affirmative whole-word + negation guard as
+    `approved`, `green`, `resolved`, and `unblocked`.
+  - Count visible squad/project rows in the pulse line instead of raw thread
+    buckets or waiting agents.
+  - Make session detail reserve `now` priority for active `needs-you`; otherwise
+    use newest activity and keep old at-risk evidence in thread history.
+- Phase B (fullstack): keymap/help truthfulness. DONE.
+  - Make `noc --help`, `?`, footer, and the router agree.
+  - Remove or defer dead/future TUI keys such as palette, jump/open, alerts,
+    timeline, context, DLQ, inbox, and read unless they are actually wired.
+  - Add contract tests so advertised keys and handled keys cannot drift.
+- Phase C (fullstack with CTO review): context-sensitive footer and tree IA. DONE.
+  - Footer shows valid actions for the selected row and explains unavailable
+    actions.
+  - Left tree stays operational: project -> session -> agent, one line per row,
+    no thread subjects in the left tree.
+- Phase D: closeout. DONE.
+  - Update README.md, README.html, PLAN.md, RETRO.md, and release checklist.
+  - Close #2 and #3 because their regressions are implemented.
+  - Close #4 as the 0.2.0 TUI contract slice.
+  - Open #5 for deferred post-0.2 TUI follow-ups: jump/open, palette cleanup,
+    stale comments, richer recovery diagnostics, and golden snapshots.
+  - Build an RC binary and run smoke/manual TUI checks before commit/tag/release.
+
+0.2.0 verification so far:
+
+```sh
+go test ./internal/console -run 'TestContextFooter|TestKeymapContract|TestTreeIA'
+go test ./...
+go vet ./...
+go build ./...
+git diff --check
+make ci
+/tmp/amq-noc-rc version
+/tmp/amq-noc-rc noc --help
+/tmp/amq-noc-rc noc --once --tree --root /Users/omri.a/Code/amq-noc/.agent-mail --filter amq-noc-0-1-0
+/tmp/amq-noc-rc noc --json --root /Users/omri.a/Code/amq-noc/.agent-mail --filter amq-noc-0-1-0
+```
+
+## 0.1.0 Baseline
 
 ## Goal
 

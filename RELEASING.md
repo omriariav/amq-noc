@@ -7,7 +7,7 @@ toolchain: the published version is whatever `amq-noc version` reports from the
 binary built at a tag, so every release must verify that the documented install
 path round-trips the tag.
 
-## 0.1.0 Release Checklist
+## Release Checklist
 
 1. Confirm the public command surface is still narrow: `amq-noc`, `amq-noc noc`,
    and `amq-noc version [--json]`. Copied non-NOC lifecycle commands must stay
@@ -19,6 +19,7 @@ path round-trips the tag.
    gofmt -l .
    git diff --check
    go test ./...
+   go vet ./...
    make ci
    ```
 
@@ -26,15 +27,15 @@ path round-trips the tag.
 5. Tag the merge commit:
 
    ```sh
-   git tag -a v0.1.0 -m "amq-noc v0.1.0"
-   git push origin v0.1.0
+   git tag -a v0.2.0 -m "amq-noc v0.2.0"
+   git push origin v0.2.0
    ```
 
 6. Create the GitHub release for the tag.
 7. Smoke test the published install path:
 
    ```sh
-   make release-smoke VERSION=v0.1.0
+   make release-smoke VERSION=v0.2.0
    ```
 
    The smoke test installs `github.com/omriariav/amq-noc/cmd/amq-noc@VERSION`
@@ -44,7 +45,7 @@ path round-trips the tag.
 
 ## Patch Releases
 
-Follow the same checklist with the new patch tag (for example `v0.1.1`). Keep the
+Follow the same checklist with the new patch tag (for example `v0.2.1`). Keep the
 README install tag and the `make release-smoke VERSION=...` argument in lockstep
 with the tag you push.
 
@@ -54,6 +55,6 @@ with the tag you push.
   preview-first and confirm-gated, and squad lifecycle/config actions are
   delegated to the installed `amq-squad` CLI; releasing `amq-noc` does not
   release `amq-squad`.
-- A major version bump (1.x and beyond) is out of scope for the 0.1.x line. When
+- A major version bump (1.x and beyond) is out of scope for the 0.x line. When
   it happens it requires the Go `/vN` module-path migration before the tag is
   `go install`-able; document that path here at that time.

@@ -108,7 +108,7 @@ func runNOC(args []string) error {
 	tree := fs.Bool("tree", false, "with --once: render the full root->project->session->agent tree instead of the rollup digest")
 	all := fs.Bool("all", false, "alias for --tree (full expansion under --once)")
 	hideStale := fs.Bool("hide-stale", false, "hide stopped/archived (stale) squads - focus on what is alive")
-	noBell := fs.Bool("no-bell", false, "mute needs-you alerts: no terminal bell + no banner when a session first needs you (default: alerts ON; toggle with 'A' in the TUI)")
+	noBell := fs.Bool("no-bell", false, "mute needs-you alerts: no terminal bell + no banner when a session first needs you (default: alerts ON)")
 	jsonOut := fs.Bool("json", false, "emit a schema-versioned noc_snapshot envelope and exit")
 	actionsOut := fs.Bool("actions", false, "emit the flat NOC action queue and exit (human table by default; with --json emits noc_actions)")
 	actionFilter := fs.String("action", "", "with --actions: only include action names matching this comma-separated list")
@@ -139,29 +139,20 @@ A full-screen TUI ("network operations center") over EVERY discovered amq-squad
 project or candidate team-home under the given roots. Discovery includes
 .agent-mail session stores, .amq-squad team profiles, and git repos that can be
 turned into teams. It shows a header pulse (squads / running / needs-you /
-blocked / stale), a collapsible attention-first tree
-(root -> project -> session -> agent), and a detail pane for the selection. On a
-running agent, enter (or J) JUMPS your terminal to that agent's tmux window; view
-movement never stops, starts, messages, or deletes an agent.
+waiting / stale), a collapsible attention-first tree
+(root -> project -> session -> agent), and a detail pane for the selection.
+Navigation is read-only: view movement never stops, starts, messages, or deletes
+an agent.
 
 The NOC rewards LIVENESS: a running squad active just now sorts to the top, while
 a stopped squad whose only blocked threads are days old (older than --stale-after)
 is age-decayed to the bottom and rendered dim. Press h (or --hide-stale) to hide
 stale squads entirely.
 
-Press p for the COMMAND PALETTE: fuzzy-find projects, actions, teams, and agents
-across all your squads. Action rows such as project/action/status, project/action/amq-env, project/action/amq-who, project/action/history, project/action/resume-plan, project/action/team-rules, project/action/new-team,
-project/action/new-profile, project/action/new-session, and project/action/sync-pointers
-open the same preview-gated T/N editors and pointer repair flow; project/action/doctor opens all-profile project health,
-project/action/roles opens the role market before team creation, and
-project/action/team-profiles lists configured profiles before session launch.
-Session/action rows expose status, session/action/threads, thread_context_any, brief, brief seed, fork plan, stop, resume, restart, presence, in-NOC thread context, read-needs-you, reply, approve, deny, broadcast, AMQ ops, AMQ cleanup, archive, and remove, and agent/action
-rows expose in-NOC thread context, read-needs-you, reply, approve, deny, DLQ, DLQ read, DLQ retry, DLQ purge, DLQ retry-all, receipts, receipts wait, inbox, message, message wait, drain, and agent-resume flows. Aliases like
-"doctor", "create team", "sync pointers", "role market", "team rules", "team profiles", "history", "resume plan", "fork plan", "amq env", "amq who", "project status", "session status", "brief", "seed brief", "presence", "stop session", "resume session", "restart session", "start session", "context", "read needs-you", "reply", "approve", "deny", "broadcast", "dlq", "read DLQ", "retry DLQ", "purge DLQ", "retry all DLQ", "receipts", "wait receipts", "inbox", "message", "wait message", "drain", "resume agent", "archive session", "remove session", "amq cleanup", or "amq ops"
-find those rows; agent/team rows jump or focus through the gated tmux view-switch.
 When a session FIRST needs you (its needs-you count goes 0->N) the NOC rings the
-terminal bell once and shows a banner; press A to mute, or start muted with
---no-bell.
+terminal bell once and shows a banner; start muted with --no-bell. The banner
+clears on the next keypress. (The same actions are scriptable as --action names;
+see the --actions/--action/--run-action surface below.)
 
 Mutating control keys are preview-first and confirm-gated. Press T on a project, session,
 or agent row to type a team spec (role IDs, market numbers, all, with optional
@@ -170,7 +161,10 @@ a profile when needed, type a new workstream name, and launch that team in a
 detached tmux session; existing names are rejected in the editor, including
 empty AMQ session directories, so you can resume or restart instead. Press S/R/X
 to stop/resume/restart; mixed-profile sessions ask which profile to operate on.
-Press c/D/i/v/d/a/r/x/m/b for AMQ context/DLQ/inbox/read/drain/approve/reply/deny/message/broadcast.
+Agent rows can be messaged or drained. Needs-you rows can be approved, replied
+to, or denied. Squad rows can receive broadcasts or lifecycle controls. The live
+footer shows only actions currently valid for the selected row; press ? for the
+full, always-current key map.
 
 --filter accepts the same typed filter as the TUI: needs-you, needs-user, gated,
 at-risk, blocked, stale-blocked, agent:<handle>, model:<engine>,
@@ -213,9 +207,9 @@ a noc_action_plan envelope. Creation
 template values are preflighted locally for session/profile slug validity, brief
 seed reference shape, role selections, binary overrides, and duplicates across
 the selected profile's team-home and member AMQ roots before execution.
-In the live TUI, T and palette new-team accept optional initial sessions such
-as "cto,qa,session=issue-96", and N / palette new-session accept inline seeds
-such as "issue-97 seed-from=issue:31" before preview.
+In the live TUI, T (new-team) accepts optional initial sessions such as
+"cto,qa,session=issue-96", and N (new-session) accepts inline seeds such as
+"issue-97 seed-from=issue:31" before preview.
 
 Examples:
   amq-noc noc

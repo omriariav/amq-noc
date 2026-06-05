@@ -520,9 +520,7 @@ func messageSignalText(m Message) string {
 func clearsBlock(m Message) bool {
 	if m.Kind == KindReviewResponse || m.Kind == KindAnswer {
 		text := messageSignalText(m)
-		// A bare "GO" decision (not "NO-GO") clears.
-		if (strings.Contains(text, "\ngo ") || strings.HasPrefix(text, "go ") ||
-			strings.Contains(text, "go for") || affirmativeWord(text, "unblocked") ||
+		if (affirmativeWord(text, "go") || affirmativeWord(text, "unblocked") ||
 			affirmativeWord(text, "resolved") || affirmativeWord(text, "approved") ||
 			affirmativeWord(text, "green")) && !declaresBlock(m) {
 			return true

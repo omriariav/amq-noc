@@ -103,7 +103,7 @@
     </ul>
 
     <h2>Install</h2>
-    <pre><code>go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.1.0</code></pre>
+    <pre><code>go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.2.0</code></pre>
     <p>Requires Go 1.25+, <code>amq</code>, <code>amq-squad</code> v1.4.1 or newer, and <code>tmux</code>.</p>
 
     <h2>Quick Start</h2>
@@ -112,6 +112,17 @@ amq-noc --filter needs-you
 amq-noc --once --root ~/Code
 amq-noc --json --root ~/Code | jq .
 amq-noc --actions --root ~/Code --filter needs-you</code></pre>
+
+    <h2>TUI Model</h2>
+    <p>The left tree is intentionally quiet: project -&gt; session -&gt; agent, one line per row. Thread subjects and historical evidence belong in the right pane, where the selected row can explain <code>now</code>, recent threads, agents, and recovery commands.</p>
+    <p>The footer has navigation/view keys that are always available, plus context-sensitive control keys for the selected row. Mutating controls open preview/confirm flows before anything is executed.</p>
+    <ul>
+      <li><code>needs-you</code> asks show approve/reply/deny actions.</li>
+      <li>agent rows show message/drain actions.</li>
+      <li>squad rows show lifecycle and broadcast actions.</li>
+      <li>project rows show new-team or new-session actions when available.</li>
+    </ul>
+    <p>Contributor guidance for TUI keys, help, and footer tests lives in <a href="docs/tui-keymap.md">docs/tui-keymap.md</a>.</p>
 
     <h2>Operator Gates</h2>
     <p><code>needs-you</code> is deterministic. NOC does not infer human action from broad prose in agent-to-agent status messages. A team needs the human only when an agent sends a question, review request, or decision request to the configured operator handle.</p>

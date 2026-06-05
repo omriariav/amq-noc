@@ -173,16 +173,15 @@ func (m NOCModel) overlayFrame(body string) string {
 
 // liveView is the INTERACTIVE frame for the live TUI: the header pulse, then a
 // cursor-aware two-pane main area (LEFT a collapsible attention-first tree with
-// the selection bar on m.cursor, RIGHT the detail pane for the selected node —
-// which reads m.showTimeline so 't' toggles a visible timeline), then the
-// footer (keys / filter editor / hide-stale + jumpNote). It is laid out within
-// m.width/m.height (set via WindowSizeMsg under AltScreen).
+// the selection bar on m.cursor, RIGHT the detail pane for the selected node),
+// then the footer (keys / filter editor / hide-stale + notes). It is laid out
+// within m.width/m.height (set via WindowSizeMsg under AltScreen).
 //
 // Unlike staticView()'s rollup digest, EVERY interactive key lands here:
 //   - down/up/j/k move the selection bar (treeView marks i == m.cursor),
-//   - left collapses (fewer rows) / right / enter expands (more rows) or, on a
-//     running agent, jumps — all via the same m.tree expand-state the tree honors,
-//   - t toggles the timeline in the detail pane (sessionDetail reads showTimeline),
+//   - left collapses (fewer rows) / right / enter expands (more rows) or drills,
+//     all via the same m.tree expand-state the tree honors,
+//   - f toggles the inter-agent flow graph in the detail pane,
 //   - g refreshes (a fresh snapshot re-renders), esc clears the filter / collapses.
 func (m NOCModel) liveView() string {
 	var b strings.Builder
@@ -522,19 +521,15 @@ func singleNamedProfile(ps noc.ProjectSnapshot) string {
 
 // visibleProjects returns the projects to render in the digest, honoring the
 // SAME scope the headline counts: the hideStale toggle (drop stopped/stale
-// squads) AND the active filter. Keeping the digest and the headline on one
-// scope is what makes the headline live-blocked total reconcile with the sum of
-// the per-project rows (the count-leak the reviewer caught: a hidden/filtered
-// squad's live blocks were counted in the headline but shown in no row).
+// squads) AND the active filter.
 func (m NOCModel) visibleProjects() []noc.ProjectSnapshot {
 	return m.scopedProjects()
 }
 
 // scopedProjects is the single source of truth for "which squads are in view":
 // it applies the hide-stale toggle and the typed filter, in the order the tree
-// uses them, so the headline rollup, the --once digest, and the interactive
-// tree all agree on the visible set. The headline is summed over THIS slice
-// (scopedRollup), guaranteeing headline counts == sum(visible per-project).
+// uses them, so the pulse line, the --once digest, and the interactive tree all
+// agree on the visible set.
 func (m NOCModel) scopedProjects() []noc.ProjectSnapshot {
 	out := make([]noc.ProjectSnapshot, 0, len(m.ms.Projects))
 	for _, ps := range m.ms.Projects {
@@ -547,52 +542,6 @@ func (m NOCModel) scopedProjects() []noc.ProjectSnapshot {
 		out = append(out, ps)
 	}
 	return out
-}
-
-// scopedRollup sums the per-project triage rollups over the in-view squads and
-// counts how many of them are squads / running. This is the EXACT arithmetic the
-// per-project rows perform, so the headline it feeds reconciles with their sum:
-// headline live-blocked == sum(project live-blocked), and likewise for at-risk,
-// needs-you, and the stale variants.
-func scopedRollup(projects []noc.ProjectSnapshot) (r state.TriageRollup, squads, live int) {
-	for _, ps := range projects {
-		if ps.Warning != "" {
-			squads++
-			continue
-		}
-		r.Add(ps.Snap.Rollup)
-		squads++
-		if hasRunningAgentSnap(ps.Snap) {
-			live++
-		}
-	}
-	return r, squads, live
-}
-
-// operationalWaitingAgents counts the agents that DRIVE the visible "waiting"
-// status: an OPERATIONAL agent whose own attention is a non-human wait
-// (blocked/gated/at-risk). Orphaned/unowned evidence and stopped/dead-mailbox-live
-// sessions do not count - they are stale, retained only as detail/JSON. This is
-// why the header does NOT sum the raw thread rollup from stopped sessions.
-func operationalWaitingAgents(projects []noc.ProjectSnapshot) int {
-	n := 0
-	for _, ps := range projects {
-		if ps.Warning != "" {
-			continue
-		}
-		for _, sess := range ps.Snap.Sessions {
-			for _, ag := range sess.Agents {
-				if !agentOperational(ag) {
-					continue
-				}
-				switch ag.Attention.State {
-				case state.TriageBlocked, state.TriageGated, state.TriageAtRisk:
-					n++
-				}
-			}
-		}
-	}
-	return n
 }
 
 // headerView renders the brand rule + the rollup pulse line + a last-activity
@@ -620,40 +569,37 @@ func (m NOCModel) headerView() string {
 // squads, running, needs-you, blocked, stale. Granular at-risk/gated/stale
 // buckets remain in row tallies, detail panes, and JSON.
 func (m NOCModel) pulseLine() string {
-	// Sum the headline over the SAME in-view squads the body renders, so the
-	// live/stale blocked+at-risk totals reconcile with the per-project rows.
-	r, squads, live := scopedRollup(m.scopedProjects())
+	projects := m.scopedProjects()
+	tally := childTallyProjects(projects)
+	squads := len(projects)
 
 	dim := func(s string) string { return m.th.paint(m.th.dim, s) }
 	sep := dim(" " + m.dot() + " ")
 
 	segs := []string{
 		dim(nocCount(squads, "squad", "squads")),
-		dim(strconv.Itoa(live) + " running"),
+		dim(strconv.Itoa(tally.Running) + " running"),
 	}
 
-	// needs-you: the single eye-grab for current operator action. Historical
-	// needs-you is counted in the stale bucket below.
-	nyText := strconv.Itoa(r.NeedsYou) + " needs-you"
-	if r.NeedsYou > 0 {
+	// needs-you: the single eye-grab for current operator action. Count visible
+	// squad rows whose primary state is needs-you, not raw thread buckets.
+	nyText := strconv.Itoa(tally.NeedsYou) + " needs-you"
+	if tally.NeedsYou > 0 {
 		segs = append(segs, m.th.paint(m.th.needsYou, nocStateGlyph(nocNeedsYou, m.colorMode)+" "+nyText))
 	} else {
 		segs = append(segs, dim(nyText))
 	}
 
-	// waiting: agents that are OPERATIONALLY waiting on non-human work. Counts the
-	// agents driving the visible state, not the raw thread rollup - stopped/
-	// dead-mailbox-live sessions and orphaned evidence do not inflate it.
-	waiting := operationalWaitingAgents(m.scopedProjects())
-	if waiting > 0 {
-		segs = append(segs, m.th.paint(m.th.atRisk, strconv.Itoa(waiting)+" waiting"))
+	// waiting/stale follow the visible project rows as well, so the pulse answers
+	// "which squads are in each state?" and reconciles with the left tree.
+	if tally.Waiting > 0 {
+		segs = append(segs, m.th.paint(m.th.atRisk, strconv.Itoa(tally.Waiting)+" waiting"))
 	} else {
 		segs = append(segs, dim("0 waiting"))
 	}
 
-	stale := r.NeedsYouHistorical + r.AtRiskStale + r.BlockedStale + r.GatedStale
-	if stale > 0 {
-		segs = append(segs, dim(strconv.Itoa(stale)+" stale"))
+	if tally.Stale > 0 {
+		segs = append(segs, dim(strconv.Itoa(tally.Stale)+" stale"))
 	}
 
 	segs = append(segs, dim(m.clock()))
@@ -1571,10 +1517,9 @@ func (m NOCModel) footerView() string {
 		prompt := "/filter: " + m.filter + cursor
 		return m.th.paint(m.th.rule, m.thinRule()) + "\n" + m.th.paint(m.th.atRisk, prompt)
 	}
-	keys := "↑↓/jk move · →/l/⏎ expand/drill · ← collapse · / filter · h hide-stale · g refresh · esc back · ? help · q quit"
-	if m.colorMode == ColorAscii {
-		keys = "up/down move | right/l/enter expand | left collapse | / filter | h hide-stale | g refresh | esc back | ? help | q quit"
-	}
+	// The nav/view footer legend renders from the single-source keymap
+	// (noc_keymap.go), so footer and help can never drift from the router.
+	keys := nocFooterNavLegend(m.colorMode == ColorAscii)
 	var b strings.Builder
 	b.WriteString(m.th.paint(m.th.rule, m.thinRule()) + "\n")
 	notes := []string{}
@@ -1600,10 +1545,84 @@ func (m NOCModel) footerView() string {
 	}
 	b.WriteString(m.th.paint(m.th.dim, keys))
 	b.WriteString("\n")
-	// The control-key legend is a second footer row so the read-only nav legend
-	// above stays intact (the control keys are additive, not a replacement).
-	b.WriteString(m.th.paint(m.th.dim, controlFooterKeys(m.colorMode == ColorAscii)))
+	// The control-key legend is a second footer row, CONTEXT-SENSITIVE (#4.2): it
+	// shows only the mutating actions valid for the SELECTED row's kind, so the
+	// operator is not taught keys that do nothing here. The full key map is one
+	// keypress away under ? (the nav row above advertises it).
+	ascii := m.colorMode == ColorAscii
+	control := m.controlFooterLegendForSelection(ascii)
+	if control == "" {
+		control = "no actions for this row (select a squad with work; ? for all keys)"
+	}
+	b.WriteString(m.th.paint(m.th.dim, control))
 	return b.String()
+}
+
+// controlFooterLegendForSelection renders the control footer legend filtered to
+// the actions ACTUALLY available on the current selection (#4.2) - not merely
+// row-kind applicable. controlActionAvailable mirrors each begin* guard, so the
+// footer never advertises an action the handler would immediately reject.
+func (m NOCModel) controlFooterLegendForSelection(ascii bool) string {
+	sep := " · "
+	if ascii {
+		sep = " | "
+	}
+	out := ""
+	for _, bnd := range nocKeyMap {
+		if bnd.Group != keyGroupAction || !m.controlActionAvailable(bnd) {
+			continue
+		}
+		tok := bnd.Footer
+		if ascii {
+			tok = bnd.FooterAscii
+		}
+		if tok == "" {
+			continue
+		}
+		if out != "" {
+			out += sep
+		}
+		out += tok
+	}
+	return out
+}
+
+// controlActionAvailable reports whether a CONTROL key would actually act on the
+// current selection. It applies the same predicates the begin* handlers use:
+//   - approve/reply/deny require an active needs-you thread,
+//   - broadcast + stop/resume/restart require a resolvable squad,
+//   - delete requires a configured team-home with profiles,
+//   - new-session requires a launchable profile,
+//   - new-team requires a resolvable project (candidate or configured),
+//   - drain/message require an agent row (covered by the row-kind scope).
+func (m NOCModel) controlActionAvailable(bnd nocKeyBinding) bool {
+	n, ok := m.selectedNode()
+	if !ok || !bnd.appliesTo(n.kind) {
+		return false
+	}
+	switch bnd.Keys[0] {
+	case "a", "r", "x":
+		_, _, ok := m.selectedNeedsYouThread()
+		return ok
+	case "b", "S", "R", "X":
+		_, _, _, _, _, ok := m.selectedSquad()
+		return ok
+	case "delete":
+		p, ok := m.selectedProjectSnapshot()
+		return ok && p.TeamConfigured && len(projectLaunchProfiles(p)) > 0
+	case "N":
+		p, ok := m.selectedProjectSnapshot()
+		if !ok {
+			return false
+		}
+		_, _, _, ready := launchProfileForNewSession(p)
+		return ready
+	case "T":
+		_, ok := m.selectedProjectSnapshot()
+		return ok
+	default: // d, m: row-kind scope (agent) is the only requirement
+		return true
+	}
 }
 
 // helpView is the full help overlay.
@@ -1611,21 +1630,12 @@ func (m NOCModel) helpView() string {
 	var b strings.Builder
 	b.WriteString(m.th.paint(m.th.brand, "amq-noc NOC help") + "\n")
 	b.WriteString(m.th.paint(m.th.rule, m.rule()) + "\n\n")
-	lines := []string{
-		"NAVIGATION (read-only; no tmux focus side effects in 0.1.0)",
-		"  ↑ / k, ↓ / j      move selection",
-		"  → / l             expand a collapsed node, or drill into it",
-		"  ←                 collapse the node, or ascend to its parent",
-		"  enter             expand/drill (navigation only)",
-		"",
-		"VIEW",
-		"  /                 filter (needs-you / waiting / running / stale / agent: / model: / project: / session:)",
-		"  h                 toggle hiding stopped/stale squads",
-		"  f                 toggle the inter-agent flow graph in the detail pane",
-		"  g                 refresh now",
-		"  esc               clear filter / collapse / back",
-		"  ?                 toggle this help",
-		"  q                 quit",
+	// NAVIGATION + VIEW render from the single-source keymap (noc_keymap.go) so the
+	// help overlay can never advertise a nav/view key the router does not handle.
+	lines := nocKeyHelpLines(keyGroupNav, "NAVIGATION (read-only; no tmux focus side effects)")
+	lines = append(lines, "")
+	lines = append(lines, nocKeyHelpLines(keyGroupView, "VIEW")...)
+	lines = append(lines,
 		"",
 		"PRIMARY STATUS MODEL",
 		"  running           team is alive and working, nothing outstanding",
@@ -1633,8 +1643,7 @@ func (m NOCModel) helpView() string {
 		"  needs-you         an agent is explicitly waiting for operator action now",
 		"  stale             stopped, aged, or historical context",
 		"  Text labels are authoritative; color and glyphs are hints.",
-		"",
-	}
+		"")
 	lines = append(lines, controlHelpLines()...)
 	for _, l := range lines {
 		b.WriteString(m.th.paint(m.th.dim, l) + "\n")
@@ -1674,23 +1683,13 @@ func nocThreadAge(th state.ThreadSummary) string {
 
 func currentControlThreads(sess state.Session) []state.ThreadSummary {
 	needsYou := make([]state.ThreadSummary, 0, len(sess.Coordination.Threads))
-	attention := make([]state.ThreadSummary, 0, len(sess.Coordination.Threads))
 	for _, th := range sess.Coordination.Threads {
-		if th.Historical || th.Stale || th.Triage == state.TriageClear {
+		if th.Historical || th.Stale || th.Triage != state.TriageNeedsYou {
 			continue
 		}
-		if th.Triage == state.TriageNeedsYou {
-			needsYou = append(needsYou, th)
-			continue
-		}
-		attention = append(attention, th)
 	}
-	if len(needsYou) > 0 {
-		sortControlThreads(needsYou)
-		return needsYou
-	}
-	sortControlThreads(attention)
-	return attention
+	sortControlThreads(needsYou)
+	return needsYou
 }
 
 func sortControlThreads(out []state.ThreadSummary) {

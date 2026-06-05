@@ -63,11 +63,16 @@ of projects, sessions, and agents.
 - preview-first and confirm-gated controls that execute through `amq-squad`
 - structural operator gates through a virtual operator mailbox, usually `user`
 - support for `amq-squad v1.4.1` operator metadata and custom operator handles
+- truthful TUI help/footer generated from the handled keymap
+- context-sensitive footer actions that only advertise controls valid for the
+  selected row
+- session detail ordering that leads with active `needs-you`, otherwise newest
+  current activity
 
 ## Install
 
 ```sh
-go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.1.0
+go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.2.0
 ```
 
 Requirements:
@@ -102,6 +107,25 @@ amq-noc --once --root ~/Code --filter needs-you
 # Hide old/dead sessions from the TUI.
 amq-noc --root ~/Code --hide-stale
 ```
+
+## TUI model
+
+The left tree is intentionally quiet: project -> session -> agent, one line per
+row. Thread subjects and historical evidence belong in the right pane, where the
+selected row can explain `now`, recent threads, agents, and recovery commands.
+
+The footer has two rows:
+
+- navigation and view keys that are always available, such as movement, expand,
+  filter, hide stale, refresh, help, and quit
+- context-sensitive control keys for the selected row, such as approve/reply/deny
+  on a `needs-you` ask, message/drain on an agent, lifecycle on a squad, or
+  new-team/new-session on a project
+
+Mutating controls open preview/confirm flows before anything is executed.
+
+For contributor guidance on TUI keys, help, and footer tests, see
+[`docs/tui-keymap.md`](docs/tui-keymap.md).
 
 ## Operator gates
 

@@ -36,7 +36,7 @@ of projects, sessions, and agents.
 ## Install
 
 ```sh
-go install github.com/omriariav/amq-noc/cmd/amq-noc@latest
+go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.1.0
 ```
 
 Requirements:

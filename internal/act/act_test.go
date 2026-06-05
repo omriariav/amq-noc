@@ -124,6 +124,7 @@ func TestBroadcastArgv(t *testing.T) {
 		"--to", "cpo,qa",
 		"--subject", "Standup in 5",
 		"--body", "join the bridge",
+		"--thread", "broadcast/operator",
 		"--kind", "status",
 	}
 	if got := m.argv(); !reflect.DeepEqual(got, want) {

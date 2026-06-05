@@ -62,6 +62,7 @@ func renderNeedsYouFixture(t *testing.T) string {
 	root := t.TempDir()
 
 	ship := filepath.Join(root, "ship")
+	nocSeedTeamProfile(t, ship)
 	sDir := nocSeedAgent(t, ship, "main", "qa", launch.Record{Binary: "claude", AgentPID: 7001})
 	nocSeedPresence(t, sDir, "qa", "active", nocTestNow.Add(-10*time.Second))
 	// A goal-reached ask and an approve ask in the same session.
@@ -69,6 +70,7 @@ func renderNeedsYouFixture(t *testing.T) string {
 	seedOperatorMsg(t, sDir, "dev", "ask/approve", "question", "ok to proceed with deploy?", nocTestNow.Add(-2*time.Minute))
 
 	idle := filepath.Join(root, "idle")
+	nocSeedTeamProfile(t, idle)
 	iDir := nocSeedAgent(t, idle, "main", "cto", launch.Record{Binary: "codex", AgentPID: 7002})
 	nocSeedPresence(t, iDir, "cto", "active", nocTestNow.Add(-10*time.Second))
 
@@ -132,6 +134,7 @@ func TestNOCNeedsYou_RenderAndSort(t *testing.T) {
 func TestNOCNeedsYou_TreeInlineReason(t *testing.T) {
 	root := t.TempDir()
 	ship := filepath.Join(root, "ship")
+	nocSeedTeamProfile(t, ship)
 	sDir := nocSeedAgent(t, ship, "main", "qa", launch.Record{Binary: "claude", AgentPID: 7301})
 	nocSeedPresence(t, sDir, "qa", "active", nocTestNow.Add(-10*time.Second))
 	seedOperatorMsg(t, sDir, "dev", "ask/approve", "question", "ok to proceed with deploy?", nocTestNow.Add(-2*time.Minute))
@@ -148,6 +151,7 @@ func TestNOCNeedsYou_TreeInlineReason(t *testing.T) {
 	m.th = newNOCTheme(ColorNone)
 	m.ms = ms
 	m.ready = true
+	m.fullTree = true
 	m.width = 120
 	m.height = 40
 
@@ -241,9 +245,11 @@ func TestNOCHeadline_ReconcilesWithPerProjectBlocked(t *testing.T) {
 		t.Fatalf("headline live-blocked %d != sum(project live-blocked) %d", headline.Blocked, sum)
 	}
 
-	// And the rendered pulse line must show that exact reconciled number.
+	// And the rendered pulse line must show the reconciled count under the
+	// simplified visible model: blocked/gated/at-risk collapse into "waiting".
 	pulse := m.pulseLine()
-	want := fmt.Sprintf("%d blocked", sum)
+	waiting := headline.Blocked + headline.Gated + headline.AtRisk
+	want := fmt.Sprintf("%d waiting", waiting)
 	if !strings.Contains(pulse, want) {
 		t.Errorf("pulse line should show reconciled %q:\n%s", want, pulse)
 	}

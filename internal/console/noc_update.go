@@ -70,23 +70,26 @@ func (m *NOCModel) refreshGuidance() {
 	m.guidance = nocNoProjectsGuidance(m.rebuild.Roots)
 }
 
-// handleKey routes a key press. The keymap is NON-OVERLOADED and READ-ONLY: the
-// only side effect is the tmux jump.
+// handleKey routes a key press. The 0.1.0 keymap is NON-OVERLOADED, minimal, and
+// has NO tmux focus side effect: navigation never moves your terminal.
 //
 // Keymap:
 //
 //	↑/↓ or j/k     move selection
-//	→/l or enter   expand a collapsed parent / drill in; on a RUNNING agent,
-//	               enter JUMPS (tmux switch). A dedicated 'J' also jumps.
+//	→/l or enter   expand a collapsed parent / drill in (navigation only)
 //	←              collapse the current node (or ascend to its parent)
-//	h              toggle hiding stopped/archived (stale) squads
-//	/              filter (needs-you/gated/at-risk/blocked/agent:/model:/project:/session:)
-//	t              toggle the timeline in the detail pane
+//	h              toggle hiding stopped/stale squads
+//	/              filter (needs-you/waiting/running/stale/agent:/model:/project:/session:)
 //	f              toggle the inter-agent flow graph in the detail pane
 //	g              refresh now
 //	esc            clear filter / collapse / back
 //	q              quit
 //	?              help
+//
+// The confirm-gated control keys (delete, and the mutating action keys) are
+// handled separately in handleControlKey. The command palette, alerts, timeline,
+// context/inbox/DLQ/read, and jump/focus surfaces were removed from the primary
+// 0.1.0 keymap; their plumbing remains dormant for a later pass.
 func (m *NOCModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Control overlays take the key first so a mutating action is always two-step
 	// and self-contained: while the confirm overlay is open ONLY y/esc/other are
@@ -157,23 +160,6 @@ func (m *NOCModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m.showHelp = true
 		return m, nil
-	case "p", "ctrl+p":
-		// Open the command palette: fuzzy-find projects, actions, teams, and
-		// agents across all discovered projects.
-		return m, m.openPalette()
-	case "A":
-		// Toggle needs-you alerts (bell + banner). Mirrors the --no-bell flag.
-		m.alertsMuted = !m.alertsMuted
-		if m.alertsMuted {
-			m.actNote = "alerts muted (A to unmute)"
-			m.alertBanner = ""
-		} else {
-			m.actNote = "alerts on (A to mute)"
-		}
-		return m, nil
-	case "t":
-		m.showTimeline = !m.showTimeline
-		return m, nil
 	case "f":
 		// Toggle the inter-agent FLOW GRAPH in the detail pane (2.3). Read-only:
 		// it renders the snapshot's already-derived edges (who-messages-whom) with
@@ -209,8 +195,6 @@ func (m *NOCModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.expandOrDrill()
 	case "enter":
 		return m.enter()
-	case "J":
-		return m.jump()
 	case "left":
 		return m.collapseOrAscend()
 	case "esc":
@@ -292,31 +276,10 @@ func (m *NOCModel) expandOrDrill() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// enter JUMPS only on a RUNNING-AGENT row; on every other row it DRILLS/EXPANDS
-// and never teleports into tmux (the jump guard). A STOPPED agent row leaves a
-// note explaining there is nothing live to jump to, rather than silently doing
-// nothing.
-//
-//   - running agent (nodeAgent && canJump): jump (the only tmux side effect).
-//   - stopped agent (nodeAgent && !canJump): a note, no jump.
-//   - project / session / root: expand or drill — never a jump.
+// enter is NAVIGATION ONLY for 0.1.0: it expands/drills a parent row and is a
+// no-op on a leaf agent row. It never focuses/jumps tmux (the jump/focus surface
+// is deferred to 0.2.0), so enter has no side effect on squad state or terminal.
 func (m *NOCModel) enter() (tea.Model, tea.Cmd) {
-	n, ok := m.selectedNode()
-	if !ok {
-		return m, nil
-	}
-	if n.kind == nodeAgent {
-		if n.canJump {
-			return m.jump()
-		}
-		// Not jumpable: explain WHY from the agent's real computed liveness rather
-		// than a flat "not running" (which misleads when the row shows an
-		// active-looking state like dead-mailbox-live).
-		m.jumpNote = noJumpReason(n.agent.Liveness)
-		return m, nil
-	}
-	// PARENT row (project / session / root): expand/drill WITHOUT a confirm. The
-	// focus guard applies only to the actual jump/focus on a running-agent row.
 	return m.expandOrDrill()
 }
 

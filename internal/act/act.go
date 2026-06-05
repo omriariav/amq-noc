@@ -35,6 +35,9 @@ import (
 	"github.com/omriariav/amq-noc/internal/state"
 )
 
+// BroadcastThread is the deterministic thread NOC operator broadcasts use.
+const BroadcastThread = "broadcast/operator"
+
 // OpMessage is a single operator-authored AMQ write. The zero value is not
 // useful; build one via the Reply/Approve/Deny/Broadcast convenience builders,
 // or populate the fields directly. Me defaults to state.DefaultOperatorHandle
@@ -233,10 +236,16 @@ func isShellSafe(s string) bool {
 // and relies on AMQ to stamp reply_to from --me and the session --root. Subject
 // is "Re: <thread subject>".
 func Reply(root, _ string, th state.ThreadSummary, body string) OpMessage {
+	return ReplyAs(root, state.DefaultOperatorHandle, th, body)
+}
+
+// ReplyAs is Reply with an explicit operator mailbox handle.
+func ReplyAs(root, operatorHandle string, th state.ThreadSummary, body string) OpMessage {
+	operatorHandle = normalizeOperatorHandle(operatorHandle)
 	return OpMessage{
 		Root:    root,
-		Me:      state.DefaultOperatorHandle,
-		To:      strings.Join(nonOperatorParticipants(th), ","),
+		Me:      operatorHandle,
+		To:      strings.Join(nonOperatorParticipantsAs(th, operatorHandle), ","),
 		Subject: replySubject(th.Subject),
 		Body:    body,
 		Thread:  th.ID,
@@ -248,10 +257,16 @@ func Reply(root, _ string, th state.ThreadSummary, body string) OpMessage {
 // to the thread's non-operator participants, kind=answer, pinned to the thread.
 // This is the operator side of the ⏸ APPROVE needs-you tier.
 func Approve(root, _ string, th state.ThreadSummary) OpMessage {
+	return ApproveAs(root, state.DefaultOperatorHandle, th)
+}
+
+// ApproveAs is Approve with an explicit operator mailbox handle.
+func ApproveAs(root, operatorHandle string, th state.ThreadSummary) OpMessage {
+	operatorHandle = normalizeOperatorHandle(operatorHandle)
 	return OpMessage{
 		Root:    root,
-		Me:      state.DefaultOperatorHandle,
-		To:      strings.Join(nonOperatorParticipants(th), ","),
+		Me:      operatorHandle,
+		To:      strings.Join(nonOperatorParticipantsAs(th, operatorHandle), ","),
 		Subject: replySubject(th.Subject),
 		Body:    "APPROVED",
 		Thread:  th.ID,
@@ -263,14 +278,20 @@ func Approve(root, _ string, th state.ThreadSummary) OpMessage {
 // operator's reason, addressed to the thread's non-operator participants,
 // kind=answer, pinned to the thread. An empty reason yields a bare "DENIED".
 func Deny(root, _ string, th state.ThreadSummary, reason string) OpMessage {
+	return DenyAs(root, state.DefaultOperatorHandle, th, reason)
+}
+
+// DenyAs is Deny with an explicit operator mailbox handle.
+func DenyAs(root, operatorHandle string, th state.ThreadSummary, reason string) OpMessage {
+	operatorHandle = normalizeOperatorHandle(operatorHandle)
 	body := "DENIED"
 	if r := strings.TrimSpace(reason); r != "" {
 		body = "DENIED: " + r
 	}
 	return OpMessage{
 		Root:    root,
-		Me:      state.DefaultOperatorHandle,
-		To:      strings.Join(nonOperatorParticipants(th), ","),
+		Me:      operatorHandle,
+		To:      strings.Join(nonOperatorParticipantsAs(th, operatorHandle), ","),
 		Subject: replySubject(th.Subject),
 		Body:    body,
 		Thread:  th.ID,
@@ -280,16 +301,23 @@ func Deny(root, _ string, th state.ThreadSummary, reason string) OpMessage {
 
 // Broadcast builds a status broadcast to a set of squad handles. The operator
 // handle is filtered out (you do not broadcast to yourself) and the remaining
-// handles are sorted+deduped for a deterministic --to. Kind=status, no thread
-// (a broadcast opens its own). AMQ stamps reply_to from --me and the session
-// --root.
+// handles are sorted+deduped for a deterministic --to. Kind=status, pinned to a
+// deterministic operator broadcast thread. AMQ requires --thread when sending to
+// multiple recipients.
 func Broadcast(root, _ string, handles []string, subject, body string) OpMessage {
+	return BroadcastAs(root, state.DefaultOperatorHandle, handles, subject, body)
+}
+
+// BroadcastAs is Broadcast with an explicit operator mailbox handle.
+func BroadcastAs(root, operatorHandle string, handles []string, subject, body string) OpMessage {
+	operatorHandle = normalizeOperatorHandle(operatorHandle)
 	return OpMessage{
 		Root:    root,
-		Me:      state.DefaultOperatorHandle,
-		To:      strings.Join(squadRecipients(handles), ","),
+		Me:      operatorHandle,
+		To:      strings.Join(squadRecipientsAs(handles, operatorHandle), ","),
 		Subject: subject,
 		Body:    body,
+		Thread:  BroadcastThread,
 		Kind:    string(state.KindStatus),
 	}
 }
@@ -311,18 +339,33 @@ func replySubject(subject string) string {
 // handle removed, sorted and deduped, so a reply/approve/deny addresses the
 // agents in the thread and never echoes back to the operator's own mailbox.
 func nonOperatorParticipants(th state.ThreadSummary) []string {
-	return filterDedupeSort(th.Participants, true)
+	return nonOperatorParticipantsAs(th, state.DefaultOperatorHandle)
+}
+
+func nonOperatorParticipantsAs(th state.ThreadSummary, operatorHandle string) []string {
+	return filterDedupeSort(th.Participants, normalizeOperatorHandle(operatorHandle))
 }
 
 // squadRecipients returns the broadcast handle list with the operator handle
 // removed, sorted and deduped.
 func squadRecipients(handles []string) []string {
-	return filterDedupeSort(handles, true)
+	return squadRecipientsAs(handles, state.DefaultOperatorHandle)
 }
 
-// filterDedupeSort trims, drops empties, optionally drops the operator handle,
-// dedupes, and sorts the input for a deterministic recipient list.
-func filterDedupeSort(in []string, dropOperator bool) []string {
+func squadRecipientsAs(handles []string, operatorHandle string) []string {
+	return filterDedupeSort(handles, normalizeOperatorHandle(operatorHandle))
+}
+
+func normalizeOperatorHandle(handle string) string {
+	if h := strings.TrimSpace(handle); h != "" {
+		return h
+	}
+	return state.DefaultOperatorHandle
+}
+
+// filterDedupeSort trims, drops empties, drops the operator handle, dedupes, and
+// sorts the input for a deterministic recipient list.
+func filterDedupeSort(in []string, operatorHandle string) []string {
 	seen := map[string]bool{}
 	var out []string
 	for _, h := range in {
@@ -330,7 +373,7 @@ func filterDedupeSort(in []string, dropOperator bool) []string {
 		if h == "" {
 			continue
 		}
-		if dropOperator && h == state.DefaultOperatorHandle {
+		if h == operatorHandle {
 			continue
 		}
 		if seen[h] {

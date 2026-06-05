@@ -158,8 +158,14 @@ func TestNOC_HeadlineSeparatesLiveFromStale(t *testing.T) {
 	if strings.Contains(pulse, "at-risk(live)") {
 		t.Errorf("headline should not expose at-risk(live) as primary:\n%s", pulse)
 	}
-	if !strings.Contains(pulse, "0 blocked") {
-		t.Errorf("headline should show simplified blocked count:\n%s", pulse)
+	// S4b: the header counts OPERATIONAL agents in a wait state, not raw threads.
+	// Both live participants own the aged at-risk review, so the live squad shows
+	// "2 waiting"; the stale block (stopped squad) must not leak into waiting.
+	if !strings.Contains(pulse, "2 waiting") {
+		t.Errorf("headline should count the 2 operational agents waiting on the aged at-risk:\n%s", pulse)
+	}
+	if strings.Contains(pulse, "blocked") {
+		t.Errorf("simplified header should not show a primary 'blocked' segment:\n%s", pulse)
 	}
 	if !strings.Contains(pulse, "1 stale") {
 		t.Errorf("headline should show aggregate stale count:\n%s", pulse)
@@ -192,12 +198,15 @@ func TestNOC_OnceRendersRollupsAndNeedsAttention(t *testing.T) {
 		t.Errorf("rollup digest should list both squads:\n%s", digest)
 	}
 	// The running at-risk squad heads the needs-attention section; the stale
-	// squad's block is shown dim/parenthesized, never as live attention.
+	// squad collapses to the simplified stale surface, never live attention.
 	if !strings.Contains(digest, "running 2/2 agents alive") {
 		t.Errorf("rollup should show the unambiguous liveness phrase 'running 2/2 agents alive':\n%s", digest)
 	}
-	if !strings.Contains(digest, "blocked stale") {
-		t.Errorf("stale squad's block should read as 'blocked stale':\n%s", digest)
+	if !strings.Contains(digest, "1 stale") {
+		t.Errorf("stale squad should render as simplified stale:\n%s", digest)
+	}
+	if strings.Contains(digest, "blocked stale") {
+		t.Errorf("digest should not expose old blocked-stale detail labels:\n%s", digest)
 	}
 	// The digest is NOT the firehose: it must not render per-agent rows by handle.
 	if strings.Contains(digest, "engine") {

@@ -121,40 +121,6 @@ func TestAlerts_ReFiresAfterDropAndRise(t *testing.T) {
 	}
 }
 
-// TestAlerts_MuteSuppressesViaKey proves the interactive 'A' mute suppresses BOTH
-// the bell and the banner on a 0→N transition.
-func TestAlerts_MuteSuppressesViaKey(t *testing.T) {
-	m, bells := newAlertModel(t)
-
-	// Mute via the 'A' key.
-	m, _ = nocPress(m, "A")
-	if !m.alertsMuted {
-		t.Fatal("A should mute alerts")
-	}
-
-	mm, _ := m.Update(nocSnapshotMsg{ms: alertSnapshot(1)})
-	m = mm.(*NOCModel)
-	if *bells != 0 {
-		t.Errorf("muted: a transition must NOT ring the bell, rang %d", *bells)
-	}
-	if strings.TrimSpace(m.alertBanner) != "" {
-		t.Errorf("muted: a transition must NOT set the banner, got %q", m.alertBanner)
-	}
-
-	// Unmute and the next transition fires again (drop to 0 first, then rise).
-	m, _ = nocPress(m, "A")
-	if m.alertsMuted {
-		t.Fatal("A should unmute alerts")
-	}
-	mm, _ = m.Update(nocSnapshotMsg{ms: alertSnapshot(0)})
-	m = mm.(*NOCModel)
-	mm, _ = m.Update(nocSnapshotMsg{ms: alertSnapshot(1)})
-	m = mm.(*NOCModel)
-	if *bells != 1 {
-		t.Errorf("unmuted: a fresh transition should ring, rang %d", *bells)
-	}
-}
-
 // TestAlerts_NoBellFlagStartsMuted proves --no-bell (modeled as alertsMuted set
 // at startup) suppresses the alert without any key press.
 func TestAlerts_NoBellFlagStartsMuted(t *testing.T) {

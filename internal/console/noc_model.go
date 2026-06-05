@@ -334,7 +334,7 @@ type nocWatchMsg struct{}
 // nodes returns the flattened visible tree for the current snapshot + state,
 // honoring the hide-stale toggle.
 func (m NOCModel) nodes() []nocNode {
-	return buildNOCTree(m.ms, m.tree, m.filter, m.hideStale)
+	return buildNOCTree(m.ms, m.tree, m.filter, m.hideStale, !m.fullTree)
 }
 
 // selectedNode returns the node at the cursor.

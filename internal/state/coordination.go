@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // DefaultOperatorHandle is the mailbox handle that represents the human
@@ -133,8 +134,14 @@ type Thresholds struct {
 	// live attention. This is the window that separates "what is alive / what
 	// needs me now" from ancient noise on long-stopped squads.
 	StaleAfter time.Duration
-	// OperatorHandle is the human's mailbox handle (default "user").
+	// OperatorHandle is the human's mailbox handle (default "user"). It is
+	// ignored when DisableOperatorGates is true.
 	OperatorHandle string
+	// DisableOperatorGates turns off operator-addressed needs-you classification
+	// and the extra virtual-operator mailbox scan. Build() leaves this false for
+	// backwards compatibility; NOC collection sets it true unless team metadata
+	// advertises schema-3 operator gate support.
+	DisableOperatorGates bool
 }
 
 // Default threshold values.
@@ -160,6 +167,10 @@ func withThresholdDefaults(t Thresholds) Thresholds {
 	}
 	if t.StaleAfter <= 0 {
 		t.StaleAfter = DefaultStaleAfter
+	}
+	if t.DisableOperatorGates {
+		t.OperatorHandle = ""
+		return t
 	}
 	if strings.TrimSpace(t.OperatorHandle) == "" {
 		t.OperatorHandle = DefaultOperatorHandle
@@ -198,6 +209,18 @@ type ThreadSummary struct {
 	// goal-reached vs a plain question). It is AttnNone on every non-needs-you
 	// thread. See AttnReason.
 	AttnReason AttnReason
+	// LatestBody is the body of the thread's latest message, carried so a surface
+	// can render the actual ask/context inline without a re-fetch. It is the raw
+	// body; renderers cap/indent it for layout.
+	LatestBody string
+	// NeedsYouOwner is the handle of the agent actually waiting on the operator
+	// for a needs-you thread: the sender of the ask (operator-addressed question /
+	// review / decision, or user-wait prose) or the agent that declared a block
+	// awaiting the human. It is "" on non-needs-you threads and on operator-only
+	// or operator-originated asks (which are unowned). It is the source of truth
+	// for needs-you ownership; do NOT infer the asker from the sorted Participants
+	// union, which cannot identify the sender.
+	NeedsYouOwner string
 }
 
 // Edge is a directed from->to message count across a session.
@@ -496,11 +519,42 @@ func messageSignalText(m Message) string {
 // "GO" / "unblocked" / "resolved" signal forward progress.
 func clearsBlock(m Message) bool {
 	if m.Kind == KindReviewResponse || m.Kind == KindAnswer {
-		body := strings.ToLower(m.Body)
+		text := messageSignalText(m)
 		// A bare "GO" decision (not "NO-GO") clears.
-		if (strings.Contains(body, "\ngo ") || strings.HasPrefix(body, "go ") ||
-			strings.Contains(body, "go for") || strings.Contains(body, "unblocked") ||
-			strings.Contains(body, "resolved")) && !declaresBlock(m) {
+		if (strings.Contains(text, "\ngo ") || strings.HasPrefix(text, "go ") ||
+			strings.Contains(text, "go for") || affirmativeWord(text, "unblocked") ||
+			affirmativeWord(text, "resolved") || affirmativeWord(text, "approved") ||
+			affirmativeWord(text, "green")) && !declaresBlock(m) {
+			return true
+		}
+	}
+	return false
+}
+
+func affirmativeWord(text, word string) bool {
+	words := strings.FieldsFunc(text, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+	for i, w := range words {
+		if w != word {
+			continue
+		}
+		if negatedAt(words, i) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func negatedAt(words []string, i int) bool {
+	for _, offset := range []int{1, 2} {
+		j := i - offset
+		if j < 0 {
+			continue
+		}
+		switch words[j] {
+		case "not", "no", "never", "without":
 			return true
 		}
 	}

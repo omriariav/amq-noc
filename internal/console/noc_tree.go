@@ -34,6 +34,7 @@ type nocNode struct {
 
 	state    nocState
 	rollup   state.TriageRollup // for project/session: the triage tally
+	child    nocChildTally      // for parent rows: visible child rows by primary state
 	age      string             // right-aligned dim age (agent/thread)
 	recent   string             // dim recent action / title / detail
 	expanded bool               // for parents: whether children are shown
@@ -48,17 +49,32 @@ type nocNode struct {
 	warning string
 }
 
-// nocTreeState holds the collapse set. Absent id ⇒ default-expanded for
-// root/project/session; agents are leaves. Collapsing inserts the id here.
+// nocChildTally counts the visible immediate children of a parent row using the
+// simplified primary statuses. Project rows count sessions/teams, session rows
+// count agents, and root rows count projects.
+type nocChildTally struct {
+	NeedsYou int
+	Waiting  int
+	Running  int
+	Stale    int
+}
+
+// nocTreeState holds collapse/expand overrides. Roots and sessions are expanded
+// by default; projects are collapsed by default in the live NOC so the operator
+// sees one line per project until drilling in.
 type nocTreeState struct {
 	collapsed map[string]bool
+	expanded  map[string]bool
 }
 
 func newNOCTreeState() nocTreeState {
-	return nocTreeState{collapsed: map[string]bool{}}
+	return nocTreeState{collapsed: map[string]bool{}, expanded: map[string]bool{}}
 }
 
 func (s nocTreeState) isCollapsed(id string) bool {
+	if projectNodeIDDefaultCollapsed(id) {
+		return !s.expanded[id]
+	}
 	return s.collapsed[id]
 }
 
@@ -71,6 +87,14 @@ func (s *nocTreeState) toggle(id string) {
 }
 
 func (s *nocTreeState) setCollapsed(id string, v bool) {
+	if projectNodeIDDefaultCollapsed(id) {
+		if v {
+			delete(s.expanded, id)
+		} else {
+			s.expanded[id] = true
+		}
+		return
+	}
 	if v {
 		s.collapsed[id] = true
 	} else {
@@ -84,12 +108,14 @@ func projectNodeID(dir string) string             { return "proj|" + dir }
 func sessionNodeID(dir, sess string) string       { return "sess|" + dir + "|" + sess }
 func agentNodeID(dir, sess, handle string) string { return "agent|" + dir + "|" + sess + "|" + handle }
 
+func projectNodeIDDefaultCollapsed(id string) bool { return strings.HasPrefix(id, "proj|") }
+
 // buildNOCTree flattens a MultiSnapshot into the visible node slice honoring the
 // collapse set, the typed filter, and the hide-stale toggle. Projects keep
 // noc.Collect's attention-first order; sessions and agents are sorted
 // attention-first here. When hideStale is set, stopped squads carrying no live
 // attention are dropped so the operator can focus on what is alive.
-func buildNOCTree(ms noc.MultiSnapshot, ts nocTreeState, filter string, hideStale bool) []nocNode {
+func buildNOCTree(ms noc.MultiSnapshot, ts nocTreeState, filter string, hideStale bool, collapseProjects bool) []nocNode {
 	var nodes []nocNode
 
 	// Roots are headers only when there is more than one (a single root is
@@ -108,9 +134,22 @@ func buildNOCTree(ms noc.MultiSnapshot, ts nocTreeState, filter string, hideStal
 
 	for ri, root := range roots {
 		projects := byRoot[root]
-		if len(projects) == 0 && multiRoot {
+
+		// Apply the filter at the project level before rendering the root header,
+		// so a root's tally/state describes the projects actually visible below it.
+		visProjects := make([]noc.ProjectSnapshot, 0, len(projects))
+		for _, ps := range projects {
+			if hideStale && projectIsStaleOnly(ps) {
+				continue
+			}
+			if ProjectMatchesNOCFilter(ps, filter) {
+				visProjects = append(visProjects, ps)
+			}
+		}
+
+		if len(visProjects) == 0 && multiRoot {
 			// Show an empty root header so a configured-but-empty root is visible.
-		} else if len(projects) == 0 {
+		} else if len(visProjects) == 0 {
 			continue
 		}
 
@@ -123,9 +162,10 @@ func buildNOCTree(ms noc.MultiSnapshot, ts nocTreeState, filter string, hideStal
 				id:       rid,
 				depth:    0,
 				label:    displayRoot(root),
-				state:    rootState(projects),
+				state:    rootState(visProjects),
+				child:    childTallyProjects(visProjects),
 				expanded: rootExpanded,
-				hasKids:  len(projects) > 0,
+				hasKids:  len(visProjects) > 0,
 				last:     ri == len(roots)-1,
 			})
 			if !rootExpanded {
@@ -138,40 +178,10 @@ func buildNOCTree(ms noc.MultiSnapshot, ts nocTreeState, filter string, hideStal
 			projDepth = 1
 		}
 
-		// Apply the filter at the project level: a project is kept if it (or any
-		// of its sessions/agents) matches. The hide-stale toggle additionally
-		// drops stopped squads with no live attention.
-		visProjects := make([]noc.ProjectSnapshot, 0, len(projects))
-		for _, ps := range projects {
-			if hideStale && projectIsStaleOnly(ps) {
-				continue
-			}
-			if ProjectMatchesNOCFilter(ps, filter) {
-				visProjects = append(visProjects, ps)
-			}
-		}
-
 		for pi, ps := range visProjects {
 			pid := projectNodeID(ps.Dir)
-			pExpanded := !ts.isCollapsed(pid)
+			pExpanded := !collapseProjects || !ts.isCollapsed(pid)
 			pState := projectRollupState(ps)
-			nodes = append(nodes, nocNode{
-				kind:     nodeProject,
-				id:       pid,
-				depth:    projDepth,
-				label:    ps.Project,
-				state:    pState,
-				rollup:   ps.Snap.Rollup,
-				recent:   projectRecent(ps),
-				expanded: pExpanded,
-				hasKids:  len(ps.Snap.Sessions) > 0 || ps.Warning != "",
-				last:     pi == len(visProjects)-1,
-				project:  ps,
-				warning:  ps.Warning,
-			})
-			if !pExpanded {
-				continue
-			}
 
 			sessions := sortedSessions(ps.Snap.Sessions)
 			visSessions := make([]state.Session, 0, len(sessions))
@@ -180,9 +190,37 @@ func buildNOCTree(ms noc.MultiSnapshot, ts nocTreeState, filter string, hideStal
 					visSessions = append(visSessions, sess)
 				}
 			}
+
+			nodes = append(nodes, nocNode{
+				kind:     nodeProject,
+				id:       pid,
+				depth:    projDepth,
+				label:    ps.Project,
+				state:    pState,
+				rollup:   ps.Snap.Rollup,
+				child:    childTallySessions(visSessions),
+				recent:   projectRecent(ps),
+				expanded: pExpanded,
+				hasKids:  len(visSessions) > 0 || ps.Warning != "",
+				last:     pi == len(visProjects)-1,
+				project:  ps,
+				warning:  ps.Warning,
+			})
+			if !pExpanded {
+				continue
+			}
+
 			for si, sess := range visSessions {
 				sid := sessionNodeID(ps.Dir, sess.Name)
 				sExpanded := !ts.isCollapsed(sid)
+				agents := sortedAgentsForSession(sess)
+				visAgents := make([]state.Agent, 0, len(agents))
+				for _, ag := range agents {
+					if AgentMatchesNOCProjectFilter(ps, sess, ag, filter) {
+						visAgents = append(visAgents, ag)
+					}
+				}
+
 				nodes = append(nodes, nocNode{
 					kind:     nodeSession,
 					id:       sid,
@@ -190,22 +228,15 @@ func buildNOCTree(ms noc.MultiSnapshot, ts nocTreeState, filter string, hideStal
 					label:    sessionLabel(sess),
 					state:    sessionRollupState(sess),
 					rollup:   sess.Rollup,
-					recent:   sessionRecent(sess),
+					child:    childTallyAgents(sess, visAgents),
 					expanded: sExpanded,
-					hasKids:  len(sess.Agents) > 0,
+					hasKids:  len(visAgents) > 0,
 					last:     si == len(visSessions)-1,
 					project:  ps,
 					session:  sess,
 				})
 				if !sExpanded {
 					continue
-				}
-				agents := sortedAgentsForSession(sess)
-				visAgents := make([]state.Agent, 0, len(agents))
-				for _, ag := range agents {
-					if AgentMatchesNOCProjectFilter(ps, sess, ag, filter) {
-						visAgents = append(visAgents, ag)
-					}
 				}
 				for ai, ag := range visAgents {
 					nodes = append(nodes, nocNode{
@@ -228,6 +259,43 @@ func buildNOCTree(ms noc.MultiSnapshot, ts nocTreeState, filter string, hideStal
 		}
 	}
 	return nodes
+}
+
+func childTallyProjects(projects []noc.ProjectSnapshot) nocChildTally {
+	var t nocChildTally
+	for _, ps := range projects {
+		t.add(projectRollupState(ps))
+	}
+	return t
+}
+
+func childTallySessions(sessions []state.Session) nocChildTally {
+	var t nocChildTally
+	for _, sess := range sessions {
+		t.add(sessionRollupState(sess))
+	}
+	return t
+}
+
+func childTallyAgents(sess state.Session, agents []state.Agent) nocChildTally {
+	var t nocChildTally
+	for _, ag := range agents {
+		t.add(agentNodeState(sess, ag))
+	}
+	return t
+}
+
+func (t *nocChildTally) add(s nocState) {
+	switch visibleState(s) {
+	case nocNeedsYou:
+		t.NeedsYou++
+	case nocWaiting:
+		t.Waiting++
+	case nocRunning:
+		t.Running++
+	default:
+		t.Stale++
+	}
 }
 
 // groupProjectsByRoot assigns each project to the longest matching root prefix.
@@ -301,8 +369,10 @@ func sortedAgentsForSession(sess state.Session) []state.Agent {
 	return out
 }
 
-// projectRecent / sessionRecent / agentRecent derive the dim "recent action /
-// title" trailing text shown on a tree row.
+// projectRecent / agentRecent derive the dim trailing text shown on a tree row.
+// projectRecent surfaces setup/guidance hints; the latest thread subject is NOT
+// repeated on session/project rows (it lives in the detail pane), so a needs-you
+// parent row stays a quiet "<owner> needs you" rather than echoing a subject.
 func projectRecent(ps noc.ProjectSnapshot) string {
 	if ps.Warning != "" {
 		return "warning: " + firstLine(ps.Warning)
@@ -322,22 +392,9 @@ func projectRecent(ps noc.ProjectSnapshot) string {
 	if len(ps.Snap.Sessions) == 0 {
 		return "team configured; press N for new session"
 	}
-	// Surface the freshest session signal as the project's recent action.
-	for _, sess := range ps.Snap.Sessions {
-		if r := sessionRecent(sess); r != "" {
-			return r
-		}
-	}
-	return ""
-}
-
-func sessionRecent(sess state.Session) string {
-	if t, ok := topThread(sess); ok {
-		return t.Subject
-	}
-	if len(sess.Coordination.Timeline) > 0 {
-		return sess.Coordination.Timeline[0].Summary
-	}
+	// Active projects keep the left tree quiet: the latest thread subject is
+	// surfaced in the detail pane, not repeated as a project-row tail. Only the
+	// setup/guidance hints above remain as a row tail.
 	return ""
 }
 

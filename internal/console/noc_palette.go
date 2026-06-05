@@ -514,7 +514,7 @@ func forkPlanPaletteItems(common paletteItem, ps noc.ProjectSnapshot, sess state
 }
 
 func appendNeedsYouPaletteActions(items []paletteItem, common paletteItem, base, searchBase string, th state.ThreadSummary) []paletteItem {
-	recipients := nonOperator(th.Participants)
+	recipients := nonOperatorFor(th.Participants, operatorHandleForProject(common.snapshot))
 	if len(recipients) == 0 {
 		return items
 	}
@@ -1149,15 +1149,15 @@ func (m *NOCModel) paletteAction(it paletteItem) tea.Cmd {
 	case palThreadContext:
 		return m.beginThreadContextFor(it.sessionRoot, it.thread)
 	case palReadNeedsYou:
-		return m.beginReadNeedsYouFor(it.sessionRoot, it.thread)
+		return m.beginReadNeedsYouFor(it.sessionRoot, it.thread, operatorHandleForProject(it.snapshot))
 	case palApprove:
-		return m.beginApproveOrDenyFor(it.sessionRoot, it.session, it.thread, ctlApprove)
+		return m.beginApproveOrDenyFor(it.sessionRoot, it.session, it.thread, ctlApprove, operatorHandleForProject(it.snapshot))
 	case palReply:
-		return m.beginReplyFor(it.sessionRoot, it.session, it.thread)
+		return m.beginReplyFor(it.sessionRoot, it.session, it.thread, operatorHandleForProject(it.snapshot))
 	case palDeny:
-		return m.beginApproveOrDenyFor(it.sessionRoot, it.session, it.thread, ctlDeny)
+		return m.beginApproveOrDenyFor(it.sessionRoot, it.session, it.thread, ctlDeny, operatorHandleForProject(it.snapshot))
 	case palBroadcast:
-		return m.beginBroadcastFor(it.sessionRoot, it.session, agentHandles(it.snapshotSession().Agents))
+		return m.beginBroadcastFor(it.sessionRoot, it.session, agentHandles(it.snapshotSession().Agents), operatorHandleForProject(it.snapshot))
 	case palInbox:
 		return m.beginInboxAgentFor(it.sessionRoot, it.agent.Handle)
 	case palDLQ:
@@ -1175,9 +1175,9 @@ func (m *NOCModel) paletteAction(it paletteItem) tea.Cmd {
 	case palReceiptsWait:
 		return m.beginReceiptsWaitFor(it.sessionRoot, it.agent.Handle)
 	case palMessage:
-		return m.beginMessageFor(it.sessionRoot, it.agent.Handle)
+		return m.beginMessageFor(it.sessionRoot, it.agent.Handle, operatorHandleForProject(it.snapshot))
 	case palMessageWait:
-		return m.beginMessageWaitFor(it.sessionRoot, it.agent.Handle)
+		return m.beginMessageWaitForOperator(it.sessionRoot, it.agent.Handle, operatorHandleForProject(it.snapshot))
 	case palDrain:
 		return m.beginDrainAgentFor(it.sessionRoot, it.agent.Handle)
 	case palAgentResume:

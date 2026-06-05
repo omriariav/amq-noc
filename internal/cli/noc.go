@@ -15,6 +15,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/omriariav/amq-noc/internal/act"
 	"github.com/omriariav/amq-noc/internal/catalog"
 	"github.com/omriariav/amq-noc/internal/console"
 	"github.com/omriariav/amq-noc/internal/noc"
@@ -164,8 +165,7 @@ terminal bell once and shows a banner; press A to mute, or start muted with
 
 Mutating control keys are preview-first and confirm-gated. Press T on a project, session,
 or agent row to type a team spec (role IDs, market numbers, all, with optional
-role=binary overrides) and create a team profile; the confirmed command includes
---sync so CLAUDE.md / AGENTS.md pointer stubs are written too. Press N to choose
+role=binary overrides) and create a team profile. Press N to choose
 a profile when needed, type a new workstream name, and launch that team in a
 detached tmux session; existing names are rejected in the editor, including
 empty AMQ session directories, so you can resume or restart instead. Press S/R/X
@@ -516,26 +516,38 @@ type nocPreflightData struct {
 }
 
 type nocProjectJSONData struct {
-	ID             string               `json:"id"`
-	Project        string               `json:"project"`
-	Dir            string               `json:"dir"`
-	BaseRoot       string               `json:"base_root,omitempty"`
-	State          string               `json:"state"`
-	ReasonCode     string               `json:"reason_code,omitempty"`
-	TeamConfigured bool                 `json:"team_configured"`
-	DefaultTeam    bool                 `json:"default_team"`
-	Profiles       []string             `json:"profiles,omitempty"`
-	Candidate      bool                 `json:"candidate"`
-	SessionStore   bool                 `json:"session_store"`
-	SessionNames   []string             `json:"session_names,omitempty"`
-	Warning        string               `json:"warning,omitempty"`
-	SessionCount   int                  `json:"session_count"`
-	AgentsTotal    int                  `json:"agents_total"`
-	AgentsAlive    int                  `json:"agents_alive"`
-	LastActivity   *time.Time           `json:"last_activity,omitempty"`
-	Rollup         nocRollupData        `json:"rollup"`
-	Sessions       []nocSessionJSONData `json:"sessions,omitempty"`
-	Actions        []nocActionJSONData  `json:"actions,omitempty"`
+	ID             string                  `json:"id"`
+	Project        string                  `json:"project"`
+	Dir            string                  `json:"dir"`
+	BaseRoot       string                  `json:"base_root,omitempty"`
+	State          string                  `json:"state"`
+	ReasonCode     string                  `json:"reason_code,omitempty"`
+	TeamConfigured bool                    `json:"team_configured"`
+	DefaultTeam    bool                    `json:"default_team"`
+	Profiles       []string                `json:"profiles,omitempty"`
+	Operator       nocOperatorJSONData     `json:"operator"`
+	Capabilities   nocCapabilitiesJSONData `json:"capabilities"`
+	Candidate      bool                    `json:"candidate"`
+	SessionStore   bool                    `json:"session_store"`
+	SessionNames   []string                `json:"session_names,omitempty"`
+	Warning        string                  `json:"warning,omitempty"`
+	SessionCount   int                     `json:"session_count"`
+	AgentsTotal    int                     `json:"agents_total"`
+	AgentsAlive    int                     `json:"agents_alive"`
+	LastActivity   *time.Time              `json:"last_activity,omitempty"`
+	Rollup         nocRollupData           `json:"rollup"`
+	Sessions       []nocSessionJSONData    `json:"sessions,omitempty"`
+	Actions        []nocActionJSONData     `json:"actions,omitempty"`
+}
+
+type nocOperatorJSONData struct {
+	Enabled  bool   `json:"enabled"`
+	Handle   string `json:"handle,omitempty"`
+	Runnable bool   `json:"runnable"`
+}
+
+type nocCapabilitiesJSONData struct {
+	OperatorGates bool `json:"operator_gates"`
 }
 
 type nocSessionJSONData struct {
@@ -548,6 +560,9 @@ type nocSessionJSONData struct {
 	AgentsAlive     int                 `json:"agents_alive"`
 	ThreadCount     int                 `json:"thread_count"`
 	ThreadsReturned int                 `json:"threads_returned,omitempty"`
+	Attention       string              `json:"attention"`
+	AttentionReason string              `json:"attention_reason,omitempty"`
+	UnownedEvidence string              `json:"unowned_evidence,omitempty"`
 	Rollup          nocRollupData       `json:"rollup"`
 	Threads         []threadRow         `json:"threads,omitempty"`
 	Agents          []nocAgentJSONData  `json:"agents,omitempty"`
@@ -555,18 +570,20 @@ type nocSessionJSONData struct {
 }
 
 type nocAgentJSONData struct {
-	ID           string              `json:"id"`
-	Handle       string              `json:"handle"`
-	Role         string              `json:"role,omitempty"`
-	Engine       string              `json:"engine,omitempty"`
-	Liveness     string              `json:"liveness"`
-	WakeHealth   string              `json:"wake_health,omitempty"`
-	LastSeen     *time.Time          `json:"last_seen,omitempty"`
-	Presence     string              `json:"presence,omitempty"`
-	Conversation string              `json:"conversation,omitempty"`
-	Source       string              `json:"source,omitempty"`
-	TeamProfile  string              `json:"team_profile"`
-	Actions      []nocActionJSONData `json:"actions,omitempty"`
+	ID              string              `json:"id"`
+	Handle          string              `json:"handle"`
+	Role            string              `json:"role,omitempty"`
+	Engine          string              `json:"engine,omitempty"`
+	Liveness        string              `json:"liveness"`
+	WakeHealth      string              `json:"wake_health,omitempty"`
+	Attention       string              `json:"attention"`
+	AttentionReason string              `json:"attention_reason,omitempty"`
+	LastSeen        *time.Time          `json:"last_seen,omitempty"`
+	Presence        string              `json:"presence,omitempty"`
+	Conversation    string              `json:"conversation,omitempty"`
+	Source          string              `json:"source,omitempty"`
+	TeamProfile     string              `json:"team_profile"`
+	Actions         []nocActionJSONData `json:"actions,omitempty"`
 }
 
 type nocRollupData struct {
@@ -2106,17 +2123,25 @@ func nocProjectEnvelope(ps noc.ProjectSnapshot) nocProjectJSONData {
 		TeamConfigured: ps.TeamConfigured,
 		DefaultTeam:    ps.DefaultTeam,
 		Profiles:       append([]string(nil), ps.Profiles...),
-		Candidate:      ps.Candidate,
-		SessionStore:   ps.SessionStore,
-		SessionNames:   append([]string(nil), ps.SessionNames...),
-		Warning:        ps.Warning,
-		SessionCount:   len(sessions),
-		AgentsTotal:    total,
-		AgentsAlive:    live,
-		LastActivity:   jsonTimePtr(nocProjectLastActivity(ps)),
-		Rollup:         nocRollupEnvelope(ps.Snap.Rollup),
-		Sessions:       sessions,
-		Actions:        nocProjectActions(ps, projectID, len(sessions)),
+		Operator: nocOperatorJSONData{
+			Enabled:  ps.Operator.Enabled,
+			Handle:   ps.Operator.Handle,
+			Runnable: ps.Operator.Runnable,
+		},
+		Capabilities: nocCapabilitiesJSONData{
+			OperatorGates: ps.Capabilities.OperatorGates,
+		},
+		Candidate:    ps.Candidate,
+		SessionStore: ps.SessionStore,
+		SessionNames: append([]string(nil), ps.SessionNames...),
+		Warning:      ps.Warning,
+		SessionCount: len(sessions),
+		AgentsTotal:  total,
+		AgentsAlive:  live,
+		LastActivity: jsonTimePtr(nocProjectLastActivity(ps)),
+		Rollup:       nocRollupEnvelope(ps.Snap.Rollup),
+		Sessions:     sessions,
+		Actions:      nocProjectActions(ps, projectID, len(sessions)),
 	}
 }
 
@@ -2143,18 +2168,20 @@ func nocSessionEnvelope(ps noc.ProjectSnapshot, sess state.Session) nocSessionJS
 			profile = team.DefaultProfile
 		}
 		agents = append(agents, nocAgentJSONData{
-			Handle:       ag.Handle,
-			Role:         ag.Role,
-			Engine:       ag.Engine,
-			Liveness:     string(ag.Liveness),
-			WakeHealth:   string(ag.WakeHealth),
-			LastSeen:     jsonTimePtr(ag.LastSeen),
-			Presence:     ag.Presence,
-			Conversation: ag.Conversation,
-			Source:       ag.Source,
-			TeamProfile:  profile,
-			ID:           nocAgentJSONID(ps.Dir, sess.Name, ag.Handle),
-			Actions:      nocAgentActions(ps, sess, ag),
+			Handle:          ag.Handle,
+			Role:            ag.Role,
+			Engine:          ag.Engine,
+			Liveness:        string(ag.Liveness),
+			WakeHealth:      string(ag.WakeHealth),
+			Attention:       string(ag.Attention.State),
+			AttentionReason: string(ag.Attention.Reason),
+			LastSeen:        jsonTimePtr(ag.LastSeen),
+			Presence:        ag.Presence,
+			Conversation:    ag.Conversation,
+			Source:          ag.Source,
+			TeamProfile:     profile,
+			ID:              nocAgentJSONID(ps.Dir, sess.Name, ag.Handle),
+			Actions:         nocAgentActions(ps, sess, ag),
 		})
 	}
 	threads := threadRows(sess.Coordination.Threads)
@@ -2172,11 +2199,23 @@ func nocSessionEnvelope(ps noc.ProjectSnapshot, sess state.Session) nocSessionJS
 		AgentsAlive:     live,
 		ThreadCount:     threadCount,
 		ThreadsReturned: len(threads),
+		Attention:       string(sess.Attention.State),
+		AttentionReason: string(sess.Attention.Reason),
+		UnownedEvidence: liveAttentionString(sess.UnownedAttention),
 		Rollup:          nocRollupEnvelope(sess.Rollup),
 		Threads:         threads,
 		Agents:          agents,
 		Actions:         nocSessionActions(ps, sess, sessionID, live, len(agents)),
 	}
+}
+
+// liveAttentionString renders an attention tier for JSON, returning "" for clear
+// so an omitempty field is dropped when there is nothing outstanding.
+func liveAttentionString(a state.Attention) string {
+	if a.State == "" || a.State == state.TriageClear {
+		return ""
+	}
+	return string(a.State)
 }
 
 func nocRollupEnvelope(r state.TriageRollup) nocRollupData {
@@ -2232,7 +2271,7 @@ func nocProjectActions(ps noc.ProjectSnapshot, projectID string, sessionCount in
 				"List AMQ sessions and agents for this project's base root.",
 				false, false, false),
 			nocAction("project", projectID, "route_explain",
-				nocRouteExplainCommand(root, state.DefaultOperatorHandle, "<to>", ""),
+				nocRouteExplainCommand(root, nocOperatorHandle(ps), "<to>", ""),
 				"Explain AMQ routing from the operator to a recipient in this project.",
 				false, false, true))
 	}
@@ -2309,7 +2348,7 @@ func nocSessionActions(ps noc.ProjectSnapshot, sess state.Session, sessionID str
 			"List AMQ presence records for this session.",
 			false, false, false),
 		nocAction("session", sessionID, "route_explain",
-			nocRouteExplainCommand(sess.Root, state.DefaultOperatorHandle, "<to>", sess.Name),
+			nocRouteExplainCommand(sess.Root, nocOperatorHandle(ps), "<to>", sess.Name),
 			"Explain AMQ routing from the operator to a recipient in this session.",
 			false, false, true),
 		nocAction("session", sessionID, "amq_cleanup",
@@ -2337,11 +2376,11 @@ func nocSessionActions(ps noc.ProjectSnapshot, sess state.Session, sessionID str
 				false, false, true), "profile", profileChoices))
 	}
 	if th, ok := nocTopNeedsYouThread(sess, ""); ok {
-		actions = append(actions, nocNeedsYouActions("session", sessionID, sess.Root, th)...)
+		actions = append(actions, nocNeedsYouActions("session", sessionID, sess.Root, th, nocOperatorHandle(ps))...)
 	}
-	if recipients := nocSessionRecipients(sess); len(recipients) > 0 {
+	if recipients := nocSessionRecipients(sess, nocOperatorHandle(ps)); len(recipients) > 0 {
 		actions = append(actions, nocAction("session", sessionID, "broadcast",
-			nocBroadcastCommand(sess.Root, recipients),
+			nocBroadcastCommand(sess.Root, recipients, nocOperatorHandle(ps)),
 			"Send an operator status broadcast to every agent in this session.",
 			true, true, true))
 	}
@@ -2391,7 +2430,7 @@ func nocAgentActions(ps noc.ProjectSnapshot, sess state.Session, ag state.Agent)
 			"List delivery receipts emitted by this agent.",
 			false, false, false),
 		nocAction("agent", agentID, "route_explain",
-			nocRouteExplainCommand(sess.Root, state.DefaultOperatorHandle, handle, sess.Name),
+			nocRouteExplainCommand(sess.Root, nocOperatorHandle(ps), handle, sess.Name),
 			"Explain AMQ routing from the operator to this agent.",
 			false, false, false),
 		withNOCActionVarChoices(nocAction("agent", agentID, "receipts_wait",
@@ -2415,11 +2454,11 @@ func nocAgentActions(ps noc.ProjectSnapshot, sess state.Session, ag state.Agent)
 			"Permanently purge this agent's DLQ messages older than a required age threshold.",
 			true, true, true),
 		nocAction("agent", agentID, "message",
-			nocMessageCommand(sess.Root, handle),
+			nocMessageCommand(sess.Root, handle, nocOperatorHandle(ps)),
 			"Send a direct operator message to this agent.",
 			true, true, true),
 		nocAction("agent", agentID, "message_wait",
-			nocMessageWaitCommand(sess.Root, handle),
+			nocMessageWaitCommand(sess.Root, handle, nocOperatorHandle(ps)),
 			"Send a direct operator message and wait for the drained receipt.",
 			true, true, true),
 		nocAction("agent", agentID, "drain",
@@ -2428,7 +2467,7 @@ func nocAgentActions(ps noc.ProjectSnapshot, sess state.Session, ag state.Agent)
 			true, true, false),
 	}
 	if th, ok := nocTopNeedsYouThread(sess, handle); ok {
-		actions = append(actions, nocNeedsYouActions("agent", agentID, sess.Root, th)...)
+		actions = append(actions, nocNeedsYouActions("agent", agentID, sess.Root, th, nocOperatorHandle(ps))...)
 	}
 	if role := strings.TrimSpace(ag.Role); role != "" {
 		actions = append(actions, nocAction("agent", agentID, "agent_resume",
@@ -2741,12 +2780,12 @@ func nocNewTeamTemplateCommand(projectDir, profile string) string {
 		args = []string{"new", "profile", profile}
 	}
 	args = append(args, "--project", projectDir)
-	args = append(args, "--roles", "<roles>", "--binary", "<binary>", "--session", "<session>", "--sync")
+	args = append(args, "--roles", "<roles>", "--binary", "<binary>", "--session", "<session>")
 	return shellCommand("amq-squad", args...)
 }
 
 func nocNewProfileTemplateCommand(projectDir string) string {
-	args := []string{"new", "profile", "<profile>", "--project", projectDir, "--roles", "<roles>", "--binary", "<binary>", "--session", "<session>", "--sync"}
+	args := []string{"new", "profile", "<profile>", "--project", projectDir, "--roles", "<roles>", "--binary", "<binary>", "--session", "<session>"}
 	return shellCommand("amq-squad", args...)
 }
 
@@ -2759,20 +2798,27 @@ func nocTeamSyncTemplateCommand(projectDir, profile string) string {
 	return shellCommand("amq-squad", args...)
 }
 
-func nocMessageCommand(root, handle string) string {
+func nocOperatorHandle(ps noc.ProjectSnapshot) string {
+	if handle := ps.OperatorGateHandle(); handle != "" {
+		return handle
+	}
+	return state.DefaultOperatorHandle
+}
+
+func nocMessageCommand(root, handle, operatorHandle string) string {
 	return shellCommand("amq", "send",
 		"--root", root,
-		"--me", state.DefaultOperatorHandle,
+		"--me", operatorHandle,
 		"--to", handle,
 		"--subject", "Message from operator",
 		"--body", "<body>",
 		"--kind", string(state.KindStatus))
 }
 
-func nocMessageWaitCommand(root, handle string) string {
+func nocMessageWaitCommand(root, handle, operatorHandle string) string {
 	return shellCommand("amq", "send",
 		"--root", root,
-		"--me", state.DefaultOperatorHandle,
+		"--me", operatorHandle,
 		"--to", handle,
 		"--subject", "Message from operator",
 		"--body", "<body>",
@@ -2781,18 +2827,19 @@ func nocMessageWaitCommand(root, handle string) string {
 		"--wait-timeout", "<timeout>")
 }
 
-func nocBroadcastCommand(root string, recipients []string) string {
+func nocBroadcastCommand(root string, recipients []string, operatorHandle string) string {
 	return shellCommand("amq", "send",
 		"--root", root,
-		"--me", state.DefaultOperatorHandle,
+		"--me", operatorHandle,
 		"--to", strings.Join(recipients, ","),
 		"--subject", "<subject>",
 		"--body", "<body>",
+		"--thread", act.BroadcastThread,
 		"--kind", string(state.KindStatus))
 }
 
-func nocNeedsYouActions(scope, targetID, root string, th state.ThreadSummary) []nocActionJSONData {
-	if len(nocThreadRecipients(th)) == 0 {
+func nocNeedsYouActions(scope, targetID, root string, th state.ThreadSummary, operatorHandle string) []nocActionJSONData {
+	if len(nocThreadRecipients(th, operatorHandle)) == 0 {
 		return nil
 	}
 	actions := []nocActionJSONData{
@@ -2803,21 +2850,21 @@ func nocNeedsYouActions(scope, targetID, root string, th state.ThreadSummary) []
 	}
 	if messageID := strings.TrimSpace(th.LatestID); messageID != "" {
 		actions = append(actions, nocAction(scope, targetID, "read_needs_you",
-			nocReadNeedsYouCommand(root, messageID),
+			nocReadNeedsYouCommand(root, messageID, operatorHandle),
 			"Read the top needs-you message body for this row; moves it to cur like amq read.",
 			true, true, false))
 	}
 	return append(actions,
 		nocAction(scope, targetID, "reply",
-			nocReplyCommand(root, th),
+			nocReplyCommand(root, th, operatorHandle),
 			"Reply to the top needs-you thread for this row with a custom answer.",
 			true, true, true),
 		nocAction(scope, targetID, "approve",
-			nocApproveCommand(root, th),
+			nocApproveCommand(root, th, operatorHandle),
 			"Approve the top needs-you thread for this row.",
 			true, true, false),
 		nocAction(scope, targetID, "deny",
-			nocDenyCommand(root, th),
+			nocDenyCommand(root, th, operatorHandle),
 			"Deny the top needs-you thread for this row with a reason.",
 			true, true, true))
 }
@@ -2846,41 +2893,41 @@ func nocThreadContextAnyCommand(projectDir, session string) string {
 		"--limit", fmt.Sprint(defaultThreadTranscriptLimit))
 }
 
-func nocReadNeedsYouCommand(root, messageID string) string {
+func nocReadNeedsYouCommand(root, messageID, operatorHandle string) string {
 	return shellCommand("amq", "read",
 		"--root", root,
-		"--me", state.DefaultOperatorHandle,
+		"--me", operatorHandle,
 		"--id", messageID,
 		"--json")
 }
 
-func nocReplyCommand(root string, th state.ThreadSummary) string {
+func nocReplyCommand(root string, th state.ThreadSummary, operatorHandle string) string {
 	return shellCommand("amq", "send",
 		"--root", root,
-		"--me", state.DefaultOperatorHandle,
-		"--to", strings.Join(nocThreadRecipients(th), ","),
+		"--me", operatorHandle,
+		"--to", strings.Join(nocThreadRecipients(th, operatorHandle), ","),
 		"--subject", nocReplySubject(th.Subject),
 		"--body", "<body>",
 		"--thread", th.ID,
 		"--kind", string(state.KindAnswer))
 }
 
-func nocApproveCommand(root string, th state.ThreadSummary) string {
+func nocApproveCommand(root string, th state.ThreadSummary, operatorHandle string) string {
 	return shellCommand("amq", "send",
 		"--root", root,
-		"--me", state.DefaultOperatorHandle,
-		"--to", strings.Join(nocThreadRecipients(th), ","),
+		"--me", operatorHandle,
+		"--to", strings.Join(nocThreadRecipients(th, operatorHandle), ","),
 		"--subject", nocReplySubject(th.Subject),
 		"--body", "APPROVED",
 		"--thread", th.ID,
 		"--kind", string(state.KindAnswer))
 }
 
-func nocDenyCommand(root string, th state.ThreadSummary) string {
+func nocDenyCommand(root string, th state.ThreadSummary, operatorHandle string) string {
 	return shellCommand("amq", "send",
 		"--root", root,
-		"--me", state.DefaultOperatorHandle,
-		"--to", strings.Join(nocThreadRecipients(th), ","),
+		"--me", operatorHandle,
+		"--to", strings.Join(nocThreadRecipients(th, operatorHandle), ","),
 		"--subject", nocReplySubject(th.Subject),
 		"--body", "<reason>",
 		"--thread", th.ID,
@@ -2928,42 +2975,36 @@ func nocProjectJSONState(ps noc.ProjectSnapshot, live, total int) string {
 	if ps.Warning != "" {
 		return "warning"
 	}
-	if ps.Snap.Rollup.NeedsYou > 0 {
-		return "needs-you"
+	// Lead with the most-urgent operational-OWNED attention across the project's
+	// sessions (mirrors console projectRollupState). Unowned raw-rollup evidence
+	// does not drive the primary state - it stays in the rollup detail.
+	if s := nocAttnJSONState(nocProjectOwnedAttn(ps)); s != "" {
+		return s
 	}
-	if live > 0 {
-		return "running"
+	switch s := nocRollupJSONState(ps.Snap.Rollup, live, total); s {
+	case "empty":
+		// No agents and no evidence: fall through to the team-home descriptor.
+		if ps.Candidate {
+			return "candidate"
+		}
+		if ps.TeamConfigured {
+			return "configured"
+		}
+		if ps.SessionStore {
+			return "empty"
+		}
+		return "unknown"
+	default:
+		return s
 	}
-	if ps.Snap.Rollup.Blocked > 0 {
-		return "blocked"
-	}
-	if ps.Snap.Rollup.Gated > 0 {
-		return "gated"
-	}
-	if ps.Snap.Rollup.AtRisk > 0 {
-		return "at-risk"
-	}
-	if ps.Snap.Rollup.BlockedStale > 0 {
-		return "stale-blocked"
-	}
-	if total > 0 {
-		return "stopped"
-	}
-	if ps.Candidate {
-		return "candidate"
-	}
-	if ps.TeamConfigured {
-		return "configured"
-	}
-	if ps.SessionStore {
-		return "empty"
-	}
-	return "unknown"
 }
 
 func nocProjectJSONReasonCode(ps noc.ProjectSnapshot, live, total int) string {
 	if ps.Warning != "" {
 		return "warning"
+	}
+	if rc := nocAttnReasonCode(nocProjectOwnedAttn(ps)); rc != "" {
+		return rc
 	}
 	return nocRollupReasonCode(ps.Snap.Rollup, live, total, projectFallbackReason(ps))
 }
@@ -2982,32 +3023,77 @@ func projectFallbackReason(ps noc.ProjectSnapshot) string {
 }
 
 func nocSessionJSONState(sess state.Session, live, total int) string {
-	if sess.Rollup.NeedsYou > 0 {
-		return "needs-you"
+	// Lead with the operational-OWNED attention (sess.Attention is already gated to
+	// operational agents in attachAttention). A live agent that owns a non-human
+	// wait surfaces it as the primary work state; unowned raw-rollup evidence does
+	// not (it stays in the rollup + unowned_evidence detail).
+	if s := nocAttnJSONState(sess.Attention.State); s != "" {
+		return s
 	}
-	if live > 0 {
-		return "running"
-	}
-	if sess.Rollup.Blocked > 0 {
-		return "blocked"
-	}
-	if sess.Rollup.Gated > 0 {
-		return "gated"
-	}
-	if sess.Rollup.AtRisk > 0 {
-		return "at-risk"
-	}
-	if sess.Rollup.BlockedStale > 0 {
-		return "stale-blocked"
-	}
-	if total > 0 {
-		return "stopped"
-	}
-	return "empty"
+	return nocRollupJSONState(sess.Rollup, live, total)
 }
 
 func nocSessionJSONReasonCode(sess state.Session, live, total int) string {
+	if rc := nocAttnReasonCode(sess.Attention.State); rc != "" {
+		return rc
+	}
 	return nocRollupReasonCode(sess.Rollup, live, total, "empty")
+}
+
+// nocAttnJSONState maps an operational-OWNED attention tier to the JSON primary
+// state vocabulary, returning "" for clear/empty so the caller falls through to the
+// rollup-based state.
+func nocAttnJSONState(t state.Triage) string {
+	switch t {
+	case state.TriageNeedsYou:
+		return "needs-you"
+	case state.TriageBlocked:
+		return "blocked"
+	case state.TriageGated:
+		return "gated"
+	case state.TriageAtRisk:
+		return "at-risk"
+	default:
+		return ""
+	}
+}
+
+// nocAttnReasonCode is nocAttnJSONState's reason-code companion.
+func nocAttnReasonCode(t state.Triage) string {
+	switch t {
+	case state.TriageNeedsYou:
+		return "needs_user"
+	case state.TriageBlocked:
+		return "blocked"
+	case state.TriageGated:
+		return "gated"
+	case state.TriageAtRisk:
+		return "at_risk"
+	default:
+		return ""
+	}
+}
+
+// nocRollupJSONState maps a raw triage rollup to the JSON primary-state vocabulary
+// on the FALLBACK path - when NO operational agent owns a current attention. It
+// mirrors the console rollupState contract: needs-you persists as a human action
+// item even with no live agent; an operational agent that owns no wait is running;
+// zero operational agents with only outstanding, decayed, or unowned evidence is
+// stale (the evidence is retained in the rollup + unowned_evidence detail, never a
+// live blocked/gated/at-risk wait); agents with nothing outstanding are stopped.
+func nocRollupJSONState(r state.TriageRollup, live, total int) string {
+	switch {
+	case r.NeedsYou > 0:
+		return "needs-you"
+	case live > 0:
+		return "running"
+	case nocRollupHasOutstanding(r):
+		return "stale-blocked"
+	case total > 0:
+		return "stopped"
+	default:
+		return "empty"
+	}
 }
 
 func nocRollupReasonCode(r state.TriageRollup, live, total int, fallback string) string {
@@ -3016,18 +3102,53 @@ func nocRollupReasonCode(r state.TriageRollup, live, total int, fallback string)
 		return "needs_user"
 	case live > 0:
 		return "running"
-	case r.Blocked > 0:
-		return "blocked"
-	case r.Gated > 0:
-		return "gated"
-	case r.AtRisk > 0:
-		return "at_risk"
-	case r.BlockedStale > 0:
+	case nocRollupHasOutstanding(r):
 		return "stale_blocked"
 	case total > 0:
 		return "stopped"
 	default:
 		return fallback
+	}
+}
+
+// nocRollupHasOutstanding reports whether a rollup carries ANY unresolved
+// non-needs-you evidence - live, age-decayed, or historical. On the zero-operational
+// fallback path this evidence is unowned, so it yields a STALE primary state rather
+// than a live wait.
+func nocRollupHasOutstanding(r state.TriageRollup) bool {
+	return r.Blocked > 0 || r.AtRisk > 0 || r.Gated > 0 ||
+		r.NeedsYouHistorical > 0 || r.AtRiskStale > 0 || r.BlockedStale > 0 || r.GatedStale > 0
+}
+
+// nocProjectOwnedAttn returns the most-urgent operational-OWNED attention across a
+// project's sessions (TriageClear when none owns one). sess.Attention is already
+// gated to operational agents in attachAttention, so this never reflects unowned or
+// stopped-session evidence.
+func nocProjectOwnedAttn(ps noc.ProjectSnapshot) state.Triage {
+	best := state.TriageClear
+	for _, sess := range ps.Snap.Sessions {
+		if nocTriageSeverity(sess.Attention.State) < nocTriageSeverity(best) {
+			best = sess.Attention.State
+		}
+	}
+	return best
+}
+
+// nocTriageSeverity mirrors state's documented order (NeedsYou > Blocked > Gated >
+// AtRisk > Clear); lower is more severe. Local copy because state.triageSeverity is
+// unexported.
+func nocTriageSeverity(t state.Triage) int {
+	switch t {
+	case state.TriageNeedsYou:
+		return 0
+	case state.TriageBlocked:
+		return 1
+	case state.TriageGated:
+		return 2
+	case state.TriageAtRisk:
+		return 3
+	default:
+		return 4
 	}
 }
 
@@ -3054,12 +3175,12 @@ func nocProjectHasLiveAgent(ps noc.ProjectSnapshot) bool {
 	return false
 }
 
-func nocSessionRecipients(sess state.Session) []string {
+func nocSessionRecipients(sess state.Session, operatorHandle string) []string {
 	seen := map[string]bool{}
 	var out []string
 	for _, ag := range sess.Agents {
 		handle := strings.TrimSpace(ag.Handle)
-		if handle == "" || handle == state.DefaultOperatorHandle || seen[handle] {
+		if handle == "" || handle == operatorHandle || seen[handle] {
 			continue
 		}
 		seen[handle] = true
@@ -3079,12 +3200,12 @@ func nocTopNeedsYouThread(sess state.Session, handle string) (state.ThreadSummar
 	return state.ThreadSummary{}, false
 }
 
-func nocThreadRecipients(th state.ThreadSummary) []string {
+func nocThreadRecipients(th state.ThreadSummary, operatorHandle string) []string {
 	seen := map[string]bool{}
 	var out []string
 	for _, handle := range th.Participants {
 		handle = strings.TrimSpace(handle)
-		if handle == "" || handle == state.DefaultOperatorHandle || seen[handle] {
+		if handle == "" || handle == operatorHandle || seen[handle] {
 			continue
 		}
 		seen[handle] = true
@@ -3104,8 +3225,14 @@ func nocProjectStaleOnly(ps noc.ProjectSnapshot) bool {
 	return !ps.Snap.Rollup.HasLiveAttention()
 }
 
+// nocAgentLive reports whether an agent is a verified foreground (OPERATIONAL)
+// agent: alive or wake-live only. dead-mailbox-live is NOT live - its process is
+// gone and only the AMQ notifier/wake presence is fresh, which is infra health, not
+// a work/run state. This drives JSON agents_alive, project live counts, and the
+// JSON primary state, so it MUST match the operational contract used by the TUI
+// (state.agentOperational / console.agentOperational / noc.hasRunningAgent).
 func nocAgentLive(ag state.Agent) bool {
-	return ag.Liveness == state.LivenessAlive || ag.Liveness == state.LivenessWakeLive || ag.Liveness == state.LivenessDeadMailboxLive
+	return ag.Liveness == state.LivenessAlive || ag.Liveness == state.LivenessWakeLive
 }
 
 func jsonTimePtr(t time.Time) *time.Time {
@@ -3362,7 +3489,7 @@ func consoleReadNeedsYou(req console.ReadNeedsYouRequest) (console.ReadNeedsYouR
 	}
 	cmd := exec.Command("amq", "read",
 		"--root", root,
-		"--me", state.DefaultOperatorHandle,
+		"--me", firstNonEmpty(req.OperatorHandle, state.DefaultOperatorHandle),
 		"--id", messageID,
 		"--json")
 	cmd.Env = envWithoutAMQIdentity(os.Environ())
@@ -3792,7 +3919,7 @@ func consoleMessageWaitArgs(req console.MessageWaitRequest) ([]string, error) {
 	return []string{
 		"send",
 		"--root", root,
-		"--me", state.DefaultOperatorHandle,
+		"--me", firstNonEmpty(req.OperatorHandle, state.DefaultOperatorHandle),
 		"--to", handle,
 		"--subject", "Message from operator",
 		"--body", body,
@@ -4209,9 +4336,6 @@ func consoleNewTeamArgs(req console.NewTeamRequest) ([]string, error) {
 	}
 	if session := strings.TrimSpace(req.Session); session != "" {
 		args = append(args, "--session", session)
-	}
-	if req.Sync {
-		args = append(args, "--sync")
 	}
 	return args, nil
 }

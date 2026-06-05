@@ -293,9 +293,15 @@ Examples:
 		// one. Live session resolution infers a shared member session or falls
 		// back to the project basename. The field remains readable for old
 		// team.json files. Member sessions still carry the chosen workstream.
-		Trust:      trustMode,
-		BinaryArgs: binaryArgs,
-		Members:    members,
+		Trust: trustMode,
+		Operator: team.OperatorConfig{
+			Enabled:  true,
+			Handle:   team.DefaultOperatorHandle,
+			Runnable: false,
+		},
+		Capabilities: team.Capabilities{OperatorGates: true},
+		BinaryArgs:   binaryArgs,
+		Members:      members,
 	}
 	rulesContent, err := renderTeamRules(t)
 	if err != nil {

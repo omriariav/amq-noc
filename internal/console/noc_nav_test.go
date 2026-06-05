@@ -286,37 +286,6 @@ func TestNOCNav_LiveViewRendersMovingSelection(t *testing.T) {
 	}
 }
 
-// TestNOCNav_LiveViewTimelineToggle proves 't' produces a VISIBLE change in the
-// LIVE View() (not just in treeView/detailView called directly): toggling the
-// timeline must alter the rendered frame. Against the old staticView digest 't'
-// flipped m.showTimeline, which the digest never reads, so View() was identical.
-func TestNOCNav_LiveViewTimelineToggle(t *testing.T) {
-	m := newSeededNOCModel(t)
-	requireRows(t, m, 3)
-
-	// Land the cursor on a session node so the detail pane is sessionDetail, which
-	// is the pane that honors m.showTimeline.
-	target := -1
-	for i, n := range m.nodes() {
-		if n.kind == nodeSession {
-			target = i
-			break
-		}
-	}
-	if target < 0 {
-		t.Fatal("fixture must seed at least one session node")
-	}
-	m.cursor = target
-
-	before := m.View()
-	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("t")})
-	m = m2.(*NOCModel)
-	after := m.View()
-	if after == before {
-		t.Fatalf("'t' must change the live View() (toggle the timeline in the detail pane); an unchanged frame means the live render ignores m.showTimeline")
-	}
-}
-
 func splitLines(s string) []string {
 	var out []string
 	start := 0

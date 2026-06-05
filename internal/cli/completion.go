@@ -186,7 +186,6 @@ var completionCommonFlags = []string{
 	"--scope",
 	"--stagger",
 	"--stale-after",
-	"--sync",
 	"--target",
 	"--target-id",
 	"--team-home",

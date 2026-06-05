@@ -519,6 +519,39 @@ func TestTriageNeedsYouScansOperatorMailboxWithoutLaunchRecord(t *testing.T) {
 	}
 }
 
+func TestTriageOperatorGatesCanBeDisabled(t *testing.T) {
+	base := t.TempDir()
+	proj := t.TempDir()
+	ctoDir := seedAgent(t, base, "s", "cto", launch.Record{Binary: "codex", Handle: "cto", Session: "s", AgentPID: 1})
+	userDir := filepath.Join(base, "s", "agents", "user")
+
+	// Seed both places: unsupported/basic AMQ roots may still contain copied
+	// messages addressed to user, and a stale user mailbox may exist on disk.
+	seedMessage(t, ctoDir, "new", msgSpec{
+		id: "copied", from: "cto", to: []string{"user"},
+		thread: "decision/copied", subject: "APPROVAL: copied ask", kind: "question",
+		createdAt: coordNow.Add(-2 * time.Minute),
+	})
+	seedMessage(t, userDir, "new", msgSpec{
+		id: "mailbox", from: "cto", to: []string{"user"},
+		thread: "decision/mailbox", subject: "APPROVAL: mailbox ask", kind: "question",
+		createdAt: coordNow.Add(-2 * time.Minute),
+	})
+
+	snap, err := BuildWithThresholds(proj, base, coordProbe(), Thresholds{DisableOperatorGates: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess := snap.Sessions[0]
+	if len(sess.Coordination.Threads) != 1 {
+		t.Fatalf("threads = %d, want only copied agent-mailbox thread", len(sess.Coordination.Threads))
+	}
+	th := findThread(t, sess.Coordination, "decision/copied")
+	if th.Triage == TriageNeedsYou || sess.Rollup.NeedsYou != 0 || snap.Rollup.NeedsYou != 0 {
+		t.Fatalf("disabled operator gates should suppress needs-you: thread=%+v session=%+v snap=%+v", th, sess.Rollup, snap.Rollup)
+	}
+}
+
 func TestTriageNeedsYouCustomOperatorHandle(t *testing.T) {
 	base := t.TempDir()
 	proj := t.TempDir()
@@ -653,13 +686,16 @@ func TestTriageBlockedDeclared(t *testing.T) {
 	}
 }
 
+// A user-wait prose signal promotes to needs-you only when the message is
+// structurally addressed TO the operator (here a status to "user").
 func TestTriageNeedsYouViaWaitingForInstructions(t *testing.T) {
 	base := t.TempDir()
 	proj := t.TempDir()
-	ctoDir := seedAgent(t, base, "s", "cto", launch.Record{Binary: "codex", Handle: "cto", Session: "s", AgentPID: 1})
+	userDir := seedAgent(t, base, "s", "user", launch.Record{Binary: "claude", Handle: "user", Session: "s", AgentPID: 9})
+	_ = seedAgent(t, base, "s", "cto", launch.Record{Binary: "codex", Handle: "cto", Session: "s", AgentPID: 1})
 
-	seedMessage(t, ctoDir, "cur", msgSpec{
-		id: "wait-user", from: "cto",
+	seedMessage(t, userDir, "new", msgSpec{
+		id: "wait-user", from: "cto", to: []string{"user"},
 		thread: "status/cto", subject: "Waiting for instructions", kind: "status",
 		body: "CTO is waiting for instructions before proceeding.", createdAt: coordNow.Add(-time.Minute),
 	})
@@ -669,10 +705,61 @@ func TestTriageNeedsYouViaWaitingForInstructions(t *testing.T) {
 	}
 	th := findThread(t, snap.Sessions[0].Coordination, "status/cto")
 	if th.Triage != TriageNeedsYou {
-		t.Fatalf("Triage = %q, want needs-you", th.Triage)
+		t.Fatalf("Triage = %q, want needs-you (user-wait prose addressed to operator)", th.Triage)
 	}
 	if snap.Sessions[0].Rollup.NeedsYou != 1 {
 		t.Fatalf("rollup NeedsYou = %d, want 1", snap.Sessions[0].Rollup.NeedsYou)
+	}
+}
+
+// Deterministic guard: an agent-to-agent status/ack whose prose mentions
+// "user" / "approval" / "manual RC test" must NOT be promoted to needs-you when
+// it is not structurally addressed to the operator. This is exactly our own
+// amq-noc p2p coordination failure mode.
+func TestTriageUserWaitProseNotAddressedToOperatorIsNotNeedsYou(t *testing.T) {
+	base := t.TempDir()
+	proj := t.TempDir()
+	ctoDir := seedAgent(t, base, "s", "cto", launch.Record{Binary: "codex", Handle: "cto", Session: "s", AgentPID: 1})
+	_ = seedAgent(t, base, "s", "fullstack", launch.Record{Binary: "claude", Handle: "fullstack", Session: "s", AgentPID: 2})
+
+	seedMessage(t, ctoDir, "cur", msgSpec{
+		id: "ack1", from: "fullstack", to: []string{"cto"},
+		thread: "p2p/cto__fullstack", subject: "ACK: holding for the user manual RC test", kind: "status",
+		body:      "Standing by for the user's commit call after the manual RC test; user action pending.",
+		createdAt: coordNow.Add(-time.Minute),
+	})
+	snap, err := Build(proj, base, coordProbe())
+	if err != nil {
+		t.Fatal(err)
+	}
+	th := findThread(t, snap.Sessions[0].Coordination, "p2p/cto__fullstack")
+	if th.Triage == TriageNeedsYou {
+		t.Fatalf("agent-to-agent status with user/approval prose must not be needs-you, got %+v", th)
+	}
+	if snap.Sessions[0].Rollup.NeedsYou != 0 {
+		t.Fatalf("rollup NeedsYou = %d, want 0", snap.Sessions[0].Rollup.NeedsYou)
+	}
+}
+
+// collapseThreads carries the latest message body into ThreadSummary.LatestBody
+// so a surface can render the actual ask inline without a re-fetch.
+func TestThreadSummaryCarriesLatestBody(t *testing.T) {
+	base := t.TempDir()
+	proj := t.TempDir()
+	userDir := seedAgent(t, base, "s", "user", launch.Record{Binary: "claude", Handle: "user", Session: "s", AgentPID: 9})
+	_ = seedAgent(t, base, "s", "cto", launch.Record{Binary: "codex", Handle: "cto", Session: "s", AgentPID: 1})
+	seedMessage(t, userDir, "new", msgSpec{
+		id: "ask1", from: "cto", to: []string{"user"},
+		thread: "ask/deploy", subject: "APPROVAL: deploy?", kind: "review_request",
+		body: "Please approve the prod deploy before the freeze.", createdAt: coordNow.Add(-time.Minute),
+	})
+	snap, err := Build(proj, base, coordProbe())
+	if err != nil {
+		t.Fatal(err)
+	}
+	th := findThread(t, snap.Sessions[0].Coordination, "ask/deploy")
+	if th.LatestBody != "Please approve the prod deploy before the freeze." {
+		t.Fatalf("LatestBody = %q, want the seeded ask body", th.LatestBody)
 	}
 }
 
@@ -820,9 +907,12 @@ func TestMalformedThreadIDCollapses(t *testing.T) {
 	}
 }
 
-// --- dead-mailbox-live participant -> at-risk ----------------------------
+// --- dead-mailbox-live participant is NOT waiting / NOT at-risk -----------
 
-func TestAtRiskDeadMailboxLiveParticipant(t *testing.T) {
+// S4: a dead-mailbox-live participant is a liveness anomaly, NOT a work wait. A
+// fresh unanswered ask must not become at-risk just because a participant's
+// process is gone; that thread stays clear until it ages structurally.
+func TestDeadMailboxLiveNotWaiting(t *testing.T) {
 	base := t.TempDir()
 	proj := t.TempDir()
 	// cto agent PID is dead but presence is fresh -> dead-mailbox-live (PR1).
@@ -830,8 +920,7 @@ func TestAtRiskDeadMailboxLiveParticipant(t *testing.T) {
 	seedPresence(t, ctoDir, "cto", "active", coordNow.Add(-5*time.Second))
 	_ = seedAgent(t, base, "s", "senior-dev", launch.Record{Binary: "codex", Handle: "senior-dev", Session: "s", AgentPID: 2})
 
-	// An unanswered review request from senior-dev to cto (fresh), but cto is
-	// dead-mailbox-live -> at-risk even though not yet past ReviewAge.
+	// A FRESH unanswered review request from senior-dev to cto (cto is dmbl).
 	seedMessage(t, ctoDir, "new", msgSpec{
 		id: "rr", from: "senior-dev", to: []string{"cto"},
 		thread: "p2p/cto__senior-dev", subject: "review", kind: "review_request",
@@ -853,8 +942,11 @@ func TestAtRiskDeadMailboxLiveParticipant(t *testing.T) {
 		t.Fatalf("precondition: cto liveness = %q, want dead-mailbox-live", cto.Liveness)
 	}
 	th := findThread(t, snap.Sessions[0].Coordination, "p2p/cto__senior-dev")
-	if th.Triage != TriageAtRisk {
-		t.Fatalf("Triage = %q, want at-risk (dead-mailbox-live participant)", th.Triage)
+	if th.Triage == TriageAtRisk {
+		t.Fatalf("Triage = at-risk, want NOT at-risk (dead-mailbox-live is not a work wait): %+v", th)
+	}
+	if snap.Sessions[0].Rollup.AtRisk != 0 {
+		t.Fatalf("rollup AtRisk = %d, want 0 (dmbl must not create waiting)", snap.Sessions[0].Rollup.AtRisk)
 	}
 }
 

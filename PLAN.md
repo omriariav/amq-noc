@@ -88,6 +88,13 @@ Split the multi-root NOC/operator surface out of `amq-squad` into this repo.
   hyphenated `NO-GO` is protected by the block marker. This is non-blocking for
   0.1.0 because it is uncommon and pre-existing, but it should be tracked and
   tested.
+- Fix right-pane/current-thread ordering for 0.2.0. The session detail pane can
+  show an old at-risk thread under `now` while the actual current thread appears
+  below under `threads: newest`. Operators expect the current/latest thread to
+  lead unless there is an active `needs-you` CTA. Add a regression around the
+  observed shape: a 1-day-old at-risk `decision/status-model` thread and a
+  seconds-old clear `p2p/cto__fullstack` status/todo thread. Tracked in:
+  https://github.com/omriariav/amq-noc/issues/3
 
 ## amq-squad 1.3.0 Work
 

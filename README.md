@@ -10,6 +10,28 @@ for recovery and messaging.
 `amq-squad` remains the project-local lifecycle tool. `amq-noc` observes and
 orchestrates those teams from above.
 
+## Project links
+
+- `amq-noc`: <https://github.com/omriariav/amq-noc>
+- `amq`: <https://github.com/omriariav/agent-message-queue>
+- `amq-squad`: <https://github.com/omriariav/amq-squad>
+
+## How the pieces fit
+
+The AMQ stack has three layers:
+
+- `amq`: the mailbox and routing layer. It stores messages, threads, inboxes,
+  DLQ entries, receipts, and operator replies.
+- `amq-squad`: the project-local team layer. It creates team profiles, launches
+  and resumes agents, writes team rules, and exposes project-scoped status.
+- `amq-noc`: the cross-project operator layer. It scans many AMQ roots, shows
+  which teams need attention, and runs preview-first controls through `amq` and
+  `amq-squad`.
+
+Use `amq-squad` when you are inside one project and managing that team. Use
+`amq-noc` when you want a network-operations view across many projects and
+sessions.
+
 ## What it shows
 
 The primary visible statuses are intentionally simple:
@@ -59,6 +81,19 @@ amq-noc --actions --root ~/Code --filter needs-you
 Bare `amq-noc` opens the live TUI. `amq-noc noc` is the explicit form of the same
 command. `amq-noc version` prints the installed version.
 
+Useful one-shot views:
+
+```sh
+# Full tree snapshot without entering the TUI.
+amq-noc --once --tree --root ~/Code
+
+# Only teams currently waiting on the operator.
+amq-noc --once --root ~/Code --filter needs-you
+
+# Hide old/dead sessions from the TUI.
+amq-noc --root ~/Code --hide-stale
+```
+
 ## Operator gates
 
 `needs-you` is deterministic. NOC does not infer human action from broad prose in
@@ -97,6 +132,8 @@ amq send \
 After the reply, the gate clears automatically because the latest message is no
 longer addressed to the operator.
 
+For more detail, see [`docs/operator-gate.md`](docs/operator-gate.md).
+
 ## Machine-readable snapshots
 
 Use JSON mode for scripts and dashboards:
@@ -131,6 +168,20 @@ amq-noc --filter project:amq-noc \
 - custom operator handles are honored in reads and generated AMQ actions
 - legacy teams with a runnable member named `user` do not get an implicit
   operator gate, avoiding false `needs-you`
+
+Minimum supported companion version:
+
+```sh
+go install github.com/omriariav/amq-squad/cmd/amq-squad@v1.4.1
+```
+
+Recommended health check:
+
+```sh
+amq-squad version
+amq-squad team profiles --project /path/to/project --json
+amq-noc --root ~/Code --json | jq '.data.rollup'
+```
 
 ## Release checks
 

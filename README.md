@@ -16,15 +16,24 @@ orchestrates those teams from above.
 - `amq`: <https://github.com/omriariav/agent-message-queue>
 - `amq-squad`: <https://github.com/omriariav/amq-squad>
 
+Relevant maintainers:
+
+- [`@omriariav`](https://github.com/omriariav): `amq-noc` and `amq-squad`
+- [`@avivsinai`](https://github.com/avivsinai): AMQ / agent-message-queue
+
 ## How the pieces fit
 
 The AMQ stack has three layers:
 
-- `amq`: the mailbox and routing layer. It stores messages, threads, inboxes,
-  DLQ entries, receipts, and operator replies.
-- `amq-squad`: the project-local team layer. It creates team profiles, launches
-  and resumes agents, writes team rules, and exposes project-scoped status.
-- `amq-noc`: the cross-project operator layer. It scans many AMQ roots, shows
+- `amq`: the mailbox and routing layer maintained by
+  [`@avivsinai`](https://github.com/avivsinai). It stores messages, threads,
+  inboxes, DLQ entries, receipts, and operator replies.
+- `amq-squad`: the project-local team layer maintained by
+  [`@omriariav`](https://github.com/omriariav). It creates team profiles,
+  launches and resumes agents, writes team rules, and exposes project-scoped
+  status.
+- `amq-noc`: the cross-project operator layer maintained by
+  [`@omriariav`](https://github.com/omriariav). It scans many AMQ roots, shows
   which teams need attention, and runs preview-first controls through `amq` and
   `amq-squad`.
 

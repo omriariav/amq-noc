@@ -78,6 +78,17 @@ Split the multi-root NOC/operator surface out of `amq-squad` into this repo.
   - Stage (b): render context and approve/deny/reply CTAs inline in the right
     pane for human asks.
 
+## Follow-up Issues
+
+- Harden the remaining `GO` block-clear signal in `internal/state/coordination.go`.
+  The 0.1.0 RC now guards `approved`, `green`, `resolved`, and `unblocked`
+  with whole-word matching plus a small negation window, but the older `GO`
+  signal still uses raw substring checks such as `go ` and `go for`. A spaced
+  rejection like `no go for it` could still clear a prior block even though
+  hyphenated `NO-GO` is protected by the block marker. This is non-blocking for
+  0.1.0 because it is uncommon and pre-existing, but it should be tracked and
+  tested.
+
 ## amq-squad 1.3.0 Work
 
 - Re-scope module to `github.com/omriariav/amq-squad`.

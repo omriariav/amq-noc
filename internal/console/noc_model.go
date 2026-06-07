@@ -56,6 +56,7 @@ type nocPaneLister func() ([]noc.TmuxPane, error)
 // NOCModel is the Bubble Tea model. Pure view + UI state.
 type NOCModel struct {
 	rebuild NOCRebuildConfig
+	version string
 
 	ms      noc.MultiSnapshot
 	lastErr error
@@ -77,6 +78,11 @@ type NOCModel struct {
 	// 'f'. It is INDEPENDENT of showTimeline — both sub-panels can be open at once
 	// (flow first, then timeline). Read-only: it only formats existing state.
 	showFlow bool
+
+	// commandPicker is a local clipboard helper over the deterministic commands
+	// shown in the right pane. It writes only to the operator clipboard seam, not
+	// AMQ/squad state.
+	commandPicker *commandPickerOverlay
 
 	// hideStale hides STOPPED / stale (archived) squads so the operator can focus
 	// on what is alive. Toggled by 'h'. Off by default.
@@ -240,6 +246,7 @@ type NOCModel struct {
 	switchTo nocSwitcher
 	panes    nocPaneLister
 	pidTree  func(pid int) []int
+	copyText func(string) error
 
 	// bell is the injected terminal-bell seam for needs-you alerts. Production
 	// writes "\a" to the tty (wired by RunNOC); tests inject a counter so they can
@@ -307,6 +314,7 @@ func newNOCModel(rebuild NOCRebuildConfig) NOCModel {
 		switchTo:  noc.SwitchTo,
 		panes:     noc.DefaultPaneLister,
 		pidTree:   defaultPidTree,
+		copyText:  defaultClipboardCopy,
 		sendOp:    act.Send,
 	}
 }

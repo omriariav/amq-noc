@@ -72,11 +72,15 @@ JSON snapshots use the same primary vocabulary as the TUI. In `v0.2.1`,
   selected row
 - session detail ordering that leads with active `needs-you`, otherwise newest
   current activity
+- wrapped right-pane helper commands with `C copy-cmd` for exact clipboard copy
+- tmux recovery helpers for both current-window and new-session launch targets
+- row-sensitive delete behavior for team profiles, named sessions, and root AMQ
+  mailbox rows
 
 ## Install
 
 ```sh
-go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.2.1
+go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.2.2
 ```
 
 Requirements:

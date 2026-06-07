@@ -448,6 +448,9 @@ func sessionLabel(sess state.Session) string {
 // layout: its Root path basename is the .agent-mail container itself, i.e. the
 // session sits directly at the base root with no named sub-directory.
 func isBaseRootSession(sess state.Session) bool {
+	if strings.TrimSpace(sess.Name) != "" {
+		return false
+	}
 	if sess.Root == "" {
 		return false
 	}

@@ -2221,24 +2221,67 @@ func TestControl_DeleteTeamConfirmGate(t *testing.T) {
 		}
 	})
 
-	t.Run("mac delete key on session row opens same team preview", func(t *testing.T) {
+	t.Run("mac delete key on session row removes that session, not the team profile", func(t *testing.T) {
 		m := newControlModel(t)
 		selectKind(t, m, nodeSession, "")
 		called := false
-		m.teamDelete = func(teamDeleteOp) error { called = true; return nil }
+		m.sessionCleanup = func(sessionCleanupOp) error { called = true; return nil }
 
 		m, cmd := nocPress(m, "backspace")
 		if cmd != nil {
 			t.Fatal("delete key setup should not request a rebuild")
 		}
 		if m.input != nil {
-			t.Fatalf("single-profile session delete should not ask for mode, input=%+v", m.input)
+			t.Fatalf("session delete should not ask for mode, input=%+v", m.input)
 		}
-		if m.pending == nil || !strings.Contains(m.pending.preview, "amq-squad team rm --project /fake/proj/beta --yes") {
-			t.Fatalf("delete-team preview mismatch: pending=%+v", m.pending)
+		if m.pending == nil || !strings.Contains(m.pending.preview, "amq-squad rm --project /fake/proj/beta --yes beta") {
+			t.Fatalf("session delete preview mismatch: pending=%+v", m.pending)
+		}
+		if m.pending.cleanup == nil || m.pending.cleanup.Session != "beta" || m.pending.cleanup.Archive {
+			t.Fatalf("session delete should prepare remove cleanup, pending=%+v", m.pending)
 		}
 		if called {
-			t.Fatal("opening delete preview must not call the seam")
+			t.Fatal("opening delete preview must not call the cleanup seam")
+		}
+	})
+
+	t.Run("delete key on plain AMQ session does not require configured team", func(t *testing.T) {
+		m := newControlModel(t)
+		m.ms.Projects[0].TeamConfigured = false
+		m.ms.Projects[0].DefaultTeam = false
+		m.ms.Projects[0].Profiles = nil
+		selectKind(t, m, nodeSession, "")
+
+		m, cmd := nocPress(m, "delete")
+		if cmd != nil {
+			t.Fatal("delete key setup should not request a rebuild")
+		}
+		if m.pending == nil || !strings.Contains(m.pending.preview, "amq-squad rm --project /fake/proj/beta --yes beta") {
+			t.Fatalf("plain AMQ session delete should preview session rm, pending=%+v note=%q", m.pending, m.actNote)
+		}
+		if strings.Contains(m.actNote, "configured team") {
+			t.Fatalf("plain AMQ session delete must not require configured team, note=%q", m.actNote)
+		}
+	})
+
+	t.Run("delete key on root AMQ session explains it is not removable", func(t *testing.T) {
+		m := newControlModel(t)
+		m.ms.Projects[0].TeamConfigured = false
+		m.ms.Projects[0].DefaultTeam = false
+		m.ms.Projects[0].Profiles = nil
+		m.ms.Projects[0].Snap.Sessions[0].Name = ""
+		m.ms.Projects[0].Snap.Sessions[0].Root = "/fake/proj/beta/.agent-mail"
+		selectKind(t, m, nodeSession, "")
+
+		m, cmd := nocPress(m, "delete")
+		if cmd != nil {
+			t.Fatal("delete key setup should not request a rebuild")
+		}
+		if m.pending != nil {
+			t.Fatalf("root AMQ session delete must not open cleanup preview, pending=%+v", m.pending)
+		}
+		if !strings.Contains(m.actNote, "AMQ base mailbox") || !strings.Contains(m.actNote, "not a removable session") {
+			t.Fatalf("root AMQ session delete note = %q", m.actNote)
 		}
 	})
 

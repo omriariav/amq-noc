@@ -1207,7 +1207,7 @@ func (m *NOCModel) controlEnabled() bool { return true }
 func (m *NOCModel) handleControlKey(key string) (tea.Cmd, bool) {
 	switch key {
 	case "delete", "backspace":
-		return m.beginDeleteTeam(), true
+		return m.beginDelete(), true
 	case "d":
 		return m.beginDrainAgent(), true
 	case "a":
@@ -1232,6 +1232,22 @@ func (m *NOCModel) handleControlKey(key string) (tea.Cmd, bool) {
 		return m.beginNewTeam(), true
 	}
 	return nil, false
+}
+
+func (m *NOCModel) beginDelete() tea.Cmd {
+	n, ok := m.selectedNode()
+	if !ok || (n.kind != nodeProject && n.kind != nodeSession) {
+		m.actNote = "delete applies to a project or session row"
+		return nil
+	}
+	if n.kind == nodeSession {
+		if isBaseRootSession(n.session) {
+			m.actNote = "delete: (root) is the AMQ base mailbox, not a removable session"
+			return nil
+		}
+		return m.beginSessionCleanupFor(n.project.Dir, n.session.Name, false)
+	}
+	return m.beginDeleteTeamForProject(n.project)
 }
 
 func (m *NOCModel) beginDeleteTeam() tea.Cmd {
@@ -2426,7 +2442,7 @@ func (m *NOCModel) beginSessionCleanupFor(projectDir, session string, archive bo
 		return nil
 	}
 	if session == "" {
-		m.actNote = label + ": selected session has no name"
+		m.actNote = label + ": (root) is the AMQ base mailbox, not a removable session"
 		return nil
 	}
 	op := sessionCleanupOp{ProjectDir: projectDir, Session: session, Archive: archive}

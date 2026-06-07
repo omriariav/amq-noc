@@ -22,6 +22,7 @@ import (
 
 	"github.com/omriariav/amq-noc/internal/noc"
 	"github.com/omriariav/amq-noc/internal/state"
+	"github.com/omriariav/amq-noc/internal/team"
 )
 
 const (
@@ -135,6 +136,9 @@ func (m *NOCModel) View() string {
 	}
 	if m.teamProfiles != nil {
 		return m.overlayFrame(m.teamProfilesOverlayView())
+	}
+	if m.commandPicker != nil {
+		return m.overlayFrame(m.commandPickerOverlayView())
 	}
 	// Control overlays render OVER the live frame so the operator's confirm /
 	// type step is unmissable: the EXACT command (confirm) or the body editor
@@ -551,7 +555,11 @@ func (m NOCModel) headerView() string {
 
 	brand := m.th.paint(m.th.brand, "amq-noc NOC")
 	sub := m.th.paint(m.th.dim, "command center")
-	b.WriteString(brand + "  " + sub + "\n")
+	if version := strings.TrimSpace(m.version); version != "" {
+		b.WriteString(brand + "  " + m.th.paint(m.th.dim, version) + "  " + sub + "\n")
+	} else {
+		b.WriteString(brand + "  " + sub + "\n")
+	}
 	b.WriteString(m.th.paint(m.th.rule, m.rule()) + "\n")
 	b.WriteString(m.pulseLine())
 	if la := m.lastActivityLine(); la != "" {
@@ -999,35 +1007,143 @@ func kickRecoverLines(ps noc.ProjectSnapshot, sessionName, amqRoot string) []str
 		dir := shellToken(strings.TrimSpace(ps.Dir))
 		if strings.TrimSpace(sessionName) != "" {
 			s := shellToken(sessionName)
+			profile := squadProfileFlag(sessionCommandProfile(ps, sessionName))
 			return []string{
-				"amq-squad status --project " + dir + " --session " + s,
-				"amq-squad resume --project " + dir + " --session " + s,
+				"amq-squad status --project " + dir + profile + " --session " + s,
+				"amq-squad resume --project " + dir + profile + " --session " + s,
+				squadResumeCurrentWindowCommand(ps.Dir, sessionName, sessionCommandProfile(ps, sessionName)),
+				squadResumeNewSessionCommand(ps.Dir, sessionName, sessionCommandProfile(ps, sessionName)),
 			}
 		}
-		return []string{
-			"amq-squad status --project " + dir,
-			"amq-squad resume --project " + dir,
-			"amq-squad up --project " + dir,
+		profileName := projectCommandProfile(ps)
+		profile := squadProfileFlag(profileName)
+		if activeSession := projectCommandSession(ps); activeSession != "" {
+			s := shellToken(activeSession)
+			activeProfileName := sessionCommandProfile(ps, activeSession)
+			activeProfile := squadProfileFlag(activeProfileName)
+			return []string{
+				"amq-squad status --project " + dir + activeProfile + " --session " + s,
+				"amq-squad resume --project " + dir + activeProfile + " --session " + s,
+				squadResumeCurrentWindowCommand(ps.Dir, activeSession, activeProfileName),
+				squadResumeNewSessionCommand(ps.Dir, activeSession, activeProfileName),
+			}
 		}
+		lines := []string{
+			"amq-squad status --project " + dir + profile,
+		}
+		if profileName != "PROFILE" {
+			lines = append(lines,
+				"amq-squad resume --project "+dir+profile,
+				"amq-squad up --project "+dir+profile,
+			)
+		}
+		return lines
 	case "amq":
 		root := strings.TrimSpace(amqRoot)
 		if root == "" {
 			return nil
 		}
 		rt := shellToken(root)
+		out := []string{}
+		if strings.TrimSpace(sessionName) != "" && strings.TrimSpace(ps.Dir) != "" {
+			dir := shellToken(strings.TrimSpace(ps.Dir))
+			s := shellToken(strings.TrimSpace(sessionName))
+			out = append(out,
+				"amq-squad archive --project "+dir+" --yes "+s,
+				"amq-squad rm --project "+dir+" --yes "+s,
+			)
+		}
 		// Plain AMQ: the resolved root is known; AGENT / MESSAGE_ID / THREAD_ID are
 		// placeholders the operator fills in. Covers inspect (who/list/drain),
 		// read/thread, and send.
-		return []string{
-			"amq who --root " + rt,
-			"amq list --root " + rt + " --me AGENT",
-			"amq drain --root " + rt + " --me AGENT --include-body",
-			"amq read --root " + rt + " --me AGENT --id MESSAGE_ID",
-			"amq thread --root " + rt + " --id THREAD_ID --include-body",
-			"amq send --root " + rt + " --me AGENT --to AGENT --thread THREAD_ID",
-		}
+		out = append(out,
+			"amq who --root "+rt,
+			"amq list --root "+rt+" --me AGENT",
+			"amq drain --root "+rt+" --me AGENT --include-body",
+			"amq read --root "+rt+" --me AGENT --id MESSAGE_ID",
+			"amq thread --root "+rt+" --id THREAD_ID --include-body",
+			"amq send --root "+rt+" --me AGENT --to AGENT --thread THREAD_ID",
+		)
+		return out
 	}
 	return nil
+}
+
+func projectCommandSession(ps noc.ProjectSnapshot) string {
+	var active []string
+	for _, sess := range ps.Snap.Sessions {
+		switch visibleState(sessionRollupState(sess)) {
+		case nocNeedsYou, nocWaiting, nocRunning:
+			active = append(active, sess.Name)
+		}
+	}
+	if len(active) == 1 {
+		return active[0]
+	}
+	return ""
+}
+
+func sessionCommandProfile(ps noc.ProjectSnapshot, sessionName string) string {
+	sessionName = strings.TrimSpace(sessionName)
+	if sessionName == "" {
+		return projectCommandProfile(ps)
+	}
+	for _, sess := range ps.Snap.Sessions {
+		if sess.Name != sessionName {
+			continue
+		}
+		seen := map[string]bool{}
+		for _, ag := range sess.Agents {
+			profile := strings.TrimSpace(ag.TeamProfile)
+			if profile == "" {
+				profile = team.DefaultProfile
+			}
+			seen[profile] = true
+		}
+		if len(seen) == 1 {
+			for profile := range seen {
+				return profile
+			}
+		}
+		if len(seen) > 1 {
+			return "PROFILE"
+		}
+		break
+	}
+	return projectCommandProfile(ps)
+}
+
+func projectCommandProfile(ps noc.ProjectSnapshot) string {
+	if len(ps.Profiles) == 1 {
+		return ps.Profiles[0]
+	}
+	if len(ps.Profiles) > 1 {
+		return "PROFILE"
+	}
+	return ""
+}
+
+func squadProfileFlag(profile string) string {
+	profile = strings.TrimSpace(profile)
+	if profile == "" || profile == team.DefaultProfile {
+		return ""
+	}
+	return " --profile " + shellToken(profile)
+}
+
+func squadResumeCurrentWindowCommand(projectDir, sessionName, profile string) string {
+	dir := shellToken(strings.TrimSpace(projectDir))
+	session := shellToken(strings.TrimSpace(sessionName))
+	return "amq-squad resume --project " + dir + squadProfileFlag(profile) +
+		" --exec --target current-window --session " + session
+}
+
+func squadResumeNewSessionCommand(projectDir, sessionName, profile string) string {
+	dir := shellToken(strings.TrimSpace(projectDir))
+	session := shellToken(strings.TrimSpace(sessionName))
+	terminalSession := shellToken(nocTerminalSessionName(projectDir, sessionName))
+	return "amq-squad resume --project " + dir + squadProfileFlag(profile) +
+		" --exec --target new-session --terminal-session " + terminalSession + " --session " + session
 }
 
 // commandsSection renders the right-pane "commands (kick off / recover)" helper
@@ -1040,11 +1156,34 @@ func (m NOCModel) commandsSection(ps noc.ProjectSnapshot, sessionName, amqRoot s
 	}
 	var b strings.Builder
 	b.WriteString(m.detailRule() + "\n")
-	b.WriteString(m.th.paint(m.th.dim, "commands (kick off / recover)") + "\n")
+	b.WriteString(m.th.paint(m.th.dim, "commands (C copies)") + "\n")
+	width := m.commandDisplayWidth()
 	for _, l := range lines {
-		b.WriteString(m.th.paint(m.th.dim, "  "+l) + "\n")
+		wrapped := wrapPlainText(l, width-4)
+		if len(wrapped) == 0 {
+			continue
+		}
+		b.WriteString(m.th.paint(m.th.dim, "  "+wrapped[0]) + "\n")
+		for _, cont := range wrapped[1:] {
+			b.WriteString(m.th.paint(m.th.dim, "    "+cont) + "\n")
+		}
 	}
 	return b.String()
+}
+
+func (m NOCModel) commandDisplayWidth() int {
+	if m.width <= 0 {
+		return 78
+	}
+	leftW := m.leftWidth()
+	if leftW <= 0 {
+		return m.width
+	}
+	w := m.width - leftW - 3
+	if w < 24 {
+		w = 24
+	}
+	return w
 }
 
 // childTallyText is a compact per-parent tally over visible immediate children.
@@ -1520,6 +1659,9 @@ func (m NOCModel) footerView() string {
 	// The nav/view footer legend renders from the single-source keymap
 	// (noc_keymap.go), so footer and help can never drift from the router.
 	keys := nocFooterNavLegend(m.colorMode == ColorAscii)
+	if m.hideStale {
+		keys = strings.Replace(keys, "h hide-stale", "h show-stale", 1)
+	}
 	var b strings.Builder
 	b.WriteString(m.th.paint(m.th.rule, m.thinRule()) + "\n")
 	notes := []string{}
@@ -1591,7 +1733,8 @@ func (m NOCModel) controlFooterLegendForSelection(ascii bool) string {
 // current selection. It applies the same predicates the begin* handlers use:
 //   - approve/reply/deny require an active needs-you thread,
 //   - broadcast + stop/resume/restart require a resolvable squad,
-//   - delete requires a configured team-home with profiles,
+//   - delete removes a session on session rows, or deletes a team profile on
+//     project rows,
 //   - new-session requires a launchable profile,
 //   - new-team requires a resolvable project (candidate or configured),
 //   - drain/message require an agent row (covered by the row-kind scope).
@@ -1608,6 +1751,9 @@ func (m NOCModel) controlActionAvailable(bnd nocKeyBinding) bool {
 		_, _, _, _, _, ok := m.selectedSquad()
 		return ok
 	case "delete":
+		if n.kind == nodeSession {
+			return strings.TrimSpace(n.project.Dir) != "" && strings.TrimSpace(n.session.Name) != "" && !isBaseRootSession(n.session)
+		}
 		p, ok := m.selectedProjectSnapshot()
 		return ok && p.TeamConfigured && len(projectLaunchProfiles(p)) > 0
 	case "N":

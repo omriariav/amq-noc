@@ -47,4 +47,7 @@ func TestAmqNOCBareRunsOnceBoard(t *testing.T) {
 	if !strings.Contains(stdout, "NOC") {
 		t.Fatalf("bare --once should render NOC output, got:\n%s", stdout)
 	}
+	if !strings.Contains(stdout, "v-test") {
+		t.Fatalf("bare --once should render binary version, got:\n%s", stdout)
+	}
 }

@@ -7,6 +7,24 @@ import (
 	"github.com/omriariav/amq-noc/internal/state"
 )
 
+func TestFooterHideStaleTokenReflectsCurrentDirection(t *testing.T) {
+	m := newNOCModel(NOCRebuildConfig{})
+	m.hideStale = true
+	footer := m.footerView()
+	if !strings.Contains(footer, "h show-stale") {
+		t.Fatalf("hidden-stale footer should advertise show-stale:\n%s", footer)
+	}
+	if strings.Contains(footer, "h hide-stale") {
+		t.Fatalf("hidden-stale footer must not contradict itself with hide-stale:\n%s", footer)
+	}
+
+	m.hideStale = false
+	footer = m.footerView()
+	if !strings.Contains(footer, "h hide-stale") {
+		t.Fatalf("visible-stale footer should advertise hide-stale:\n%s", footer)
+	}
+}
+
 // #4.2: the footer control legend shows only the mutating actions ACTUALLY
 // available on the current selection (its begin* guard would proceed), not merely
 // row-kind applicable. So availability is stateful, not just kind-based.
@@ -49,6 +67,36 @@ func TestContextFooter_AvailabilityIsStateful(t *testing.T) {
 			if strings.Contains(legend, a) {
 				t.Errorf("candidate project must not show %q (no team/profile to act on): %q", a, legend)
 			}
+		}
+	})
+
+	t.Run("plain AMQ session shows delete", func(t *testing.T) {
+		m := seededKeymapModel(t)
+		m.ms.Projects[0].TeamConfigured = false
+		m.ms.Projects[0].DefaultTeam = false
+		m.ms.Projects[0].Profiles = nil
+		if !selectFirstKind(m, nodeSession) {
+			t.Fatal("fixture has no session row")
+		}
+		legend := m.controlFooterLegendForSelection(false)
+		if !strings.Contains(legend, "Del delete") {
+			t.Fatalf("plain AMQ session should show Del delete for session cleanup: %q", legend)
+		}
+	})
+
+	t.Run("root AMQ session hides delete", func(t *testing.T) {
+		m := seededKeymapModel(t)
+		m.ms.Projects[0].TeamConfigured = false
+		m.ms.Projects[0].DefaultTeam = false
+		m.ms.Projects[0].Profiles = nil
+		m.ms.Projects[0].Snap.Sessions[0].Name = ""
+		m.ms.Projects[0].Snap.Sessions[0].Root = "/fake/proj/beta/.agent-mail"
+		if !selectFirstKind(m, nodeSession) {
+			t.Fatal("fixture has no session row")
+		}
+		legend := m.controlFooterLegendForSelection(false)
+		if strings.Contains(legend, "Del delete") {
+			t.Fatalf("root AMQ session must not show Del delete: %q", legend)
 		}
 	})
 }

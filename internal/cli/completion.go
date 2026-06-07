@@ -183,6 +183,7 @@ var completionCommonFlags = []string{
 	"--seed-from",
 	"--session",
 	"--set",
+	"--show-stale",
 	"--scope",
 	"--stagger",
 	"--stale-after",

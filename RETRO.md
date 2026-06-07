@@ -1,5 +1,16 @@
 # amq-noc Sprint Retro
 
+## 0.2.2 Notes
+
+- Operator helper commands need to be first-class UI, not decorative text. Long
+  commands now wrap, and `C copy-cmd` copies the exact underlying shell command.
+- Session cleanup must match the selected row. `Del` now deletes team profiles
+  only on project rows, removes named sessions on session rows, and explicitly
+  refuses `(root)` because it is the AMQ base mailbox.
+- Generated recovery commands must carry enough context to be safe: named
+  profiles, the active session, and whether the operator wants the current tmux
+  window or a detached new tmux session.
+
 ## 0.2.1 Notes
 
 - `running` was too strong for the deterministic signal we actually have. A

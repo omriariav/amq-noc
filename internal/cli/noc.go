@@ -95,6 +95,10 @@ var (
 // It degrades gracefully: no projects found under the roots renders a clear
 // guidance state, never a crash.
 func runNOC(args []string) error {
+	return runNOCWithVersion(args, "")
+}
+
+func runNOCWithVersion(args []string, version string) error {
 	fs := flag.NewFlagSet("noc", flag.ContinueOnError)
 	var roots rootList
 	fs.Var(&roots, "root", "directory to scan for amq-squad projects (repeatable; default: the project's parent, or cwd)")
@@ -108,6 +112,7 @@ func runNOC(args []string) error {
 	tree := fs.Bool("tree", false, "with --once: render the full root->project->session->agent tree instead of the rollup digest")
 	all := fs.Bool("all", false, "alias for --tree (full expansion under --once)")
 	hideStale := fs.Bool("hide-stale", false, "hide stopped/archived (stale) squads - focus on what is alive")
+	showStale := fs.Bool("show-stale", false, "with the live TUI: start with stopped/archived (stale) squads visible")
 	noBell := fs.Bool("no-bell", false, "mute needs-you alerts: no terminal bell + no banner when a session first needs you (default: alerts ON)")
 	jsonOut := fs.Bool("json", false, "emit a schema-versioned noc_snapshot envelope and exit")
 	actionsOut := fs.Bool("actions", false, "emit the flat NOC action queue and exit (human table by default; with --json emits noc_actions)")
@@ -130,7 +135,7 @@ Usage:
   amq-noc noc [--root DIR ...] [--depth N] [--refresh 2s]
                 [--at-risk-wait 5m] [--review-age 15m] [--stale-after 72h]
                 [--filter EXPR] [--once] [--tree|--all] [--hide-stale]
-                [--no-bell] [--json] [--actions [--action NAME[,NAME]]
+                [--show-stale] [--no-bell] [--json] [--actions [--action NAME[,NAME]]
                 [--action-id ID[,ID]] [--target-id ID[,ID]]
                 [--scope project,session,agent] [--mutating] [--commands]]
                 [--run-action ID_OR_NAME [--set key=value ...] [--dry-run] [--yes|-y]]
@@ -146,8 +151,9 @@ an agent.
 
 The NOC rewards LIVENESS: an online squad active just now sorts to the top, while
 a stopped squad whose only blocked threads are days old (older than --stale-after)
-is age-decayed to the bottom and rendered dim. Press h (or --hide-stale) to hide
-stale squads entirely.
+is age-decayed to the bottom and rendered dim. The live TUI starts with stale
+squads hidden; press h to show them, or start with --show-stale. For --once,
+--json, and --actions, use --hide-stale to opt into the same focused scope.
 
 When a session FIRST needs you (its needs-you count goes 0->N) the NOC rings the
 terminal bell once and shows a banner; start muted with --no-bell. The banner
@@ -246,6 +252,7 @@ Examples:
   amq-noc noc --run-action 'agent|/repo/app|issue-96|cto|action|message' --set body='Please check status' --yes
   amq-noc noc --once --tree
   amq-noc noc --hide-stale --stale-after 24h
+  amq-noc noc --show-stale
   amq-noc noc --no-bell
 `)
 	}
@@ -277,6 +284,10 @@ Examples:
 	if !runActionSet && (flagWasSet(fs, "yes") || flagWasSet(fs, "y")) {
 		return usageErrorf("--yes/-y requires --run-action")
 	}
+	if *hideStale && *showStale {
+		return usageErrorf("--hide-stale and --show-stale cannot be combined")
+	}
+	startHideStale := nocStartHideStale(*once, *jsonOut, *actionsOut, runActionSet, *hideStale, *showStale)
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -289,6 +300,7 @@ Examples:
 
 	return executeNOC(nocExecution{
 		Cwd:              cwd,
+		Version:          version,
 		Roots:            []string(roots),
 		Depth:            *depth,
 		Refresh:          *refresh,
@@ -298,7 +310,7 @@ Examples:
 		Filter:           *filter,
 		Once:             *once,
 		Tree:             *tree || *all,
-		HideStale:        *hideStale,
+		HideStale:        startHideStale,
 		NoBell:           *noBell,
 		JSON:             *jsonOut,
 		Actions:          *actionsOut,
@@ -320,11 +332,22 @@ Examples:
 	})
 }
 
+func nocStartHideStale(once, jsonOut, actionsOut, runActionSet, hideFlag, showFlag bool) bool {
+	if showFlag {
+		return false
+	}
+	if hideFlag {
+		return true
+	}
+	return !once && !jsonOut && !actionsOut && !runActionSet
+}
+
 // nocExecution carries the resolved inputs for the noc verb so tests can drive
 // dispatch with seams (no real TTY, a captured RunNOC) without starting a
 // Bubble Tea program.
 type nocExecution struct {
 	Cwd            string
+	Version        string
 	Roots          []string
 	Depth          int
 	Refresh        time.Duration
@@ -408,6 +431,7 @@ func executeNOC(s nocExecution) error {
 	}
 
 	cfg := console.NOCConfig{
+		Version:       s.Version,
 		Roots:         roots,
 		Depth:         s.Depth,
 		Thresholds:    thresholds,

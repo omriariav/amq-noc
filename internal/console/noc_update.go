@@ -55,6 +55,10 @@ func (m *NOCModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.preserveSelection()
 		return m, nil
 
+	case commandCopyMsg:
+		m.handleCommandCopyResult(msg)
+		return m, nil
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -115,6 +119,9 @@ func (m *NOCModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// same preview-gated T/N editors.
 	if m.palette != nil {
 		return m.handlePaletteKey(msg)
+	}
+	if m.commandPicker != nil {
+		return m, m.handleCommandPickerKey(msg.String())
 	}
 	if m.filterEditing {
 		return m.handleFilterKey(msg)
@@ -182,6 +189,9 @@ func (m *NOCModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// never on nocTickMsg — and clears on the next keypress (block above).
 		m.refreshNote = "refreshed (just now)"
 		return m, nocRebuildCmd(m.rebuild)
+	case "C":
+		m.beginCommandPicker()
+		return m, nil
 	case "/":
 		m.filterEditing = true
 		return m, nil

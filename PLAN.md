@@ -1,5 +1,24 @@
 # amq-noc Release Plan
 
+## amq-noc 0.2.2 Goal
+
+Ship the post-0.2.1 TUI operator polish patch.
+
+- Show the resolved binary version in the live/static NOC header so operators
+  can confirm which build they are looking at.
+- Start the live TUI with stale/idle projects hidden by default; keep
+  `--show-stale` and `h` as explicit reveal controls.
+- Include the effective amq-squad named profile in generated helper commands.
+- Prefer the single active session for project-row helper commands, avoiding
+  accidental fallback to a profile's older configured workstream.
+- Add wrapped right-pane helper commands plus `C copy-cmd`, a numbered
+  clipboard picker that copies the exact command.
+- Offer both tmux launch choices in helper commands:
+  `--target current-window` and `--target new-session`.
+- Make `Del` row-sensitive: project rows delete team profiles, named session
+  rows remove sessions, and root AMQ mailbox rows explain that they are not
+  removable sessions.
+
 ## amq-noc 0.2.1 Goal
 
 Ship the focused status-language and resumed-session liveness fix.

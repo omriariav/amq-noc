@@ -686,6 +686,71 @@ func TestKickRecoverLines(t *testing.T) {
 		!strings.Contains(joined, "amq-squad resume --project /repo/app --session issue-96") {
 		t.Fatalf("squad session commands wrong:\n%s", joined)
 	}
+	named := kickRecoverLines(noc.ProjectSnapshot{
+		Dir:            "/repo/app",
+		TeamConfigured: true,
+		SessionStore:   true,
+		Profiles:       []string{"testers"},
+		Snap: state.Snapshot{Sessions: []state.Session{{
+			Name: "issue-96",
+			Agents: []state.Agent{
+				{Handle: "claude-tester", TeamProfile: "testers"},
+				{Handle: "codex-tester", TeamProfile: "testers"},
+			},
+		}}},
+	}, "issue-96", "")
+	nj := strings.Join(named, "\n")
+	if !strings.Contains(nj, "amq-squad status --project /repo/app --profile testers --session issue-96") ||
+		!strings.Contains(nj, "amq-squad resume --project /repo/app --profile testers --session issue-96") {
+		t.Fatalf("named-profile squad session commands missing --profile:\n%s", nj)
+	}
+	for _, want := range []string{
+		"amq-squad resume --project /repo/app --profile testers --exec --target current-window --session issue-96",
+		"amq-squad resume --project /repo/app --profile testers --exec --target new-session --terminal-session amq-squad-app-issue-96 --session issue-96",
+	} {
+		if !strings.Contains(nj, want) {
+			t.Fatalf("named-profile squad session commands missing %q:\n%s", want, nj)
+		}
+	}
+	projectNamed := strings.Join(kickRecoverLines(noc.ProjectSnapshot{Dir: "/repo/app", TeamConfigured: true, SessionStore: true, Profiles: []string{"testers"}}, "", ""), "\n")
+	for _, want := range []string{
+		"amq-squad status --project /repo/app --profile testers",
+		"amq-squad resume --project /repo/app --profile testers",
+		"amq-squad up --project /repo/app --profile testers",
+	} {
+		if !strings.Contains(projectNamed, want) {
+			t.Fatalf("named-profile project commands missing %q:\n%s", want, projectNamed)
+		}
+	}
+	activeProject := strings.Join(kickRecoverLines(noc.ProjectSnapshot{
+		Dir:            "/repo/app",
+		TeamConfigured: true,
+		SessionStore:   true,
+		Profiles:       []string{"testers"},
+		Snap: state.Snapshot{Sessions: []state.Session{
+			{
+				Name:   "active-session",
+				Agents: []state.Agent{{Handle: "codex-tester", TeamProfile: "testers", Liveness: state.LivenessAlive}},
+			},
+			{
+				Name:   "old-session",
+				Agents: []state.Agent{{Handle: "codex-tester", TeamProfile: "testers", Liveness: state.LivenessDead}},
+			},
+		}},
+	}, "", ""), "\n")
+	for _, want := range []string{
+		"amq-squad status --project /repo/app --profile testers --session active-session",
+		"amq-squad resume --project /repo/app --profile testers --session active-session",
+		"amq-squad resume --project /repo/app --profile testers --exec --target current-window --session active-session",
+		"amq-squad resume --project /repo/app --profile testers --exec --target new-session --terminal-session amq-squad-app-active-session --session active-session",
+	} {
+		if !strings.Contains(activeProject, want) {
+			t.Fatalf("active named-profile project command missing %q:\n%s", want, activeProject)
+		}
+	}
+	if strings.Contains(activeProject, "old-session") {
+		t.Fatalf("active project command should not point at stale session:\n%s", activeProject)
+	}
 	plain := kickRecoverLines(noc.ProjectSnapshot{Dir: "/repo/app", SessionStore: true}, "", "/repo/app/.agent-mail")
 	pj := strings.Join(plain, "\n")
 	for _, want := range []string{
@@ -701,6 +766,100 @@ func TestKickRecoverLines(t *testing.T) {
 	}
 	if strings.Contains(pj, "amq-squad") {
 		t.Fatalf("plain amq must not suggest amq-squad:\n%s", pj)
+	}
+	plainSession := strings.Join(kickRecoverLines(
+		noc.ProjectSnapshot{Dir: "/repo/app", SessionStore: true},
+		"old-session",
+		"/repo/app/.agent-mail/old-session",
+	), "\n")
+	for _, want := range []string{
+		"amq-squad archive --project /repo/app --yes old-session",
+		"amq-squad rm --project /repo/app --yes old-session",
+		"amq who --root /repo/app/.agent-mail/old-session",
+	} {
+		if !strings.Contains(plainSession, want) {
+			t.Fatalf("plain AMQ session commands missing %q:\n%s", want, plainSession)
+		}
+	}
+}
+
+func TestCommandsSectionWrapsLongCommandsToDetailWidth(t *testing.T) {
+	ps := noc.ProjectSnapshot{
+		Project:        "app",
+		Dir:            "/Users/example/Code/very-long-project-name",
+		TeamConfigured: true,
+		SessionStore:   true,
+		Profiles:       []string{"testers"},
+		Snap: state.Snapshot{Sessions: []state.Session{{
+			Name:   "fabric-ud-feedback",
+			Agents: []state.Agent{{Handle: "codex-tester", TeamProfile: "testers", Liveness: state.LivenessAlive}},
+		}}},
+	}
+	m := newNOCModel(NOCRebuildConfig{})
+	m.colorMode = ColorNone
+	m.th = newNOCTheme(ColorNone)
+	m.width = 92
+	out := m.commandsSection(ps, "", "")
+	limit := m.commandDisplayWidth()
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "amq-squad ") {
+			continue
+		}
+		if visibleWidth(line) > limit {
+			t.Fatalf("command line overflows detail width %d (%d cols):\n%s\nfull:\n%s", limit, visibleWidth(line), line, out)
+		}
+	}
+}
+
+func TestCommandPickerCopiesExactSelectedCommand(t *testing.T) {
+	ps := noc.ProjectSnapshot{
+		Project:        "app",
+		Dir:            "/repo/app",
+		TeamConfigured: true,
+		SessionStore:   true,
+		Profiles:       []string{"testers"},
+		Snap: state.Snapshot{Sessions: []state.Session{{
+			Name:   "issue-96",
+			Agents: []state.Agent{{Handle: "codex-tester", TeamProfile: "testers", Liveness: state.LivenessAlive}},
+		}}},
+	}
+	m := newNOCModel(NOCRebuildConfig{})
+	m.colorMode = ColorNone
+	m.th = newNOCTheme(ColorNone)
+	m.width = 90
+	m.ms = noc.MultiSnapshot{Projects: []noc.ProjectSnapshot{ps}}
+	m.ready = true
+	var copied string
+	m.copyText = func(s string) error {
+		copied = s
+		return nil
+	}
+
+	mm, cmd := m.Update(keyMsg("C"))
+	m = *mm.(*NOCModel)
+	if cmd != nil {
+		t.Fatal("opening command picker should not copy yet")
+	}
+	if m.commandPicker == nil || len(m.commandPicker.commands) != 4 {
+		t.Fatalf("command picker = %+v, want four commands", m.commandPicker)
+	}
+	if !strings.Contains(m.commandPickerOverlayView(), "1-4") {
+		t.Fatalf("command picker overlay should show numbered choices:\n%s", m.commandPickerOverlayView())
+	}
+
+	mm, cmd = m.Update(keyMsg("3"))
+	m = *mm.(*NOCModel)
+	if cmd == nil {
+		t.Fatal("choosing command should return copy command")
+	}
+	msg := cmd()
+	mm, _ = m.Update(msg)
+	m = *mm.(*NOCModel)
+	if !strings.Contains(copied, "--exec --target current-window") || !strings.Contains(copied, "--session issue-96") {
+		t.Fatalf("copied command = %q, want exact current-window resume command", copied)
+	}
+	if !strings.Contains(m.actNote, "copied command") {
+		t.Fatalf("copy success note missing, actNote=%q", m.actNote)
 	}
 }
 
@@ -993,6 +1152,25 @@ func TestRunNOC_OnceWritesPlainTextToBuffer(t *testing.T) {
 	}
 	if !strings.Contains(out, "squad") {
 		t.Errorf("--once board missing header pulse:\n%s", out)
+	}
+}
+
+func TestRunNOC_OnceRendersVersionInHeader(t *testing.T) {
+	root, _ := seedNOCFixture(t)
+	var buf bytes.Buffer
+	err := RunNOC(NOCConfig{
+		Version: "v-test",
+		Roots:   []string{root},
+		Depth:   noc.DefaultDepth,
+		Once:    true,
+		Out:     &buf,
+	})
+	if err != nil {
+		t.Fatalf("RunNOC --once: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "amq-noc NOC  v-test  command center") {
+		t.Fatalf("--once header missing version:\n%s", out)
 	}
 }
 

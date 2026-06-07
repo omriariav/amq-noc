@@ -102,9 +102,10 @@
       <li><strong>stale</strong>: the team/session is dead or old enough to demote.</li>
     </ul>
     <p>JSON snapshots use the same primary vocabulary as the TUI. In <code>v0.2.1</code>, <code>state</code> and <code>reason_code</code> values for live/no-wait rows changed from <code>running</code> to <code>online</code>; filters still accept <code>running</code> as an alias for <code>online</code>.</p>
+    <p><code>v0.2.2</code> adds wrapped right-pane helper commands, <code>C copy-cmd</code> clipboard copy, tmux recovery helpers for current-window and new-session launches, and row-sensitive delete behavior for team profiles, named sessions, and root AMQ mailbox rows.</p>
 
     <h2>Install</h2>
-    <pre><code>go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.2.1</code></pre>
+    <pre><code>go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.2.2</code></pre>
     <p>Requires Go 1.25+, <code>amq</code>, <code>amq-squad</code> v1.4.1 or newer, and <code>tmux</code>.</p>
 
     <h2>Quick Start</h2>

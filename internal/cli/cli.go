@@ -41,7 +41,7 @@ func Run(args []string, version string) error {
 		return nil
 	}
 	if len(args) == 0 {
-		return runNOC(nil)
+		return runNOCWithVersion(nil, version)
 	}
 	if args[0] == "--version" || args[0] == "-v" {
 		fmt.Println("amq-noc", version)
@@ -56,13 +56,13 @@ func Run(args []string, version string) error {
 	}
 
 	if strings.HasPrefix(args[0], "-") {
-		err := runNOC(args)
+		err := runNOCWithVersion(args, version)
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
 		}
 		return err
 	}
-	err = dispatch(args)
+	err = dispatch(args, version)
 	if errors.Is(err, flag.ErrHelp) {
 		return nil
 	}
@@ -100,10 +100,10 @@ type versionEnvelopeData struct {
 	Version string `json:"version"`
 }
 
-func dispatch(args []string) error {
+func dispatch(args []string, version string) error {
 	switch args[0] {
 	case "noc":
-		return runNOC(args[1:])
+		return runNOCWithVersion(args[1:], version)
 	default:
 		return usageErrorf("unknown command: %q. Run 'amq-noc --help' for usage.", args[0])
 	}

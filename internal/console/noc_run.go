@@ -17,6 +17,7 @@ import (
 
 // NOCConfig is the NOC entrypoint's configuration.
 type NOCConfig struct {
+	Version       string
 	Roots         []string
 	Depth         int
 	Thresholds    state.Thresholds
@@ -1146,6 +1147,7 @@ func runNOCOnce(cfg NOCConfig) error {
 	ms := noc.Collect(rebuild.Roots, rebuild.Depth, rebuild.Probe, rebuild.Thresholds)
 
 	m := newNOCModel(rebuild)
+	m.version = cfg.Version
 	// --once renders to a (possibly non-TTY) writer: resolve color from the
 	// writer, not from an assumed interactive terminal.
 	mode := resolveColorMode(writerIsTTY(cfg.Out))
@@ -1176,6 +1178,7 @@ func runNOCLive(cfg NOCConfig) error {
 	defer tty.Close()
 
 	m := newNOCModel(rebuild)
+	m.version = cfg.Version
 	if cfg.InitialFilter != "" {
 		m.filter = cfg.InitialFilter
 	}

@@ -82,8 +82,8 @@ func keyHasEffect(t *testing.T, key string) bool {
 
 // navSig is a full observable-state signature of the model.
 func navSig(m *NOCModel) string {
-	return fmt.Sprintf("cur=%d help=%v flow=%v hide=%v editing=%v filter=%q tree=%v|%v\n%s",
-		m.cursor, m.showHelp, m.showFlow, m.hideStale, m.filterEditing, m.filter,
+	return fmt.Sprintf("cur=%d help=%v flow=%v cmd=%v hide=%v editing=%v filter=%q tree=%v|%v\n%s",
+		m.cursor, m.showHelp, m.showFlow, m.commandPicker != nil, m.hideStale, m.filterEditing, m.filter,
 		m.tree.collapsed, m.tree.expanded, m.staticView())
 }
 

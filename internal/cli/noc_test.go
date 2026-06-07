@@ -35,6 +35,7 @@ func TestExecuteNOC_PassesRootsAndThresholds(t *testing.T) {
 	var cap captureNOC
 	exec := nocExecution{
 		Cwd:         "/tmp/proj",
+		Version:     "v-test",
 		Roots:       []string{"/tmp/a", "/tmp/b"},
 		Depth:       5,
 		Filter:      "needs-you",
@@ -60,6 +61,9 @@ func TestExecuteNOC_PassesRootsAndThresholds(t *testing.T) {
 	}
 	if cap.cfg.InitialFilter != "needs-you" {
 		t.Errorf("InitialFilter = %q, want needs-you", cap.cfg.InitialFilter)
+	}
+	if cap.cfg.Version != "v-test" {
+		t.Errorf("Version = %q, want v-test", cap.cfg.Version)
 	}
 	if cap.cfg.Lifecycle == nil {
 		t.Error("Lifecycle seam should be wired")
@@ -147,6 +151,35 @@ func TestExecuteNOC_PassesRootsAndThresholds(t *testing.T) {
 	}
 	if cap.cfg.Status == nil {
 		t.Error("Status seam should be wired")
+	}
+}
+
+func TestNOCStartHideStaleDefaultsToFocusedLiveTUI(t *testing.T) {
+	cases := []struct {
+		name         string
+		once         bool
+		jsonOut      bool
+		actionsOut   bool
+		runActionSet bool
+		hideFlag     bool
+		showFlag     bool
+		want         bool
+	}{
+		{name: "live TUI hides by default", want: true},
+		{name: "show stale opts live TUI out", showFlag: true, want: false},
+		{name: "once remains explicit", once: true, want: false},
+		{name: "json remains explicit", jsonOut: true, want: false},
+		{name: "actions remains explicit", actionsOut: true, want: false},
+		{name: "run action remains explicit", runActionSet: true, want: false},
+		{name: "hide flag still scopes static paths", once: true, hideFlag: true, want: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := nocStartHideStale(tc.once, tc.jsonOut, tc.actionsOut, tc.runActionSet, tc.hideFlag, tc.showFlag)
+			if got != tc.want {
+				t.Fatalf("nocStartHideStale() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 

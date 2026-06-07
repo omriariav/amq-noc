@@ -53,13 +53,14 @@ var nocKeyMap = []nocKeyBinding{
 	{Keys: []string{"h"}, HelpDisplay: "h", Label: "toggle hiding stopped/stale squads", Footer: "h hide-stale", FooterAscii: "h hide-stale", Group: keyGroupView},
 	{Keys: []string{"f"}, HelpDisplay: "f", Label: "toggle the inter-agent flow graph in the detail pane", Footer: "f flow", FooterAscii: "f flow", Group: keyGroupView},
 	{Keys: []string{"g"}, HelpDisplay: "g", Label: "refresh now", Footer: "g refresh", FooterAscii: "g refresh", Group: keyGroupView},
+	{Keys: []string{"C"}, HelpDisplay: "C", Label: "pick a right-pane helper command to copy", Footer: "C copy-cmd", FooterAscii: "C copy-cmd", Group: keyGroupView},
 	{Keys: []string{"esc"}, HelpDisplay: "esc", Label: "clear filter / collapse / back", Footer: "esc back", FooterAscii: "esc back", Group: keyGroupView},
 	{Keys: []string{"?"}, HelpDisplay: "?", Label: "toggle this help", Footer: "? help", FooterAscii: "? help", Group: keyGroupView},
 	{Keys: []string{"q", "ctrl+c"}, HelpDisplay: "q", Label: "quit", Footer: "q quit", FooterAscii: "q quit", Group: keyGroupView},
 
 	// Control (mutating; every key previews + confirms before it touches a squad).
 	// Scopes mirror each begin* handler's "applies to ..." guard in noc_control.go.
-	{Keys: []string{"delete"}, HelpDisplay: "Del", Label: "delete a team profile (preview + confirm)", Footer: "Del delete", FooterAscii: "Del delete", Group: keyGroupAction, Mutating: true, Scopes: []nocNodeKind{nodeProject, nodeSession}},
+	{Keys: []string{"delete"}, HelpDisplay: "Del", Label: "delete selected session or team profile (preview + confirm)", Footer: "Del delete", FooterAscii: "Del delete", Group: keyGroupAction, Mutating: true, Scopes: []nocNodeKind{nodeProject, nodeSession}},
 	{Keys: []string{"d"}, HelpDisplay: "d", Label: "drain the selected agent inbox with bodies (preview + confirm)", Footer: "d drain", FooterAscii: "d drain", Group: keyGroupAction, Mutating: true, Scopes: []nocNodeKind{nodeAgent}},
 	{Keys: []string{"a"}, HelpDisplay: "a", Label: "approve the selected needs-you thread", Footer: "a approve", FooterAscii: "a approve", Group: keyGroupAction, Mutating: true, Scopes: []nocNodeKind{nodeSession, nodeAgent}},
 	{Keys: []string{"r"}, HelpDisplay: "r", Label: "reply to the selected needs-you thread", Footer: "r reply", FooterAscii: "r reply", Group: keyGroupAction, Mutating: true, Scopes: []nocNodeKind{nodeSession, nodeAgent}},

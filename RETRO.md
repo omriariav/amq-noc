@@ -1,5 +1,17 @@
 # amq-noc Sprint Retro
 
+## 0.2.1 Notes
+
+- `running` was too strong for the deterministic signal we actually have. A
+  live agent can be standing by with no active task, so the operator-facing
+  status is now `online`.
+- Keep status labels grounded in observable facts: `needs-you` for structural
+  operator gates, `waiting` for live non-human coordination waits, `online` for
+  live/no-current-wait, and `stale` for dead or old context.
+- JSON and TUI need to agree. The 0.2.1 fix keeps primary `state`,
+  `reason_code`, session `attention`, and agent `attention` aligned while
+  preserving superseded at-risk evidence in thread detail.
+
 ## 0.2.0 Notes
 
 This sprint focused on making the TUI more trustworthy as an operator control

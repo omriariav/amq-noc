@@ -5,6 +5,7 @@
 // Syntax (case-insensitive), evaluated against a project / session / agent:
 //
 //	needs-you | gated | at-risk | blocked -> triage class (matches the rolled-up state)
+//	online | running | waiting | stale    -> visible NOC state (running is an alias)
 //	agent:<h>                       -> agent handle prefix/substring
 //	model:<e>                       -> agent engine (claude/codex/...)
 //	project:<p>                     -> project name
@@ -22,7 +23,7 @@ import (
 
 // nocFilterClause is one parsed filter token.
 type nocFilterClause struct {
-	key string // "", "agent", "model", "project", "session", "triage"
+	key string // "", "agent", "model", "project", "session", "triage", "state"
 	val string // lowercased value
 }
 
@@ -50,6 +51,15 @@ func parseNOCFilter(filter string) []nocFilterClause {
 			continue
 		case "stale-blocked", "staleblocked", "stale_blocked":
 			clauses = append(clauses, nocFilterClause{key: "triage", val: "stale-blocked"})
+			continue
+		case "online", "running":
+			clauses = append(clauses, nocFilterClause{key: "state", val: "online"})
+			continue
+		case "waiting":
+			clauses = append(clauses, nocFilterClause{key: "state", val: "waiting"})
+			continue
+		case "stale", "stopped":
+			clauses = append(clauses, nocFilterClause{key: "state", val: "stale"})
 			continue
 		}
 		if i := strings.IndexByte(tok, ':'); i >= 0 {
@@ -85,6 +95,8 @@ func projectSatisfies(ps noc.ProjectSnapshot, c nocFilterClause) bool {
 	switch c.key {
 	case "triage":
 		return triageMatchesRollup(c.val, ps.Snap.Rollup)
+	case "state":
+		return nocVisibleStateMatches(c.val, projectRollupState(ps))
 	case "project":
 		return strings.Contains(strings.ToLower(ps.Project), c.val)
 	default:
@@ -142,6 +154,8 @@ func sessionSatisfies(sess state.Session, c nocFilterClause) bool {
 	switch c.key {
 	case "triage":
 		return triageMatchesRollup(c.val, sess.Rollup)
+	case "state":
+		return nocVisibleStateMatches(c.val, sessionRollupState(sess))
 	case "session":
 		return strings.Contains(strings.ToLower(sess.Name), c.val)
 	case "project":
@@ -256,6 +270,9 @@ func agentSatisfiesInProjectSession(ps noc.ProjectSnapshot, sess state.Session, 
 			}
 		}
 	}
+	if c.key == "state" {
+		return nocVisibleStateMatches(c.val, agentNodeState(sess, ag))
+	}
 	return agentSatisfies(ag, c)
 }
 
@@ -270,11 +287,26 @@ func agentSatisfies(ag state.Agent, c nocFilterClause) bool {
 		// so its (possibly matching) session still shows. Session/project scope
 		// enforces the triage class.
 		return true
+	case "state":
+		return nocVisibleStateMatches(c.val, agentState(ag))
 	case "session", "project":
 		return true
 	default:
 		hay := strings.ToLower(ag.Handle + " " + ag.Role + " " + ag.Engine)
 		return strings.Contains(hay, c.val)
+	}
+}
+
+func nocVisibleStateMatches(class string, s nocState) bool {
+	switch visibleState(s) {
+	case nocNeedsYou:
+		return class == "needs-you"
+	case nocWaiting:
+		return class == "waiting"
+	case nocRunning:
+		return class == "online"
+	default:
+		return class == "stale"
 	}
 }
 

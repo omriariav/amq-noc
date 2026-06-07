@@ -114,7 +114,7 @@ func TestNOC_RunningAtRiskOutranksStoppedStale(t *testing.T) {
 		t.Fatalf("expected 2 projects, got %d", len(ms.Projects))
 	}
 	if ms.Projects[0].Project != "live" {
-		t.Fatalf("running at-risk squad must rank first, got order: %s, %s",
+		t.Fatalf("online at-risk squad must rank first, got order: %s, %s",
 			ms.Projects[0].Project, ms.Projects[1].Project)
 	}
 	if ms.Projects[1].Project != "old" {
@@ -152,8 +152,8 @@ func TestNOC_HeadlineSeparatesLiveFromStale(t *testing.T) {
 	m.ready = true
 	pulse := m.pulseLine()
 
-	if !strings.Contains(pulse, "0 running") {
-		t.Errorf("headline should show zero running squad rows because the live squad is waiting:\n%s", pulse)
+	if !strings.Contains(pulse, "0 online") {
+		t.Errorf("headline should show zero online squad rows because the live squad is waiting:\n%s", pulse)
 	}
 	if strings.Contains(pulse, "at-risk(live)") {
 		t.Errorf("headline should not expose at-risk(live) as primary:\n%s", pulse)
@@ -197,10 +197,10 @@ func TestNOC_OnceRendersRollupsAndNeedsAttention(t *testing.T) {
 	if !strings.Contains(digest, "live") || !strings.Contains(digest, "old") {
 		t.Errorf("rollup digest should list both squads:\n%s", digest)
 	}
-	// The running at-risk squad heads the needs-attention section; the stale
+	// The online at-risk squad heads the needs-attention section; the stale
 	// squad collapses to the simplified stale surface, never live attention.
-	if !strings.Contains(digest, "running 2/2 agents alive") {
-		t.Errorf("rollup should show the unambiguous liveness phrase 'running 2/2 agents alive':\n%s", digest)
+	if !strings.Contains(digest, "online 2/2 agents alive") {
+		t.Errorf("rollup should show the unambiguous liveness phrase 'online 2/2 agents alive':\n%s", digest)
 	}
 	if !strings.Contains(digest, "1 stale") {
 		t.Errorf("stale squad should render as simplified stale:\n%s", digest)
@@ -292,7 +292,7 @@ func TestNOC_HideStaleTogglesStaleSquads(t *testing.T) {
 		}
 	}
 	if !hasLive {
-		t.Error("the running squad 'live' must remain visible when hiding stale")
+		t.Error("the online squad 'live' must remain visible when hiding stale")
 	}
 
 	// Press 'h' again: stale squads return.

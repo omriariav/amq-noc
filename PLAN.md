@@ -1,5 +1,25 @@
 # amq-noc Release Plan
 
+## amq-noc 0.2.1 Goal
+
+Ship the focused status-language and resumed-session liveness fix.
+
+- Treat a recorded PID that returns `EPERM` to signal-0 as alive: the process
+  exists even if this user cannot signal it.
+- Treat fresh active AMQ presence plus an alive recorded PID as an operational
+  live agent, even when process-argument matching is unavailable or partial.
+- Suppress old owned `at-risk` attention when the session has newer clear
+  activity, while retaining the old evidence in thread/rollup detail.
+- Rename the operator-facing live/no-wait status from `running` to `online`.
+  `running` implied active work; `online` only claims deterministic liveness.
+- Rename JSON `noc_snapshot` primary `state` and `reason_code` values from
+  `running` to `online` for the same live/no-wait state; document this as a
+  compatibility change for clients.
+- Keep the simplified primary status model:
+  `needs-you`, `waiting`, `online`, and `stale`.
+- Keep `/ running` as a filter alias for `/ online` during the vocabulary
+  transition.
+
 ## amq-noc 0.2.0 Goal
 
 Work through the open GitHub issues and ship `amq-noc v0.2.0` as a more

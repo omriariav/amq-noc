@@ -79,7 +79,7 @@ func (m *NOCModel) refreshGuidance() {
 //	→/l or enter   expand a collapsed parent / drill in (navigation only)
 //	←              collapse the current node (or ascend to its parent)
 //	h              toggle hiding stopped/stale squads
-//	/              filter (needs-you/waiting/running/stale/agent:/model:/project:/session:)
+//	/              filter (needs-you/waiting/online/stale/agent:/model:/project:/session:)
 //	f              toggle the inter-agent flow graph in the detail pane
 //	g              refresh now
 //	esc            clear filter / collapse / back
@@ -300,7 +300,7 @@ func noJumpReason(l state.Liveness) string {
 	case state.LivenessMissing:
 		return "no live process for this agent — resume the session to launch it"
 	default:
-		return "agent is not running — nothing to jump to (enter jumps only on a running agent)"
+		return "agent is not online — nothing to jump to (enter jumps only on an online agent)"
 	}
 }
 
@@ -341,7 +341,7 @@ func (m *NOCModel) jump() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if !n.canJump {
-		m.jumpNote = "agent is not running — cannot jump"
+		m.jumpNote = "agent is not online — cannot jump"
 		return m, nil
 	}
 	who := strings.TrimSpace(n.agent.Role)

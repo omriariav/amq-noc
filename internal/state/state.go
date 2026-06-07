@@ -24,9 +24,11 @@
 package state
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -172,7 +174,8 @@ func defaultPIDAlive(pid int) bool {
 	if err != nil {
 		return false
 	}
-	return proc.Signal(syscallSignalZero) == nil
+	err = proc.Signal(syscallSignalZero)
+	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 // defaultProcessMatch reads the process command line for pid via `ps` and

@@ -45,14 +45,18 @@ sessions.
 
 The primary visible statuses are intentionally simple:
 
-- `running`: at least one agent in the team/session is active.
+- `online`: at least one agent in the team/session is live, with no current wait detected.
 - `needs-you`: an agent sent a structural question to the operator mailbox.
-- `waiting`: work is not actively running and is not waiting on the operator.
+- `waiting`: a live agent is waiting on another agent or non-human coordination.
 - `stale`: the team/session is dead or old enough to demote.
 
 Thread-level evidence such as blocked, gated, and at-risk is still collected for
 detail panes and diagnostics, but the main tree leads with the operational state
 of projects, sessions, and agents.
+
+JSON snapshots use the same primary vocabulary as the TUI. In `v0.2.1`,
+`state` and `reason_code` values for live/no-wait rows changed from `running` to
+`online`; filters still accept `running` as an alias for `online`.
 
 ## Features
 
@@ -72,7 +76,7 @@ of projects, sessions, and agents.
 ## Install
 
 ```sh
-go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.2.0
+go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.2.1
 ```
 
 Requirements:

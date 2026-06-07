@@ -181,8 +181,10 @@ func classifyAgent(e launch.Entry, probe Probe) Agent {
 	}
 
 	// --- Agent PID liveness (the authoritative live signal). ---
+	agentPIDAlive := false
 	agentPIDLive := false
 	if rec.AgentPID > 0 && probe.PIDAlive(rec.AgentPID) {
+		agentPIDAlive = true
 		if rec.Binary == "" || probe.ProcessMatch(rec.AgentPID, agentProcessMatcher(rec.Binary)) {
 			agentPIDLive = true
 		}
@@ -214,11 +216,11 @@ func classifyAgent(e launch.Entry, probe Probe) Agent {
 	case wakeAlive:
 		a.Liveness = LivenessWakeLive
 	case presenceActiveFresh:
-		// Presence says active and fresh, but the agent PID is NOT verified
-		// alive. If we have a recorded agent PID and it is confirmed dead, this
-		// is the explicit dead-process / live-mailbox case — surface it as its
-		// own status, never as plain "alive" or "stale".
-		if rec.AgentPID > 0 && !agentPIDLive {
+		// Presence says active and fresh. If the recorded agent PID is confirmed
+		// dead, surface the explicit dead-process / live-mailbox case. If the PID
+		// is alive but process-args verification failed or was unavailable, trust
+		// the fresh active mailbox instead of misclassifying a live agent.
+		if rec.AgentPID > 0 && !agentPIDAlive {
 			a.Liveness = LivenessDeadMailboxLive
 		} else {
 			a.Liveness = LivenessAlive

@@ -2,7 +2,7 @@
 //
 // Layout:
 //  1. HEADER "pulse": a brand rule + a single rollup line
-//     "<N> squads · <n> running · <n> needs you · <n> at-risk · <n> blocked · <clock>".
+//     "<N> squads · <n> online · <n> needs-you · <n> waiting · <n> stale · <clock>".
 //     The needs-you segment is bold/hot when >0, all-dim (calm) when 0.
 //  2. MAIN two-pane: LEFT a collapsible attention-first tree (root → project →
 //     session → agent); RIGHT a detail pane for the selected node.
@@ -390,8 +390,8 @@ func attnReasonPhrase(th state.ThreadSummary) string {
 }
 
 // rollupView is the --once digest: a NEEDS YOU block (operator action required)
-// and a NEEDS ATTENTION section (running squads that carry live at-risk/blocked,
-// or needs-you) on top, then a compact PROJECT ROLLUPS list (one line per squad,
+// and a NEEDS ATTENTION section (current operator action or live non-human waits)
+// on top, then a compact PROJECT ROLLUPS list (one line per squad,
 // attention-first). Stale-only squads render dim with their stale counts
 // parenthesized, never as live attention.
 func (m NOCModel) rollupView() string {
@@ -566,7 +566,7 @@ func (m NOCModel) headerView() string {
 }
 
 // pulseLine is the operator-scan headline. It keeps the primary model compact:
-// squads, running, needs-you, blocked, stale. Granular at-risk/gated/stale
+// squads, online, needs-you, waiting, stale. Granular at-risk/gated/stale
 // buckets remain in row tallies, detail panes, and JSON.
 func (m NOCModel) pulseLine() string {
 	projects := m.scopedProjects()
@@ -578,7 +578,7 @@ func (m NOCModel) pulseLine() string {
 
 	segs := []string{
 		dim(nocCount(squads, "squad", "squads")),
-		dim(strconv.Itoa(tally.Running) + " running"),
+		dim(strconv.Itoa(tally.Running) + " online"),
 	}
 
 	// needs-you: the single eye-grab for current operator action. Count visible
@@ -1060,7 +1060,7 @@ func (m NOCModel) childTallyText(t nocChildTally) string {
 		parts = append(parts, m.th.paint(m.th.atRisk, strconv.Itoa(t.Waiting)+" waiting"))
 	}
 	if t.Running > 0 {
-		parts = append(parts, m.th.paint(m.th.running, strconv.Itoa(t.Running)+" running"))
+		parts = append(parts, m.th.paint(m.th.running, strconv.Itoa(t.Running)+" online"))
 	}
 	if t.Stale > 0 {
 		parts = append(parts, m.th.paint(m.th.dim, strconv.Itoa(t.Stale)+" stale"))
@@ -1638,7 +1638,7 @@ func (m NOCModel) helpView() string {
 	lines = append(lines,
 		"",
 		"PRIMARY STATUS MODEL",
-		"  running           team is alive and working, nothing outstanding",
+		"  online            team/session/agent is live; no current wait detected",
 		"  waiting           an operational agent is waiting on non-human work (peer review, block, or gate)",
 		"  needs-you         an agent is explicitly waiting for operator action now",
 		"  stale             stopped, aged, or historical context",

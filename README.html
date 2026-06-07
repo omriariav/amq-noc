@@ -96,14 +96,15 @@
 
     <h2>What It Shows</h2>
     <ul>
-      <li><strong>running</strong>: at least one agent in the team/session is active.</li>
+      <li><strong>online</strong>: at least one agent in the team/session is live, with no current wait detected.</li>
       <li><strong>needs-you</strong>: an agent sent a structural question to the operator mailbox.</li>
-      <li><strong>waiting</strong>: work is not actively running and is not waiting on the operator.</li>
+      <li><strong>waiting</strong>: a live agent is waiting on another agent or non-human coordination.</li>
       <li><strong>stale</strong>: the team/session is dead or old enough to demote.</li>
     </ul>
+    <p>JSON snapshots use the same primary vocabulary as the TUI. In <code>v0.2.1</code>, <code>state</code> and <code>reason_code</code> values for live/no-wait rows changed from <code>running</code> to <code>online</code>; filters still accept <code>running</code> as an alias for <code>online</code>.</p>
 
     <h2>Install</h2>
-    <pre><code>go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.2.0</code></pre>
+    <pre><code>go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.2.1</code></pre>
     <p>Requires Go 1.25+, <code>amq</code>, <code>amq-squad</code> v1.4.1 or newer, and <code>tmux</code>.</p>
 
     <h2>Quick Start</h2>

@@ -49,7 +49,7 @@ var nocKeyMap = []nocKeyBinding{
 	{Keys: []string{"left"}, HelpDisplay: "←", Label: "collapse the node, or ascend to its parent", Footer: "← collapse", FooterAscii: "left collapse", Group: keyGroupNav},
 
 	// View (read-only).
-	{Keys: []string{"/"}, HelpDisplay: "/", Label: "filter (needs-you / waiting / running / stale / agent: / model: / project: / session:)", Footer: "/ filter", FooterAscii: "/ filter", Group: keyGroupView},
+	{Keys: []string{"/"}, HelpDisplay: "/", Label: "filter (needs-you / waiting / online / stale / agent: / model: / project: / session:)", Footer: "/ filter", FooterAscii: "/ filter", Group: keyGroupView},
 	{Keys: []string{"h"}, HelpDisplay: "h", Label: "toggle hiding stopped/stale squads", Footer: "h hide-stale", FooterAscii: "h hide-stale", Group: keyGroupView},
 	{Keys: []string{"f"}, HelpDisplay: "f", Label: "toggle the inter-agent flow graph in the detail pane", Footer: "f flow", FooterAscii: "f flow", Group: keyGroupView},
 	{Keys: []string{"g"}, HelpDisplay: "g", Label: "refresh now", Footer: "g refresh", FooterAscii: "g refresh", Group: keyGroupView},

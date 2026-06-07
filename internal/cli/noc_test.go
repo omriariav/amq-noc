@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/omriariav/amq-noc/internal/console"
 	"github.com/omriariav/amq-noc/internal/launch"
@@ -3889,8 +3890,8 @@ func TestNOCJSONReasonCodesDistinguishRollupStates(t *testing.T) {
 		{name: "unowned-blocked-is-stale", rollup: state.TriageRollup{Blocked: 1}, total: 1, wantState: "stale-blocked", wantReason: "stale_blocked"},
 		{name: "unowned-gated-is-stale", rollup: state.TriageRollup{Gated: 1}, total: 1, wantState: "stale-blocked", wantReason: "stale_blocked"},
 		{name: "unowned-at-risk-is-stale", rollup: state.TriageRollup{AtRisk: 1}, total: 1, wantState: "stale-blocked", wantReason: "stale_blocked"},
-		{name: "running", live: 1, total: 1, wantState: "running", wantReason: "running"},
-		{name: "running-with-unowned-rollup-history", rollup: state.TriageRollup{Blocked: 3, Gated: 1, AtRisk: 1}, live: 1, total: 1, wantState: "running", wantReason: "running"},
+		{name: "online", live: 1, total: 1, wantState: "online", wantReason: "online"},
+		{name: "online-with-unowned-rollup-history", rollup: state.TriageRollup{Blocked: 3, Gated: 1, AtRisk: 1}, live: 1, total: 1, wantState: "online", wantReason: "online"},
 		{name: "stale-blocked", rollup: state.TriageRollup{BlockedStale: 1}, total: 1, wantState: "stale-blocked", wantReason: "stale_blocked"},
 		{name: "stopped", total: 1, wantState: "stopped", wantReason: "stopped"},
 		{name: "empty", wantState: "empty", wantReason: "empty"},
@@ -3916,7 +3917,7 @@ func TestNOCJSONReasonCodesDistinguishRollupStates(t *testing.T) {
 // S4c regression: the JSON/API path must obey the same source-backed status
 // contract as the TUI. A session whose only agents are dead-mailbox-live (process
 // gone, only AMQ presence fresh) plus an aged peer review (unowned at-risk) must
-// report agents_alive=0 and a STALE primary state, never running or a live at-risk.
+// report agents_alive=0 and a STALE primary state, never online or a live at-risk.
 // The raw evidence is retained in the rollup + unowned_evidence detail.
 func TestNOCSessionJSONAllDmblUnownedAtRiskIsStale(t *testing.T) {
 	row := nocSessionEnvelope(noc.ProjectSnapshot{Dir: "/root/api"}, state.Session{
@@ -3941,7 +3942,7 @@ func TestNOCSessionJSONAllDmblUnownedAtRiskIsStale(t *testing.T) {
 }
 
 // S4c companion: one operational (alive) agent that OWNS the aged peer review keeps
-// the session in a live waiting/running-with-attention state, not stale. agents_alive
+// the session in a live waiting/online-with-attention state, not stale. agents_alive
 // counts the live agent, and the owned attention drives the primary state.
 func TestNOCSessionJSONOneLiveAgentOwnsAtRiskIsWaiting(t *testing.T) {
 	row := nocSessionEnvelope(noc.ProjectSnapshot{Dir: "/root/api"}, state.Session{
@@ -3960,8 +3961,40 @@ func TestNOCSessionJSONOneLiveAgentOwnsAtRiskIsWaiting(t *testing.T) {
 	}
 }
 
+func TestNOCSessionJSONNewerClearActivityBeatsOldAtRisk(t *testing.T) {
+	old := time.Now().Add(-24 * time.Hour)
+	fresh := time.Now()
+	row := nocSessionEnvelope(noc.ProjectSnapshot{Dir: "/root/api"}, state.Session{
+		Name: "issue-3",
+		Agents: []state.Agent{
+			{Handle: "cto", Liveness: state.LivenessAlive, Attention: state.Attention{State: state.TriageAtRisk}},
+			{Handle: "fullstack", Liveness: state.LivenessAlive, Attention: state.Attention{State: state.TriageAtRisk}},
+		},
+		Attention: state.Attention{State: state.TriageAtRisk},
+		Rollup:    state.TriageRollup{AtRisk: 1, Clear: 1},
+		Coordination: state.Coordination{Threads: []state.ThreadSummary{
+			{ID: "decision/status-model", Triage: state.TriageAtRisk, LastEventAt: old, Participants: []string{"cto", "fullstack"}},
+			{ID: "p2p/cto__fullstack", Triage: state.TriageClear, LastEventAt: fresh, Participants: []string{"cto", "fullstack"}},
+		}},
+	})
+	if row.AgentsAlive != 2 {
+		t.Fatalf("agents_alive = %d, want 2", row.AgentsAlive)
+	}
+	if row.State != "online" || row.ReasonCode != "online" {
+		t.Fatalf("state/reason = %q/%q, want online/online (newer clear activity supersedes old at-risk)", row.State, row.ReasonCode)
+	}
+	if row.Attention != "clear" || row.AttentionReason != "" {
+		t.Fatalf("attention = %q/%q, want clear/empty", row.Attention, row.AttentionReason)
+	}
+	for _, ag := range row.Agents {
+		if ag.Attention != "clear" || ag.AttentionReason != "" {
+			t.Fatalf("%s attention = %q/%q, want clear/empty", ag.Handle, ag.Attention, ag.AttentionReason)
+		}
+	}
+}
+
 // S4c project-level: a project whose only session is all dead-mailbox-live with
-// unowned at-risk is STALE, not running, and contributes zero live agents.
+// unowned at-risk is STALE, not online, and contributes zero live agents.
 func TestNOCProjectJSONAllDmblIsStaleNotRunning(t *testing.T) {
 	project := nocProjectEnvelope(noc.ProjectSnapshot{
 		Project: "api",
@@ -3985,6 +4018,40 @@ func TestNOCProjectJSONAllDmblIsStaleNotRunning(t *testing.T) {
 	}
 	if project.State != "stale-blocked" || project.ReasonCode != "stale_blocked" {
 		t.Fatalf("project state/reason = %q/%q, want stale-blocked/stale_blocked", project.State, project.ReasonCode)
+	}
+}
+
+func TestNOCProjectJSONNewerClearActivityBeatsOldAtRisk(t *testing.T) {
+	old := time.Now().Add(-24 * time.Hour)
+	fresh := time.Now()
+	project := nocProjectEnvelope(noc.ProjectSnapshot{
+		Project: "api",
+		Dir:     "/root/api",
+		Snap: state.Snapshot{
+			Rollup: state.TriageRollup{AtRisk: 1, Clear: 1},
+			Sessions: []state.Session{{
+				Name: "issue-3",
+				Agents: []state.Agent{
+					{Handle: "cto", Liveness: state.LivenessAlive, Attention: state.Attention{State: state.TriageAtRisk}},
+					{Handle: "fullstack", Liveness: state.LivenessAlive, Attention: state.Attention{State: state.TriageAtRisk}},
+				},
+				Attention: state.Attention{State: state.TriageAtRisk},
+				Rollup:    state.TriageRollup{AtRisk: 1, Clear: 1},
+				Coordination: state.Coordination{Threads: []state.ThreadSummary{
+					{ID: "decision/status-model", Triage: state.TriageAtRisk, LastEventAt: old, Participants: []string{"cto", "fullstack"}},
+					{ID: "p2p/cto__fullstack", Triage: state.TriageClear, LastEventAt: fresh, Participants: []string{"cto", "fullstack"}},
+				}},
+			}},
+		},
+	})
+	if project.AgentsAlive != 2 {
+		t.Fatalf("project agents_alive = %d, want 2", project.AgentsAlive)
+	}
+	if project.State != "online" || project.ReasonCode != "online" {
+		t.Fatalf("project state/reason = %q/%q, want online/online", project.State, project.ReasonCode)
+	}
+	if len(project.Sessions) != 1 || project.Sessions[0].State != "online" {
+		t.Fatalf("session state = %#v, want one online child", project.Sessions)
 	}
 }
 

@@ -138,13 +138,13 @@ Usage:
 A full-screen TUI ("network operations center") over EVERY discovered amq-squad
 project or candidate team-home under the given roots. Discovery includes
 .agent-mail session stores, .amq-squad team profiles, and git repos that can be
-turned into teams. It shows a header pulse (squads / running / needs-you /
+turned into teams. It shows a header pulse (squads / online / needs-you /
 waiting / stale), a collapsible attention-first tree
 (root -> project -> session -> agent), and a detail pane for the selection.
 Navigation is read-only: view movement never stops, starts, messages, or deletes
 an agent.
 
-The NOC rewards LIVENESS: a running squad active just now sorts to the top, while
+The NOC rewards LIVENESS: an online squad active just now sorts to the top, while
 a stopped squad whose only blocked threads are days old (older than --stale-after)
 is age-decayed to the bottom and rendered dim. Press h (or --hide-stale) to hide
 stale squads entirely.
@@ -166,8 +166,9 @@ to, or denied. Squad rows can receive broadcasts or lifecycle controls. The live
 footer shows only actions currently valid for the selected row; press ? for the
 full, always-current key map.
 
---filter accepts the same typed filter as the TUI: needs-you, needs-user, gated,
-at-risk, blocked, stale-blocked, agent:<handle>, model:<engine>,
+--filter accepts the same typed filter as the TUI: needs-you, needs-user,
+online (or running as an alias), waiting, stale, gated, at-risk, blocked,
+stale-blocked, agent:<handle>, model:<engine>,
 project:<name>, session:<name>, label:<label>, orchestrator:<name>, or bare text.
 It scopes the live TUI, --once render, and --json snapshot.
 
@@ -2157,6 +2158,7 @@ func nocSessionEnvelope(ps noc.ProjectSnapshot, sess state.Session) nocSessionJS
 		if nocAgentLive(ag) {
 			live++
 		}
+		agentAttention := nocAgentPrimaryAttention(sess, ag)
 		profile := strings.TrimSpace(ag.TeamProfile)
 		if profile == "" {
 			profile = team.DefaultProfile
@@ -2167,8 +2169,8 @@ func nocSessionEnvelope(ps noc.ProjectSnapshot, sess state.Session) nocSessionJS
 			Engine:          ag.Engine,
 			Liveness:        string(ag.Liveness),
 			WakeHealth:      string(ag.WakeHealth),
-			Attention:       string(ag.Attention.State),
-			AttentionReason: string(ag.Attention.Reason),
+			Attention:       string(agentAttention.State),
+			AttentionReason: string(agentAttention.Reason),
 			LastSeen:        jsonTimePtr(ag.LastSeen),
 			Presence:        ag.Presence,
 			Conversation:    ag.Conversation,
@@ -2183,6 +2185,7 @@ func nocSessionEnvelope(ps noc.ProjectSnapshot, sess state.Session) nocSessionJS
 	if len(threads) > defaultThreadsLimit {
 		threads = threads[:defaultThreadsLimit]
 	}
+	sessionAttention := nocSessionPrimaryAttentionDetail(sess, live)
 	return nocSessionJSONData{
 		ID:              sessionID,
 		Name:            sess.Name,
@@ -2193,8 +2196,8 @@ func nocSessionEnvelope(ps noc.ProjectSnapshot, sess state.Session) nocSessionJS
 		AgentsAlive:     live,
 		ThreadCount:     threadCount,
 		ThreadsReturned: len(threads),
-		Attention:       string(sess.Attention.State),
-		AttentionReason: string(sess.Attention.Reason),
+		Attention:       string(sessionAttention.State),
+		AttentionReason: string(sessionAttention.Reason),
 		UnownedEvidence: liveAttentionString(sess.UnownedAttention),
 		Rollup:          nocRollupEnvelope(sess.Rollup),
 		Threads:         threads,
@@ -3021,17 +3024,33 @@ func nocSessionJSONState(sess state.Session, live, total int) string {
 	// operational agents in attachAttention). A live agent that owns a non-human
 	// wait surfaces it as the primary work state; unowned raw-rollup evidence does
 	// not (it stays in the rollup + unowned_evidence detail).
-	if s := nocAttnJSONState(sess.Attention.State); s != "" {
+	if s := nocAttnJSONState(nocSessionPrimaryAttentionDetail(sess, live).State); s != "" {
 		return s
 	}
 	return nocRollupJSONState(sess.Rollup, live, total)
 }
 
 func nocSessionJSONReasonCode(sess state.Session, live, total int) string {
-	if rc := nocAttnReasonCode(sess.Attention.State); rc != "" {
+	if rc := nocAttnReasonCode(nocSessionPrimaryAttentionDetail(sess, live).State); rc != "" {
 		return rc
 	}
 	return nocRollupReasonCode(sess.Rollup, live, total, "empty")
+}
+
+func nocSessionPrimaryAttentionDetail(sess state.Session, live int) state.Attention {
+	att := sess.Attention
+	if att.State == state.TriageAtRisk && live > 0 && nocSessionHasNewerClearActivity(sess) {
+		return state.Attention{State: state.TriageClear}
+	}
+	return att
+}
+
+func nocAgentPrimaryAttention(sess state.Session, ag state.Agent) state.Attention {
+	att := ag.Attention
+	if att.State == state.TriageAtRisk && nocAgentLive(ag) && nocSessionHasNewerClearActivity(sess) {
+		return state.Attention{State: state.TriageClear}
+	}
+	return att
 }
 
 // nocAttnJSONState maps an operational-OWNED attention tier to the JSON primary
@@ -3071,7 +3090,7 @@ func nocAttnReasonCode(t state.Triage) string {
 // nocRollupJSONState maps a raw triage rollup to the JSON primary-state vocabulary
 // on the FALLBACK path - when NO operational agent owns a current attention. It
 // mirrors the console rollupState contract: needs-you persists as a human action
-// item even with no live agent; an operational agent that owns no wait is running;
+// item even with no live agent; an operational agent that owns no wait is online;
 // zero operational agents with only outstanding, decayed, or unowned evidence is
 // stale (the evidence is retained in the rollup + unowned_evidence detail, never a
 // live blocked/gated/at-risk wait); agents with nothing outstanding are stopped.
@@ -3080,7 +3099,7 @@ func nocRollupJSONState(r state.TriageRollup, live, total int) string {
 	case r.NeedsYou > 0:
 		return "needs-you"
 	case live > 0:
-		return "running"
+		return "online"
 	case nocRollupHasOutstanding(r):
 		return "stale-blocked"
 	case total > 0:
@@ -3095,7 +3114,7 @@ func nocRollupReasonCode(r state.TriageRollup, live, total int, fallback string)
 	case r.NeedsYou > 0:
 		return "needs_user"
 	case live > 0:
-		return "running"
+		return "online"
 	case nocRollupHasOutstanding(r):
 		return "stale_blocked"
 	case total > 0:
@@ -3121,11 +3140,43 @@ func nocRollupHasOutstanding(r state.TriageRollup) bool {
 func nocProjectOwnedAttn(ps noc.ProjectSnapshot) state.Triage {
 	best := state.TriageClear
 	for _, sess := range ps.Snap.Sessions {
-		if nocTriageSeverity(sess.Attention.State) < nocTriageSeverity(best) {
-			best = sess.Attention.State
+		att := nocSessionPrimaryAttentionDetail(sess, nocSessionLiveAgents(sess)).State
+		if nocTriageSeverity(att) < nocTriageSeverity(best) {
+			best = att
 		}
 	}
 	return best
+}
+
+func nocSessionLiveAgents(sess state.Session) int {
+	live := 0
+	for _, ag := range sess.Agents {
+		if nocAgentLive(ag) {
+			live++
+		}
+	}
+	return live
+}
+
+func nocSessionHasNewerClearActivity(sess state.Session) bool {
+	var newestAtRisk time.Time
+	var newestClear time.Time
+	for _, th := range sess.Coordination.Threads {
+		if th.Historical || th.Stale || th.LastEventAt.IsZero() {
+			continue
+		}
+		switch th.Triage {
+		case state.TriageAtRisk:
+			if th.LastEventAt.After(newestAtRisk) {
+				newestAtRisk = th.LastEventAt
+			}
+		case state.TriageClear:
+			if th.LastEventAt.After(newestClear) {
+				newestClear = th.LastEventAt
+			}
+		}
+	}
+	return !newestAtRisk.IsZero() && newestClear.After(newestAtRisk)
 }
 
 // nocTriageSeverity mirrors state's documented order (NeedsYou > Blocked > Gated >

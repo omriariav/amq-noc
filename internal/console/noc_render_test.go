@@ -140,12 +140,12 @@ func TestNOCOnce_MultiProjectBoard(t *testing.T) {
 	out := renderNOCOnce(t, root, probe, ColorNone)
 
 	// Header pulse counts visible squad rows by primary state:
-	// beta needs-you, alpha running, gamma stale.
+	// beta needs-you, alpha online, gamma stale.
 	if !strings.Contains(out, "3 squads") {
 		t.Errorf("header pulse missing '3 squads':\n%s", out)
 	}
-	if !strings.Contains(out, "1 running") {
-		t.Errorf("header pulse missing '1 running':\n%s", out)
+	if !strings.Contains(out, "1 online") {
+		t.Errorf("header pulse missing '1 online':\n%s", out)
 	}
 	if !strings.Contains(out, "1 needs-you") {
 		t.Errorf("header pulse missing '1 needs-you':\n%s", out)
@@ -178,7 +178,7 @@ func TestNOCOnce_MultiProjectBoard(t *testing.T) {
 func TestNOCHeaderUsesSimplifiedPrimaryStatusModel(t *testing.T) {
 	root, probe := seedNOCFixture(t)
 	out := renderNOCOnce(t, root, probe, ColorNone)
-	for _, want := range []string{"3 squads", "1 running", "1 needs-you", "0 waiting", "1 stale"} {
+	for _, want := range []string{"3 squads", "1 online", "1 needs-you", "0 waiting", "1 stale"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("header missing %q:\n%s", want, out)
 		}
@@ -203,7 +203,7 @@ func TestNOCStoppedAgentNeedsYouRendersAsHistoryNotLive(t *testing.T) {
 		Now:          func() time.Time { return nocTestNow },
 	}
 	out := renderNOCOnce(t, root, probe, ColorNone)
-	for _, want := range []string{"1 squad", "0 running", "0 needs-you", "1 stale"} {
+	for _, want := range []string{"1 squad", "0 online", "0 needs-you", "1 stale"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stopped needs-you render missing %q:\n%s", want, out)
 		}
@@ -229,7 +229,7 @@ func TestNOCOnce_AttentionSortBetaFirst(t *testing.T) {
 	if bi < 0 || ai < 0 || gi < 0 {
 		t.Fatalf("missing a project label: alpha=%d beta=%d gamma=%d\n%s", ai, bi, gi, out)
 	}
-	// Attention-first: beta (needs-you) before alpha (running) before gamma (stopped).
+	// Attention-first: beta (needs-you) before alpha (online) before gamma (stopped).
 	if !(bi < ai && ai < gi) {
 		t.Errorf("attention sort wrong: want beta<alpha<gamma, got beta=%d alpha=%d gamma=%d\n%s", bi, ai, gi, out)
 	}
@@ -388,6 +388,29 @@ func TestNOCSessionVisible_AllDmblUnownedAtRiskIsStale(t *testing.T) {
 	}
 }
 
+func TestNOCSessionVisible_DefensivelyIgnoresNonHumanAttentionWithoutOperationalOwner(t *testing.T) {
+	sess := state.Session{
+		Name: "issue-96",
+		Agents: []state.Agent{
+			{Handle: "cto", Liveness: state.LivenessDeadMailboxLive, Attention: state.Attention{State: state.TriageAtRisk}},
+			{Handle: "fullstack", Liveness: state.LivenessDeadMailboxLive, Attention: state.Attention{State: state.TriageBlocked}},
+		},
+		Attention: state.Attention{State: state.TriageAtRisk},
+		Rollup:    state.TriageRollup{AtRisk: 1},
+	}
+	if got := visibleState(sessionRollupState(sess)); got != nocStaleBlocked {
+		t.Fatalf("dead session with non-human attention must be stale, got %s", nocStateText(got))
+	}
+	if got := visibleState(agentNodeState(sess, sess.Agents[0])); got != nocStopped {
+		t.Fatalf("dead-mailbox-live agent with at-risk attention must not be waiting, got %s", nocStateText(got))
+	}
+
+	ps := noc.ProjectSnapshot{Snap: state.Snapshot{Sessions: []state.Session{sess}}}
+	if got := visibleState(projectRollupState(ps)); got != nocStaleBlocked {
+		t.Fatalf("project with only dead non-human attention must be stale, got %s", nocStateText(got))
+	}
+}
+
 // S4b companion: one operational (alive) agent that OWNS an aged peer review
 // (at-risk) is genuinely waiting.
 func TestNOCSessionVisible_OneLiveAgentOwnsAtRiskIsWaiting(t *testing.T) {
@@ -404,6 +427,34 @@ func TestNOCSessionVisible_OneLiveAgentOwnsAtRiskIsWaiting(t *testing.T) {
 	}
 }
 
+func TestNOCSessionVisible_NewerClearActivityBeatsOldAtRisk(t *testing.T) {
+	old := nocTestNow.Add(-48 * time.Hour)
+	fresh := nocTestNow.Add(-time.Minute)
+	sess := state.Session{
+		Name: "issue-96",
+		Agents: []state.Agent{
+			{Handle: "cto", Liveness: state.LivenessAlive, Attention: state.Attention{State: state.TriageAtRisk}},
+			{Handle: "fullstack", Liveness: state.LivenessAlive, Attention: state.Attention{State: state.TriageAtRisk}},
+		},
+		Attention: state.Attention{State: state.TriageAtRisk},
+		Rollup:    state.TriageRollup{AtRisk: 1, Clear: 1},
+		Coordination: state.Coordination{Threads: []state.ThreadSummary{
+			{ID: "decision/status-model", Triage: state.TriageAtRisk, LastEventAt: old, Participants: []string{"cto", "fullstack"}},
+			{ID: "p2p/cto__fullstack", Triage: state.TriageClear, LastEventAt: fresh, Participants: []string{"cto", "fullstack"}},
+		}},
+	}
+	if got := visibleState(sessionRollupState(sess)); got != nocRunning {
+		t.Fatalf("newer clear activity should make the live session online, got %s", nocStateText(got))
+	}
+	if got := visibleState(agentNodeState(sess, sess.Agents[0])); got != nocRunning {
+		t.Fatalf("newer clear activity should make the live agent online, got %s", nocStateText(got))
+	}
+	ps := noc.ProjectSnapshot{Snap: state.Snapshot{Sessions: []state.Session{sess}}}
+	if got := visibleState(projectRollupState(ps)); got != nocRunning {
+		t.Fatalf("newer clear activity should make the project online, got %s", nocStateText(got))
+	}
+}
+
 func TestNOCRunningSessionPrimaryStateIgnoresBlockedHistory(t *testing.T) {
 	sess := state.Session{
 		Name:   "main",
@@ -414,7 +465,7 @@ func TestNOCRunningSessionPrimaryStateIgnoresBlockedHistory(t *testing.T) {
 		},
 	}
 	if got := sessionRollupState(sess); got != nocRunning {
-		t.Fatalf("session state = %s, want running", nocStateText(got))
+		t.Fatalf("session state = %s, want online", nocStateText(got))
 	}
 }
 
@@ -768,10 +819,10 @@ func TestNOCHelpIncludesSymbolLegend(t *testing.T) {
 	out := m.helpView()
 	for _, want := range []string{
 		"PRIMARY STATUS MODEL",
-		"team is alive and working",
+		"team/session/agent is live",
 		"operator action now",
 		"needs-you",
-		"running",
+		"online",
 		"waiting",
 		"stale",
 	} {
@@ -801,6 +852,33 @@ func TestNOCFilterMatchesAMQIntegrationMetadata(t *testing.T) {
 	}
 	if ProjectMatchesNOCFilter(ps, "label:missing") {
 		t.Fatal("missing label should not match")
+	}
+}
+
+func TestNOCFilterMatchesOnlineStateAndRunningAlias(t *testing.T) {
+	sess := state.Session{
+		Name: "issue-1",
+		Agents: []state.Agent{
+			{Handle: "cto", Liveness: state.LivenessAlive},
+		},
+	}
+	ps := noc.ProjectSnapshot{
+		Project: "api",
+		Snap:    state.Snapshot{Sessions: []state.Session{sess}},
+	}
+	for _, filter := range []string{"online", "running"} {
+		if !ProjectMatchesNOCFilter(ps, filter) {
+			t.Fatalf("project should match %q", filter)
+		}
+		if !SessionMatchesNOCProjectFilter(ps, sess, filter) {
+			t.Fatalf("session should match %q", filter)
+		}
+		if !AgentMatchesNOCProjectFilter(ps, sess, sess.Agents[0], filter) {
+			t.Fatalf("agent should match %q", filter)
+		}
+	}
+	if ProjectMatchesNOCFilter(ps, "waiting") {
+		t.Fatal("online project must not match waiting")
 	}
 }
 
@@ -848,7 +926,7 @@ func TestNOCOnce_AsciiFallbackTextLabelsNoEscapes(t *testing.T) {
 		t.Errorf("ColorAscii render must not contain ANSI escape codes:\n%q", out)
 	}
 	// State TEXT labels are always present.
-	for _, label := range []string{"running", "needs-you", "stopped"} {
+	for _, label := range []string{"online", "needs-you", "stopped"} {
 		if !strings.Contains(out, label) {
 			t.Errorf("ascii render missing text label %q:\n%s", label, out)
 		}

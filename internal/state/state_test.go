@@ -445,6 +445,24 @@ func TestProbeDefaultsFilledWhenNil(t *testing.T) {
 	}
 }
 
+func TestClassifyAliveWhenPIDAliveAndPresenceFreshEvenIfProcessMatchFails(t *testing.T) {
+	base := t.TempDir()
+	proj := t.TempDir()
+	agentDir := seedAgent(t, base, "s", "cto", launch.Record{
+		Binary: "codex", Handle: "cto", Session: "s", AgentPID: 1234,
+	})
+	seedPresence(t, agentDir, "cto", "active", testNow.Add(-10*time.Second))
+
+	snap, err := Build(proj, base, fakeProbe(map[int]bool{1234: true}, map[int]bool{1234: false}, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := findAgent(t, snap, "cto")
+	if a.Liveness != LivenessAlive {
+		t.Fatalf("Liveness = %q, want alive (PID exists and fresh active presence proves the agent is live)", a.Liveness)
+	}
+}
+
 func TestClassifyMissingWhenNoSignals(t *testing.T) {
 	base := t.TempDir()
 	proj := t.TempDir()

@@ -13,6 +13,7 @@ package console
 import (
 	"io"
 	"strconv"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
@@ -137,7 +138,7 @@ const (
 	nocBlocked                      // red - blocked
 	nocGated                        // cyan - intentionally gated
 	nocAtRisk                       // amber - at-risk / degraded
-	nocWaiting                      // live but no actionable work
+	nocWaiting                      // live but waiting on non-human coordination
 	nocRunning                      // green - at least one live agent
 	nocStaleBlocked                 // stopped with stale blocked history
 	nocStopped                      // dim - discovered but nothing live
@@ -148,7 +149,7 @@ const (
 // status model used for PRIMARY surfaces (tree rows + header): blocked, gated,
 // and at-risk all read as a single "waiting" - the team is waiting on another
 // agent / work lane, not three separate broken-vs-paused concepts. needs-you,
-// running, and the stale/stopped tiers are unchanged. The granular triage stays
+// online, and the stale/stopped tiers are unchanged. The granular triage stays
 // available for detail panes and JSON; this collapse is display-only.
 func visibleState(s nocState) nocState {
 	switch s {
@@ -174,7 +175,7 @@ func nocStateText(s nocState) string {
 	case nocWaiting:
 		return "waiting"
 	case nocRunning:
-		return "running"
+		return "online"
 	case nocStaleBlocked:
 		return "stale"
 	case nocStopped:
@@ -242,7 +243,7 @@ func rollupState(r state.TriageRollup, hasRunning, hasAny bool) nocState {
 		// needs-you is a human action item and shows even with no live agent.
 		return nocNeedsYou
 	case hasRunning:
-		// An operational agent exists but owns no current wait: running. Unowned
+		// An operational agent exists but owns no current wait: online. Unowned
 		// raw-rollup blocked/at-risk is detail, not a primary work wait.
 		return nocRunning
 	case r.Blocked > 0 || r.AtRisk > 0 || r.Gated > 0 || r.NeedsYouHistorical > 0 || r.AtRiskStale > 0 || r.BlockedStale > 0 || r.GatedStale > 0:
@@ -259,7 +260,7 @@ func rollupState(r state.TriageRollup, hasRunning, hasAny bool) nocState {
 
 // agentState maps a single agent's liveness to a display state. Per-agent triage
 // is carried by the session (the collapsed-thread bus), so an agent row reflects
-// liveness only: alive=running, dead-mailbox-live=stale (process gone; only the
+// liveness only: alive=online, dead-mailbox-live=stale (process gone; only the
 // AMQ wake/notifier presence is fresh), dead=stopped.
 func agentState(a state.Agent) nocState {
 	switch a.Liveness {
@@ -283,9 +284,14 @@ func agentState(a state.Agent) nocState {
 // the current, non-historical/non-stale thread evidence the agent owns) and
 // falls back to process liveness when the agent carries no current attention.
 // Liveness still governs jump availability elsewhere; this only colors the row.
-func agentNodeState(_ state.Session, ag state.Agent) nocState {
+func agentNodeState(sess state.Session, ag state.Agent) nocState {
 	if att := ag.Attention.State; att != "" && att != state.TriageClear {
-		return triageState(att)
+		if att == state.TriageAtRisk && agentOperational(ag) && hasNewerClearActivity(sess) {
+			return agentState(ag)
+		}
+		if att == state.TriageNeedsYou || agentOperational(ag) {
+			return triageState(att)
+		}
 	}
 	return agentState(ag)
 }
@@ -306,37 +312,26 @@ func triageState(tr state.Triage) nocState {
 	}
 }
 
-// projectRollupState computes a project's display state. The headline leads with
-// the most severe CURRENT attention across the project's sessions (the
-// first-class state.Session.Attention, which already folds in agent attention
-// and unowned evidence); it falls back to the liveness/stale rollup tiers only
-// when no session carries current attention.
+// projectRollupState computes a project's display state from its visible session
+// states. That keeps project rows aligned with session rows: stale/unowned
+// evidence in a dead session cannot promote the project to primary "waiting".
 func projectRollupState(ps noc.ProjectSnapshot) nocState {
 	if ps.Warning != "" {
 		return nocAtRisk
 	}
-	hasRunning := false
-	hasAny := false
-	best := nocRunning
-	hasAttention := false
+	best := nocEmpty
+	hasSession := false
 	for _, sess := range ps.Snap.Sessions {
-		for _, ag := range sess.Agents {
-			hasAny = true
-			if agentOperational(ag) {
-				hasRunning = true
-			}
-		}
-		if att := sess.Attention.State; att != "" && att != state.TriageClear {
-			if st := triageState(att); !hasAttention || st < best {
-				best = st
-				hasAttention = true
-			}
+		st := sessionRollupState(sess)
+		if !hasSession || st < best {
+			best = st
+			hasSession = true
 		}
 	}
-	if hasAttention {
+	if hasSession {
 		return best
 	}
-	return rollupState(ps.Snap.Rollup, hasRunning, hasAny)
+	return rollupState(ps.Snap.Rollup, false, false)
 }
 
 // sessionRollupState computes a session's display state. It leads with the
@@ -344,9 +339,6 @@ func projectRollupState(ps noc.ProjectSnapshot) nocState {
 // attention plus unowned evidence), falling back to the liveness/stale rollup
 // tiers only when the session carries no current attention.
 func sessionRollupState(sess state.Session) nocState {
-	if att := sess.Attention.State; att != "" && att != state.TriageClear {
-		return triageState(att)
-	}
 	hasRunning := false
 	hasAny := false
 	for _, ag := range sess.Agents {
@@ -355,7 +347,39 @@ func sessionRollupState(sess state.Session) nocState {
 			hasRunning = true
 		}
 	}
+	if att := sess.Attention.State; att != "" && att != state.TriageClear {
+		// Human asks remain actionable even if the originating process stopped.
+		// Non-human waits require an operational owner; otherwise stale evidence
+		// must not promote a dead session to primary "waiting".
+		if att == state.TriageNeedsYou || hasRunning {
+			if att == state.TriageAtRisk && hasNewerClearActivity(sess) {
+				return nocRunning
+			}
+			return triageState(att)
+		}
+	}
 	return rollupState(sess.Rollup, hasRunning, hasAny)
+}
+
+func hasNewerClearActivity(sess state.Session) bool {
+	var newestAtRisk time.Time
+	var newestClear time.Time
+	for _, th := range sess.Coordination.Threads {
+		if th.Historical || th.Stale || th.LastEventAt.IsZero() {
+			continue
+		}
+		switch th.Triage {
+		case state.TriageAtRisk:
+			if th.LastEventAt.After(newestAtRisk) {
+				newestAtRisk = th.LastEventAt
+			}
+		case state.TriageClear:
+			if th.LastEventAt.After(newestClear) {
+				newestClear = th.LastEventAt
+			}
+		}
+	}
+	return !newestAtRisk.IsZero() && newestClear.After(newestAtRisk)
 }
 
 // hasRunningAgentSnap reports whether any agent in the snapshot is a verified
@@ -389,7 +413,7 @@ func projectIsStaleOnly(ps noc.ProjectSnapshot) bool {
 
 // projectLivenessPhrase renders a squad's liveness UNAMBIGUOUSLY. The N/M counts
 // AGENTS (alive-or-mailbox-live of total discovered agents), not sessions, so it
-// is labeled "N/M agents alive" — the reviewer flagged a bare "running 4/10" as
+// is labeled "N/M agents alive" — the reviewer flagged a bare "online 4/10" as
 // ambiguous (4 alive of 10 agents? 4 sessions of 10?). A squad with no live
 // agent reads "stopped". The agent count is what drives the phrase everywhere it
 // appears (digest + tree project rows).
@@ -401,7 +425,7 @@ func projectLivenessPhrase(ps noc.ProjectSnapshot) string {
 		if wakeLive > 0 {
 			label = " agents reachable"
 		}
-		return "running " + strconv.Itoa(operational) + "/" + strconv.Itoa(total) + label
+		return "online " + strconv.Itoa(operational) + "/" + strconv.Itoa(total) + label
 	}
 	return "stopped"
 }

@@ -9,7 +9,7 @@ import (
 const sampleStatusJSON = `{"schema_version":1,"kind":"status","data":{
   "capabilities":{"operator_gates":true},
   "records":[
-    {"role":"cto","handle":"cto","tmux":{"pane_id":"%1","pane_alive":true},
+    {"role":"cto","handle":"cto","tmux":{"session":"main","window_name":"squad","pane_id":"%1","pane_alive":true},
      "actions":[
        {"kind":"focus","command":"amq-squad focus --session s --role cto","available":true},
        {"kind":"send","command":"amq-squad send --session s --role cto --body-file -","available":true},
@@ -48,6 +48,9 @@ func TestFetchRuntimeStatusParsesContract(t *testing.T) {
 	cto, ok := rs.MemberByRole("CTO") // case-insensitive
 	if !ok || cto.PaneID != "%1" || !cto.PaneAlive || len(cto.Actions) != 4 {
 		t.Fatalf("cto member parsed wrong: %+v ok=%v", cto, ok)
+	}
+	if cto.Session != "main" || cto.WindowName != "squad" {
+		t.Errorf("cto tmux session/window not parsed: %+v", cto)
 	}
 	if !cto.Actions[0].Available || cto.Actions[0].Kind != "focus" {
 		t.Errorf("cto focus action wrong: %+v", cto.Actions[0])
@@ -111,5 +114,36 @@ func TestFetchRuntimeStatusDegradesGracefully(t *testing.T) {
 	FetchRuntimeStatus(nil, "/r", "", "s")
 	if called {
 		t.Error("must not shell amq-squad without dir+session")
+	}
+}
+
+func TestRuntimeMemberJumpTarget(t *testing.T) {
+	m := RuntimeMember{Role: "cto", Handle: "cto", Session: "main", WindowName: "squad", PaneID: "%7", PaneAlive: true}
+	tt, ok := m.JumpTarget("issue-96", "cto")
+	if !ok {
+		t.Fatal("a live member should yield a jump target")
+	}
+	if tt.PaneID != "%7" || tt.Session != "main" || tt.WindowName != "squad" {
+		t.Errorf("target fields wrong: %+v", tt)
+	}
+	// The iTerm2 focus token is reconstructed as amq:<workstream>:<role>, matching
+	// what amq-squad stamps — so cross-session focus works without scraping.
+	if tt.Title != "amq:issue-96:cto" {
+		t.Errorf("title token = %q, want amq:issue-96:cto", tt.Title)
+	}
+	if _, ok := (RuntimeMember{PaneID: "%7", PaneAlive: false}).JumpTarget("s", "r"); ok {
+		t.Error("a dead pane must not yield a target")
+	}
+	if _, ok := (RuntimeMember{PaneAlive: true}).JumpTarget("s", "r"); ok {
+		t.Error("an empty pane id must not yield a target")
+	}
+}
+
+func TestTargetSpecPrefersPaneID(t *testing.T) {
+	if got := targetSpec(TmuxTarget{Session: "main", Window: "0", Pane: "1", PaneID: "%9"}); got != "%9" {
+		t.Errorf("pane id must win as the -t target, got %q", got)
+	}
+	if got := targetSpec(TmuxTarget{Session: "main", Window: "0", Pane: "1"}); got != "main:0.1" {
+		t.Errorf("without a pane id, fall back to session:window.pane, got %q", got)
 	}
 }

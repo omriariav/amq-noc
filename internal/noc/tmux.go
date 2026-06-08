@@ -42,6 +42,12 @@ type TmuxTarget struct {
 	Session string
 	Window  string
 	Pane    string
+	// PaneID is the tmux pane id (%N). When set it is the authoritative -t
+	// target: it is globally unique within the tmux server, so select-window /
+	// select-pane / switch-client hit the exact pane regardless of window/pane
+	// indices. It is populated when the target comes from amq-squad's runtime
+	// contract (the persisted pane id) rather than from scraping pane indices.
+	PaneID string
 	// Title is the pane title token (amq:<session>:<role>) used to match the
 	// iTerm2 native window/tab on the cross-session focus path. Optional.
 	Title string
@@ -521,6 +527,12 @@ func SuggestJump(t TmuxTarget) string {
 // targetSpec renders a TmuxTarget as tmux's "session:window.pane" addressing.
 // Missing window/pane components are omitted gracefully.
 func targetSpec(t TmuxTarget) string {
+	// A pane id (%N) is globally unique and a valid -t target on its own; prefer
+	// it so contract-sourced targets address the exact pane without relying on
+	// window/pane indices we may not have.
+	if s := strings.TrimSpace(t.PaneID); s != "" {
+		return s
+	}
 	spec := t.Session
 	if t.Window != "" {
 		spec += ":" + t.Window

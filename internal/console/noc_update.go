@@ -381,9 +381,13 @@ func (m *NOCModel) jump() (tea.Model, tea.Cmd) {
 	if who == "" {
 		who = strings.TrimSpace(n.agent.Handle)
 	}
+	profile := sessionCommandProfile(n.project, n.session.Name)
+	if profile == "PROFILE" {
+		profile = ""
+	}
 	m.jumpPending = &pendingFocus{
 		prompt: "Jump to " + who + " in " + n.session.Name + "? (focus its iTerm2 window)",
-		run:    func(m *NOCModel) { m.performAgentJump(n.agent, n.session.Name, n.project.Dir, n.agent.Handle) },
+		run:    func(m *NOCModel) { m.performAgentJump(n.agent, n.session.Name, n.project.Dir, profile, n.agent.Handle) },
 	}
 	return m, nil
 }
@@ -394,7 +398,15 @@ func (m *NOCModel) jump() (tea.Model, tea.Cmd) {
 // not-in-tmux condition, it surfaces SuggestJump text rather than erroring out.
 // It is reached ONLY from the focus-confirm gate (handleFocusConfirmKey), so a
 // switchTo call here always corresponds to an operator confirm.
-func (m *NOCModel) performAgentJump(agent state.Agent, session, projectDir, handle string) {
+func (m *NOCModel) performAgentJump(agent state.Agent, session, projectDir, profile, handle string) {
+	// Prefer amq-squad's runtime contract: the persisted, authoritative pane id
+	// (no tmux scraping, no re-resolution). Fall back to scraping only when the
+	// contract has no live pane for this agent (amq-squad < v1.5, or no runtime
+	// data) — preserving v0.4.0 behavior.
+	if target, ok := m.runtimeJumpTarget(agent, session, projectDir, profile); ok {
+		m.applyAgentJump(target, handle)
+		return
+	}
 	panes, err := m.panes()
 	if err != nil {
 		m.jumpNote = "tmux not available: " + err.Error()
@@ -405,6 +417,36 @@ func (m *NOCModel) performAgentJump(agent state.Agent, session, projectDir, hand
 		m.jumpNote = "no live tmux pane found for " + handle + " (resume it, or attach manually)"
 		return
 	}
+	m.applyAgentJump(target, handle)
+}
+
+// runtimeJumpTarget resolves the focus target from amq-squad's runtime contract
+// (status --json), keyed by the agent's role (then handle). Returns ok=false
+// when there is no runtime fetch, no matching member, or no live pane — the
+// caller then falls back to scraping.
+func (m *NOCModel) runtimeJumpTarget(agent state.Agent, session, projectDir, profile string) (noc.TmuxTarget, bool) {
+	if m.runtimeFetch == nil || strings.TrimSpace(projectDir) == "" || strings.TrimSpace(session) == "" {
+		return noc.TmuxTarget{}, false
+	}
+	rs := m.runtimeFetch(projectDir, profile, session)
+	mem, ok := rs.MemberByRole(agent.Role)
+	if !ok {
+		mem, ok = rs.MemberByRole(agent.Handle)
+	}
+	if !ok {
+		return noc.TmuxTarget{}, false
+	}
+	role := strings.TrimSpace(agent.Role)
+	if role == "" {
+		role = strings.TrimSpace(agent.Handle)
+	}
+	return mem.JumpTarget(session, role)
+}
+
+// applyAgentJump runs the injected focus switcher and records the outcome note.
+// Shared by the contract path and the scraping fallback so both surface the same
+// not-in-tmux / focus-miss messaging.
+func (m *NOCModel) applyAgentJump(target noc.TmuxTarget, handle string) {
 	if err := m.switchTo(target); err != nil {
 		if nit, isNIT := err.(*noc.NotInTmuxError); isNIT {
 			m.jumpNote = "not inside tmux - run: " + nit.Command

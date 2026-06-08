@@ -112,3 +112,48 @@ func TestRuntimeFetchScopePlaceholderProfile(t *testing.T) {
 		t.Fatalf("placeholder profile must map to empty; got dir=%q profile=%q session=%q", dir, profile, session)
 	}
 }
+
+func TestPerformAgentJumpPrefersRuntimeContract(t *testing.T) {
+	var got noc.TmuxTarget
+	m := &NOCModel{
+		switchTo: func(tt noc.TmuxTarget) error { got = tt; return nil },
+		panes: func() ([]noc.TmuxPane, error) {
+			t.Fatal("must NOT scrape tmux when the contract has a live pane")
+			return nil, nil
+		},
+		runtimeFetch: func(dir, profile, session string) noc.RuntimeStatus {
+			return noc.RuntimeStatus{Members: []noc.RuntimeMember{{
+				Role: "cto", Handle: "cto", Session: "main", WindowName: "squad", PaneID: "%99", PaneAlive: true,
+				Actions: []noc.RuntimeAction{{Kind: "focus", Command: "amq-squad focus --role cto", Available: true}},
+			}}}
+		},
+	}
+	m.performAgentJump(state.Agent{Role: "cto", Handle: "cto"}, "issue-96", "/repo", "", "cto")
+	if got.PaneID != "%99" {
+		t.Fatalf("jump must target the contract's pane id, got %+v", got)
+	}
+	if got.Title != "amq:issue-96:cto" || got.Session != "main" {
+		t.Errorf("contract target wrong: %+v", got)
+	}
+}
+
+func TestPerformAgentJumpFallsBackToScraping(t *testing.T) {
+	var got noc.TmuxTarget
+	scraped := false
+	m := &NOCModel{
+		switchTo: func(tt noc.TmuxTarget) error { got = tt; return nil },
+		panes: func() ([]noc.TmuxPane, error) {
+			scraped = true
+			return []noc.TmuxPane{{Session: "main", Window: "0", Pane: "1", CWD: "/repo", Command: "codex", Title: "amq:issue-96:cto"}}, nil
+		},
+		// Older amq-squad / no runtime pane -> zero RuntimeStatus.
+		runtimeFetch: func(dir, profile, session string) noc.RuntimeStatus { return noc.RuntimeStatus{} },
+	}
+	m.performAgentJump(state.Agent{Role: "cto", Handle: "cto", Engine: "codex"}, "issue-96", "/repo", "", "cto")
+	if !scraped {
+		t.Error("must fall back to scraping when the contract has no live pane")
+	}
+	if got.Session != "main" || got.PaneID != "" {
+		t.Fatalf("scraping fallback should resolve a session:window.pane target, got %+v", got)
+	}
+}

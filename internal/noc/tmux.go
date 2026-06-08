@@ -48,6 +48,10 @@ type TmuxTarget struct {
 	// indices. It is populated when the target comes from amq-squad's runtime
 	// contract (the persisted pane id) rather than from scraping pane indices.
 	PaneID string
+	// WindowID is the tmux window id (@N). When set it is the doc-correct
+	// target-window for select-window (the pane id resolves to it too, but the
+	// window id is the precise type). Populated from the runtime contract.
+	WindowID string
 	// Title is the pane title token (amq:<session>:<role>) used to match the
 	// iTerm2 native window/tab on the cross-session focus path. Optional.
 	Title string
@@ -419,11 +423,15 @@ func SwitchTo(t TmuxTarget) error {
 // switchToWithSession is SwitchTo with the current-session resolver injected, so
 // the same-session vs cross-session branch is testable without a live tmux.
 func switchToWithSession(t TmuxTarget, curSession func() string) error {
-	spec := targetSpec(t)
+	// select-window targets the window (id @N / pane %N resolves to it / index
+	// spec); select-pane targets the exact pane (%N / index spec). Splitting them
+	// keeps each tmux command on its documented target type for contract-sourced
+	// targets, which carry ids rather than session:window.pane indices.
+	wspec, pspec := windowTarget(t), paneTarget(t)
 	if tmuxEnv() == "" {
 		// Not in a tmux client at all: best-effort select-window so an iTerm2 -CC
 		// attached window raises, then report the suggested command.
-		_ = switchExec("tmux", "select-window", "-t", spec)
+		_ = switchExec("tmux", "select-window", "-t", wspec)
 		return &NotInTmuxError{Target: t, Command: SuggestJump(t)}
 	}
 
@@ -434,12 +442,12 @@ func switchToWithSession(t TmuxTarget, curSession func() string) error {
 	if cur != "" && cur == t.Session {
 		// SAME session: select the window (and pane) in place. No switch-client,
 		// so iTerm2 -CC does NOT explode the layout.
-		if err := switchExec("tmux", "select-window", "-t", spec); err != nil {
-			return fmt.Errorf("tmux select-window -t %s: %w", spec, err)
+		if err := switchExec("tmux", "select-window", "-t", wspec); err != nil {
+			return fmt.Errorf("tmux select-window -t %s: %w", wspec, err)
 		}
 		// Best-effort pane focus within the window (ignore failure: a 1-pane
 		// window has nothing to select and tmux errors harmlessly).
-		_ = switchExec("tmux", "select-pane", "-t", spec)
+		_ = switchExec("tmux", "select-pane", "-t", pspec)
 		return nil
 	}
 
@@ -459,7 +467,7 @@ func switchToWithSession(t TmuxTarget, curSession func() string) error {
 	}
 	// osascript itself failed (not macOS / not iTerm2): degrade to a best-effort
 	// tmux select-window and surface the manual command.
-	_ = switchExec("tmux", "select-window", "-t", spec)
+	_ = switchExec("tmux", "select-window", "-t", wspec)
 	return &NotInTmuxError{Target: t, Command: SuggestJump(t)}
 }
 
@@ -527,12 +535,6 @@ func SuggestJump(t TmuxTarget) string {
 // targetSpec renders a TmuxTarget as tmux's "session:window.pane" addressing.
 // Missing window/pane components are omitted gracefully.
 func targetSpec(t TmuxTarget) string {
-	// A pane id (%N) is globally unique and a valid -t target on its own; prefer
-	// it so contract-sourced targets address the exact pane without relying on
-	// window/pane indices we may not have.
-	if s := strings.TrimSpace(t.PaneID); s != "" {
-		return s
-	}
 	spec := t.Session
 	if t.Window != "" {
 		spec += ":" + t.Window
@@ -541,4 +543,27 @@ func targetSpec(t TmuxTarget) string {
 		}
 	}
 	return spec
+}
+
+// windowTarget is the -t argument for select-window: the tmux window id (@N) when
+// known (doc-correct target-window), else the pane id (%N) (tmux resolves it to
+// its window), else the session:window index spec. Used so a contract-sourced
+// jump (which has ids, not indices) selects the exact window.
+func windowTarget(t TmuxTarget) string {
+	if s := strings.TrimSpace(t.WindowID); s != "" {
+		return s
+	}
+	if s := strings.TrimSpace(t.PaneID); s != "" {
+		return s
+	}
+	return targetSpec(t)
+}
+
+// paneTarget is the -t argument for select-pane: the pane id (%N) when known
+// (the precise target-pane), else the session:window.pane index spec.
+func paneTarget(t TmuxTarget) string {
+	if s := strings.TrimSpace(t.PaneID); s != "" {
+		return s
+	}
+	return targetSpec(t)
 }

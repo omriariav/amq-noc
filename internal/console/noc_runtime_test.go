@@ -123,14 +123,14 @@ func TestPerformAgentJumpPrefersRuntimeContract(t *testing.T) {
 		},
 		runtimeFetch: func(dir, profile, session string) noc.RuntimeStatus {
 			return noc.RuntimeStatus{Members: []noc.RuntimeMember{{
-				Role: "cto", Handle: "cto", Session: "main", WindowName: "squad", PaneID: "%99", PaneAlive: true,
+				Role: "cto", Handle: "cto", Session: "main", WindowID: "@3", WindowName: "squad", PaneID: "%99", PaneAlive: true,
 				Actions: []noc.RuntimeAction{{Kind: "focus", Command: "amq-squad focus --role cto", Available: true}},
 			}}}
 		},
 	}
 	m.performAgentJump(state.Agent{Role: "cto", Handle: "cto"}, "issue-96", "/repo", "", "cto")
-	if got.PaneID != "%99" {
-		t.Fatalf("jump must target the contract's pane id, got %+v", got)
+	if got.PaneID != "%99" || got.WindowID != "@3" {
+		t.Fatalf("jump must carry the contract's pane + window id, got %+v", got)
 	}
 	if got.Title != "amq:issue-96:cto" || got.Session != "main" {
 		t.Errorf("contract target wrong: %+v", got)

@@ -29,6 +29,7 @@ type RuntimeMember struct {
 	Role       string
 	Handle     string
 	Session    string // tmux session hosting the pane (#{session_name})
+	WindowID   string // tmux window id (@N)
 	WindowName string // tmux window name (#{window_name})
 	PaneID     string // tmux pane id (%N) — the authoritative control address
 	PaneAlive  bool
@@ -58,6 +59,7 @@ func (m RuntimeMember) JumpTarget(workstream, role string) (TmuxTarget, bool) {
 	return TmuxTarget{
 		Session:    m.Session,
 		PaneID:     m.PaneID,
+		WindowID:   m.WindowID,
 		Title:      title,
 		WindowName: m.WindowName,
 	}, true
@@ -126,6 +128,7 @@ type squadStatusEnvelope struct {
 			Handle string `json:"handle"`
 			Tmux   *struct {
 				Session    string `json:"session"`
+				WindowID   string `json:"window_id"`
 				WindowName string `json:"window_name"`
 				PaneID     string `json:"pane_id"`
 				PaneAlive  bool   `json:"pane_alive"`
@@ -173,6 +176,7 @@ func parseRuntimeStatus(out []byte) RuntimeStatus {
 		m := RuntimeMember{Role: r.Role, Handle: r.Handle}
 		if r.Tmux != nil {
 			m.Session = r.Tmux.Session
+			m.WindowID = r.Tmux.WindowID
 			m.WindowName = r.Tmux.WindowName
 			m.PaneID = r.Tmux.PaneID
 			m.PaneAlive = r.Tmux.PaneAlive

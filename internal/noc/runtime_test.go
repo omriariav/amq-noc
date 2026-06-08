@@ -92,6 +92,10 @@ func TestFetchRuntimeStatusDegradesGracefully(t *testing.T) {
 		"malformed json": func(string, ...string) ([]byte, error) { return []byte("{not json"), nil },
 		"wrong kind":     func(string, ...string) ([]byte, error) { return []byte(`{"kind":"sessions","data":{}}`), nil },
 		"empty output":   func(string, ...string) ([]byte, error) { return nil, nil },
+		// pre-1.5 amq-squad: status with members but no actions/capability.
+		"no runtime fields": func(string, ...string) ([]byte, error) {
+			return []byte(`{"kind":"status","data":{"capabilities":{"operator_gates":true},"records":[{"role":"cto","handle":"cto"}]}}`), nil
+		},
 	}
 	for name, run := range cases {
 		rs := FetchRuntimeStatus(run, "/r", "", "s")

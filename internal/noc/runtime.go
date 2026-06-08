@@ -151,5 +151,11 @@ func parseRuntimeStatus(out []byte) RuntimeStatus {
 		}
 		rs.Members = append(rs.Members, m)
 	}
+	// A status response that advertises neither the capability nor any actions is
+	// a pre-v1.5 amq-squad with no runtime contract. Stay a zero RuntimeStatus
+	// (totality) rather than returning members with empty Actions.
+	if !rs.Advertised && !rs.HasActions() {
+		return RuntimeStatus{}
+	}
 	return rs
 }

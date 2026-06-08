@@ -26,11 +26,43 @@ type RuntimeAction struct {
 
 // RuntimeMember is one member's runtime view as reported by amq-squad.
 type RuntimeMember struct {
-	Role      string
-	Handle    string
-	PaneID    string
-	PaneAlive bool
-	Actions   []RuntimeAction
+	Role       string
+	Handle     string
+	Session    string // tmux session hosting the pane (#{session_name})
+	WindowID   string // tmux window id (@N)
+	WindowName string // tmux window name (#{window_name})
+	PaneID     string // tmux pane id (%N) — the authoritative control address
+	PaneAlive  bool
+	Actions    []RuntimeAction
+}
+
+// JumpTarget builds the focus target for this member from the runtime contract:
+// the authoritative pane id, the tmux session, and a reconstructed iTerm2 title
+// token (amq:<workstream>:<role>) matching what amq-squad stamps — so the
+// cross-session focus path can raise the right native tab without scraping.
+// ok=false when the member has no live pane (caller falls back to scraping).
+func (m RuntimeMember) JumpTarget(workstream, role string) (TmuxTarget, bool) {
+	if strings.TrimSpace(m.PaneID) == "" || !m.PaneAlive {
+		return TmuxTarget{}, false
+	}
+	key := strings.TrimSpace(role)
+	if key == "" {
+		key = strings.TrimSpace(m.Role)
+	}
+	if key == "" {
+		key = strings.TrimSpace(m.Handle)
+	}
+	title := ""
+	if w := strings.TrimSpace(workstream); w != "" && key != "" {
+		title = "amq:" + w + ":" + key
+	}
+	return TmuxTarget{
+		Session:    m.Session,
+		PaneID:     m.PaneID,
+		WindowID:   m.WindowID,
+		Title:      title,
+		WindowName: m.WindowName,
+	}, true
 }
 
 // RuntimeStatus is the consumed runtime contract for one session. Advertised
@@ -95,8 +127,11 @@ type squadStatusEnvelope struct {
 			Role   string `json:"role"`
 			Handle string `json:"handle"`
 			Tmux   *struct {
-				PaneID    string `json:"pane_id"`
-				PaneAlive bool   `json:"pane_alive"`
+				Session    string `json:"session"`
+				WindowID   string `json:"window_id"`
+				WindowName string `json:"window_name"`
+				PaneID     string `json:"pane_id"`
+				PaneAlive  bool   `json:"pane_alive"`
 			} `json:"tmux"`
 			Actions []struct {
 				Kind      string `json:"kind"`
@@ -140,6 +175,9 @@ func parseRuntimeStatus(out []byte) RuntimeStatus {
 	for _, r := range env.Data.Records {
 		m := RuntimeMember{Role: r.Role, Handle: r.Handle}
 		if r.Tmux != nil {
+			m.Session = r.Tmux.Session
+			m.WindowID = r.Tmux.WindowID
+			m.WindowName = r.Tmux.WindowName
 			m.PaneID = r.Tmux.PaneID
 			m.PaneAlive = r.Tmux.PaneAlive
 		}

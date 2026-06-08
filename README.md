@@ -47,10 +47,12 @@ The primary visible statuses are intentionally simple:
 
 - `online`: at least one agent in the team/session is live, with no current wait detected.
 - `needs-you`: an agent sent a structural question to the operator mailbox.
+- `blocked`: an agent declared a hard stop that needs another agent or workflow
+  condition to clear.
 - `waiting`: a live agent is waiting on another agent or non-human coordination.
 - `stale`: the team/session is dead or old enough to demote.
 
-Thread-level evidence such as blocked, gated, and at-risk is still collected for
+Thread-level evidence such as gated and at-risk is still collected for
 detail panes and diagnostics, but the main tree leads with the operational state
 of projects, sessions, and agents.
 
@@ -81,11 +83,13 @@ operationally live agents, so fresh presence alone never promotes a wait.
 - tmux recovery helpers for both current-window and new-session launch targets
 - row-sensitive delete behavior for team profiles, named sessions, and root AMQ
   mailbox rows
+- runtime-action helper commands for project, session, and agent rows
+- JSON/TUI status alignment for fresh-presence `dead-mailbox-live` agents
 
 ## Install
 
 ```sh
-go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.2.2
+go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.4.0
 ```
 
 Requirements:
@@ -184,7 +188,7 @@ For more detail, see [`docs/operator-gate.md`](docs/operator-gate.md).
 
 amq-squad owns runtime orchestration (start / stop / resume / focus / open /
 prompt-delivery and the tmux mechanics behind them). amq-noc consumes the
-capability metadata amq-squad publishes and, in `v0.3`, generates the labeled action
+capability metadata amq-squad publishes and, in `v0.4`, generates the labeled action
 commands itself, deterministically; it renders them as operator UI, lets you pick
 and copy the exact command (`C`), and falls back gracefully when runtime support is
 absent. The NOC never drives the runtime itself. Consuming a published action

@@ -1,6 +1,6 @@
 # Runtime actions: the consume/orchestrate boundary
 
-amq-noc is a read-only operator console. For v0.3 it gains support for amq-squad
+amq-noc is a read-only operator console. For v0.4 it gains support for amq-squad
 *runtime actions* (start / stop / resume / focus / open / prompt-delivery), but it
 does not perform the runtime mechanics itself. There is a hard architectural line:
 
@@ -8,7 +8,7 @@ does not perform the runtime mechanics itself. There is a hard architectural lin
   focusing, opening, and delivering prompts to a session or agent, including all
   tmux/window/process mechanics, is amq-squad's job.
 - **amq-noc consumes, renders, and selects.** The NOC consumes the capability
-  *metadata* amq-squad publishes and, in v0.3, GENERATES the labeled action commands
+  *metadata* amq-squad publishes and, in v0.4, GENERATES the labeled action commands
   itself, deterministically (delegating their EXECUTION to amq-squad). It renders
   them as operator UI, lets the operator pick and copy the exact command, and
   degrades to a fallback when runtime support is absent. Consuming a published
@@ -22,7 +22,7 @@ operator a command; amq-squad (or the operator running that command) does the wo
 - **Capabilities** (`team.Capabilities`, surfaced on `noc.ProjectSnapshot`): the
   machine-readable flags a project advertises, e.g. operator gates today and the
   runtime-action capability set as amq-squad publishes it. The NOC consumes these.
-- **Command templates**: in v0.3 the NOC GENERATES the labeled action commands
+- **Command templates**: in v0.4 the NOC GENERATES the labeled action commands
   itself, deterministically, from the read-only session/coordination snapshot:
   `amq` fallbacks (drain, send) and `amq-squad` delegations (resume here / open
   new session / agent resume) whose EXECUTION amq-squad owns. It does not run

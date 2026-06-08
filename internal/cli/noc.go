@@ -167,8 +167,9 @@ a profile when needed, type a new workstream name, and launch that team in a
 detached tmux session; existing names are rejected in the editor, including
 empty AMQ session directories, so you can resume or restart instead. Press S/R/X
 to stop/resume/restart; mixed-profile sessions ask which profile to operate on.
-Agent rows can be messaged or drained. Needs-you rows can be approved, replied
-to, or denied. Squad rows can receive broadcasts or lifecycle controls. The live
+Agent rows can be messaged, drained, or sent a prompt (press p to deliver a typed
+prompt to the agent's pane via amq-squad send). Needs-you rows can be approved,
+replied to, or denied. Squad rows can receive broadcasts or lifecycle controls. The live
 footer shows only actions currently valid for the selected row; press ? for the
 full, always-current key map.
 
@@ -483,6 +484,7 @@ func executeNOC(s nocExecution) error {
 	cfg.ForkPlan = consoleForkPlan
 	cfg.Brief = consoleBrief
 	cfg.BriefSeed = consoleBriefSeed
+	cfg.SendPrompt = consoleSendPrompt
 	cfg.Status = consoleStatus
 	cfg.Threads = consoleThreads
 	return s.RunNOC(cfg)
@@ -3402,6 +3404,65 @@ func delegateSquad(dir string, args ...string) error {
 		return err
 	}
 	return nil
+}
+
+// delegateSquadStdin is the stdin-capable sibling of delegateSquad: it runs the
+// installed amq-squad CLI for a confirmed squad action that reads its payload
+// from STDIN (currently `amq-squad send --body-file -`, where stdin carries the
+// prompt body). It mirrors delegateSquad's binary resolution, working directory,
+// and combined-output error surfacing so a non-zero exit (e.g. amq-squad's
+// mid-turn "busy" refusal) is returned verbatim for the NOC to render. The
+// error detail is preserved so the console's "busy" detection can match it.
+func delegateSquadStdin(dir, stdin string, args ...string) error {
+	cmd := exec.Command(generatedSquadCommand(), args...)
+	if d := strings.TrimSpace(dir); d != "" {
+		cmd.Dir = d
+	}
+	cmd.Stdin = strings.NewReader(stdin)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		if detail := strings.TrimSpace(string(out)); detail != "" {
+			return fmt.Errorf("%w: %s", err, detail)
+		}
+		return err
+	}
+	return nil
+}
+
+// consoleSendPrompt is the cli-side send-prompt seam handed to the NOC. It is
+// invoked ONLY for a confirmed send-prompt action from the TUI. It delivers the
+// typed prompt to the selected agent's tmux pane via `amq-squad send`, piping the
+// body to the child over STDIN (--body-file -). amq-squad owns the delivery and
+// the mid-turn "busy" refusal; a non-zero exit is surfaced back to the NOC.
+func consoleSendPrompt(req console.SendPromptRequest) error {
+	args, err := consoleSendPromptArgs(req)
+	if err != nil {
+		return err
+	}
+	return delegateSquadStdin(req.ProjectDir, req.Body, args...)
+}
+
+// consoleSendPromptArgs builds the `amq-squad send` argv for a confirmed
+// send-prompt action. It mirrors sendPromptOp.command(): --profile only when
+// non-default/non-empty, and --body-file - so amq-squad reads the body from the
+// stdin delegateSquadStdin pipes in.
+func consoleSendPromptArgs(req console.SendPromptRequest) ([]string, error) {
+	role := strings.TrimSpace(req.Role)
+	if role == "" {
+		return nil, fmt.Errorf("role cannot be empty")
+	}
+	args := []string{"send"}
+	if dir := strings.TrimSpace(req.ProjectDir); dir != "" {
+		args = append(args, "--project", dir)
+	}
+	if profile := strings.TrimSpace(req.Profile); profile != "" && profile != team.DefaultProfile {
+		args = append(args, "--profile", profile)
+	}
+	if session := strings.TrimSpace(req.Session); session != "" {
+		args = append(args, "--session", session)
+	}
+	args = append(args, "--role", role, "--body-file", "-")
+	return args, nil
 }
 
 func consoleStop(dir, profile, session string) error {

@@ -137,6 +137,11 @@ type NOCConfig struct {
 	// BriefSeed is the cli-injected amq-squad brief seed seam for a confirmed
 	// workstream brief write.
 	BriefSeed func(BriefSeedRequest) error
+	// SendPrompt is the cli-injected amq-squad send seam for a confirmed
+	// send-prompt action. It delivers a typed prompt to one agent's tmux pane
+	// (body via STDIN). nil degrades to a "no send prompt backend" note. It is
+	// reached ONLY after the operator confirms the preview overlay.
+	SendPrompt func(SendPromptRequest) error
 	// Status is the cli-injected amq-squad status seam for a read-only project or
 	// session status inspection.
 	Status func(StatusRequest) (StatusResult, error)
@@ -547,6 +552,19 @@ type BriefSeedRequest struct {
 	Session    string
 	SeedFrom   string
 	Force      bool
+}
+
+// SendPromptRequest is the public, cli-facing shape of a confirmed send-prompt
+// action. It carries the exact scope the NOC previewed (project dir + profile +
+// session + role) plus the prompt Body the cli closure pipes to `amq-squad send`
+// over STDIN. Keeping this free of console internals lets cli inject the seam
+// without importing unexported types.
+type SendPromptRequest struct {
+	ProjectDir string
+	Profile    string
+	Session    string
+	Role       string
+	Body       string
 }
 
 // StatusRequest is the public, cli-facing shape of a read-only NOC status
@@ -1104,6 +1122,24 @@ func adaptBriefSeed(fn func(BriefSeedRequest) error) func(briefSeedOp) error {
 	}
 }
 
+// adaptSendPrompt bridges the public, cli-facing SendPromptRequest seam to the
+// model's internal sendPromptOp seam. nil in means nil out, so send-prompt
+// degrades to a note rather than a panic.
+func adaptSendPrompt(fn func(SendPromptRequest) error) func(sendPromptOp) error {
+	if fn == nil {
+		return nil
+	}
+	return func(op sendPromptOp) error {
+		return fn(SendPromptRequest{
+			ProjectDir: op.ProjectDir,
+			Profile:    op.Profile,
+			Session:    op.Session,
+			Role:       op.Role,
+			Body:       op.Body,
+		})
+	}
+}
+
 func adaptStatus(fn func(StatusRequest) (StatusResult, error)) func(statusOp) (statusResult, error) {
 	if fn == nil {
 		return nil
@@ -1218,6 +1254,7 @@ func runNOCLive(cfg NOCConfig) error {
 	m.forkPlan = adaptForkPlan(cfg.ForkPlan)
 	m.brief = adaptBrief(cfg.Brief)
 	m.briefSeed = adaptBriefSeed(cfg.BriefSeed)
+	m.sendPrompt = adaptSendPrompt(cfg.SendPrompt)
 	m.status = adaptStatus(cfg.Status)
 	m.threads = adaptThreads(cfg.Threads)
 	// Wire the needs-you ALERT bell (PR18). It writes a bare BEL ("\a") to the

@@ -68,6 +68,7 @@ const (
 	ctlForkPlan
 	ctlBriefSeed
 	ctlThreadContextAny
+	ctlSendPrompt
 )
 
 func (k controlKind) label() string {
@@ -126,6 +127,8 @@ func (k controlKind) label() string {
 		return "FORK PLAN"
 	case ctlBriefSeed:
 		return "BRIEF SEED"
+	case ctlSendPrompt:
+		return "SEND PROMPT"
 	default:
 		return "ACTION"
 	}
@@ -171,6 +174,44 @@ func (op agentResumeOp) command() string {
 	if strings.TrimSpace(op.Session) != "" {
 		parts = append(parts, "--session", shellToken(op.Session))
 	}
+	return strings.Join(parts, " ")
+}
+
+// sendPromptOp is the exact prompt-delivery effect a confirmed NOC send-prompt
+// action runs. It delivers a typed prompt to one agent's tmux pane via
+// `amq-squad send`, reading the body from STDIN. This is NOT an AMQ message: it
+// shells amq-squad, never act.Send, so there is no thread/kind. amq-squad owns
+// the delivery (and the mid-turn "busy" refusal); amq-noc only previews the argv
+// and pipes Body to the child. The seam (m.sendPrompt) is reached ONLY after the
+// operator confirms the overlay; tests swap it for a fake so no test shells a
+// real amq-squad.
+type sendPromptOp struct {
+	ProjectDir string
+	Profile    string
+	Session    string
+	Role       string
+	Body       string
+}
+
+// command renders the EXACT argv the seam runs, for the confirm preview. The
+// body is piped via stdin (--body-file -), so it is NOT shown in the command;
+// the overlay's "affects" line names the recipient. --profile is included only
+// when non-default/non-empty, mirroring the lifecycle/new-session previews.
+func (op sendPromptOp) command() string {
+	parts := []string{squadCommandToken(), "send"}
+	if strings.TrimSpace(op.ProjectDir) != "" {
+		parts = append(parts, "--project", shellToken(op.ProjectDir))
+	}
+	if profile := strings.TrimSpace(op.Profile); profile != "" && profile != team.DefaultProfile {
+		parts = append(parts, "--profile", shellToken(profile))
+	}
+	if strings.TrimSpace(op.Session) != "" {
+		parts = append(parts, "--session", shellToken(op.Session))
+	}
+	if strings.TrimSpace(op.Role) != "" {
+		parts = append(parts, "--role", shellToken(op.Role))
+	}
+	parts = append(parts, "--body-file", "-")
 	return strings.Join(parts, " ")
 }
 
@@ -1144,26 +1185,27 @@ func projectAMQRoot(ps noc.ProjectSnapshot) string {
 // mutating action. Exactly one of op (AMQ write) / life (lifecycle) is set. The
 // preview is the literal command string the overlay renders and the seam runs.
 type pendingAction struct {
-	kind     controlKind
-	preview  string
-	read     *readNeedsYouOp // set for read-needs-you
-	drain    *drainAgentOp   // set for agent drain
-	dlqRead  *dlqReadOp      // set for DLQ read
-	dlqRetry *dlqRetryOp     // set for DLQ retry
-	dlqPurge *dlqPurgeOp     // set for DLQ purge
-	dlqAll   *dlqRetryAllOp  // set for DLQ retry-all
-	receipt  *receiptsWaitOp // set for receipts wait
-	msgWait  *messageWaitOp  // set for message wait
-	amqClean *amqCleanupOp   // set for AMQ cleanup
-	op       act.OpMessage   // set for approve/reply/deny/message/broadcast
-	life     *lifecycleOp    // set for stop/resume/restart
-	agent    *agentResumeOp  // set for single-agent resume
-	cleanup  *sessionCleanupOp
-	session  *newSessionOp  // set for new-session
-	team     *newTeamOp     // set for new-team
-	delTeam  *teamDeleteOp  // set for delete-team
-	sync     *pointerSyncOp // set for pointer sync
-	brief    *briefSeedOp
+	kind       controlKind
+	preview    string
+	read       *readNeedsYouOp // set for read-needs-you
+	drain      *drainAgentOp   // set for agent drain
+	dlqRead    *dlqReadOp      // set for DLQ read
+	dlqRetry   *dlqRetryOp     // set for DLQ retry
+	dlqPurge   *dlqPurgeOp     // set for DLQ purge
+	dlqAll     *dlqRetryAllOp  // set for DLQ retry-all
+	receipt    *receiptsWaitOp // set for receipts wait
+	msgWait    *messageWaitOp  // set for message wait
+	amqClean   *amqCleanupOp   // set for AMQ cleanup
+	op         act.OpMessage   // set for approve/reply/deny/message/broadcast
+	life       *lifecycleOp    // set for stop/resume/restart
+	agent      *agentResumeOp  // set for single-agent resume
+	cleanup    *sessionCleanupOp
+	session    *newSessionOp  // set for new-session
+	team       *newTeamOp     // set for new-team
+	delTeam    *teamDeleteOp  // set for delete-team
+	sync       *pointerSyncOp // set for pointer sync
+	brief      *briefSeedOp
+	sendPrompt *sendPromptOp // set for send-prompt (amq-squad send, body via stdin)
 	// affected lists the agents the action touches, shown under the preview so
 	// scope is explicit (recipients for an AMQ write, the roster for lifecycle).
 	affected []string
@@ -1218,6 +1260,8 @@ func (m *NOCModel) handleControlKey(key string) (tea.Cmd, bool) {
 		return m.beginApproveOrDeny(ctlDeny), true
 	case "m":
 		return m.beginMessage(), true
+	case "p":
+		return m.beginSendPrompt(), true
 	case "b":
 		return m.beginBroadcast(), true
 	case "S":
@@ -2161,6 +2205,60 @@ func (m *NOCModel) beginMessageFor(root, handle, operatorHandle string) tea.Cmd 
 	return nil
 }
 
+// beginSendPrompt opens the body editor for a SEND PROMPT to the selected AGENT.
+// Unlike beginMessage (an AMQ direct message via act.Send), this delivers the
+// typed prompt straight to the agent's tmux pane via `amq-squad send`, piping the
+// body to the child's STDIN. It mirrors beginMessage's node-kind guard (agent
+// rows only) and resolves the squad-shell scope from the node: ProjectDir from
+// the project, Session from the session, Role from the agent, Profile via the
+// shared sessionCommandProfile helper (the "PROFILE" mixed-profile placeholder
+// maps to "" so the preview omits --profile and lets amq-squad resolve it).
+func (m *NOCModel) beginSendPrompt() tea.Cmd {
+	n, ok := m.selectedNode()
+	if !ok || n.kind != nodeAgent {
+		m.actNote = "send prompt applies to an agent row - select an agent first"
+		return nil
+	}
+	role := strings.TrimSpace(n.agent.Role)
+	handle := strings.TrimSpace(n.agent.Handle)
+	if role == "" {
+		m.actNote = "send prompt: selected agent has no role"
+		return nil
+	}
+	if handle == "" {
+		handle = role
+	}
+	projectDir := strings.TrimSpace(n.project.Dir)
+	session := strings.TrimSpace(n.session.Name)
+	profile := sessionCommandProfile(n.project, n.session.Name)
+	if profile == "PROFILE" {
+		// Mixed profiles in one session: let amq-squad resolve the agent's own
+		// profile rather than pinning a wrong one. Empty omits --profile.
+		profile = ""
+	}
+	m.input = &inputAction{
+		kind:  ctlSendPrompt,
+		stage: 1, // body only
+		build: func(_, body, _ string) pendingAction {
+			op := sendPromptOp{
+				ProjectDir: projectDir,
+				Profile:    profile,
+				Session:    session,
+				Role:       role,
+				Body:       body,
+			}
+			return pendingAction{kind: ctlSendPrompt, preview: op.command(), sendPrompt: &op, affected: []string{handle}}
+		},
+		validateBody: func(body string) error {
+			if strings.TrimSpace(body) == "" {
+				return errString("body cannot be empty")
+			}
+			return nil
+		},
+	}
+	return nil
+}
+
 func (m *NOCModel) beginMessageWaitFor(root, handle string) tea.Cmd {
 	return m.beginMessageWaitForOperator(root, handle, m.selectedOperatorHandle())
 }
@@ -2998,6 +3096,24 @@ func (m *NOCModel) runPending(p *pendingAction) bool {
 		}
 		m.actNote = "BRIEF SEED sent: " + p.preview
 		return true
+	case p.sendPrompt != nil:
+		if m.sendPrompt == nil {
+			m.actNote = "send prompt unavailable in this context (no send prompt backend)"
+			return false
+		}
+		if err := m.sendPrompt(*p.sendPrompt); err != nil {
+			// amq-squad refuses a prompt while the agent is mid-turn (exit
+			// non-zero with a "busy" message). Surface that as an actionable note
+			// rather than a raw subprocess error so the operator knows to retry.
+			if isAgentBusyError(err) {
+				m.actNote = "send prompt: agent busy (mid-turn); retry when idle"
+				return false
+			}
+			m.actNote = "send prompt failed: " + err.Error()
+			return false
+		}
+		m.actNote = "SEND PROMPT sent: " + p.preview
+		return true
 	case p.session != nil:
 		if m.newSession == nil {
 			m.actNote = "new session unavailable in this context (no launch backend)"
@@ -3171,6 +3287,16 @@ func (m *NOCModel) handleInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			in.body = body
 		}
+		if in.kind == ctlSendPrompt {
+			body := strings.TrimSpace(in.body)
+			if in.validateBody != nil {
+				if err := in.validateBody(body); err != nil {
+					m.actNote = strings.ToLower(in.kind.label()) + ": " + err.Error()
+					return m, nil
+				}
+			}
+			in.body = body
+		}
 		if in.kind == ctlDLQRead || in.kind == ctlDLQRetry || in.kind == ctlDLQPurge {
 			body := strings.TrimSpace(in.body)
 			if in.validateBody != nil {
@@ -3309,7 +3435,7 @@ func inputEditingSubject(in *inputAction) bool {
 }
 
 func inputBodyAcceptsMultiline(kind controlKind) bool {
-	return kind == ctlReply || kind == ctlMessage || kind == ctlMessageWait || kind == ctlBroadcast || kind == ctlDeny
+	return kind == ctlReply || kind == ctlMessage || kind == ctlMessageWait || kind == ctlBroadcast || kind == ctlDeny || kind == ctlSendPrompt
 }
 
 func lifecycleControlKind(kind controlKind) bool {
@@ -3318,6 +3444,17 @@ func lifecycleControlKind(kind controlKind) bool {
 
 // ptrPending boxes a pendingAction value (the input builder returns a value).
 func ptrPending(p pendingAction) *pendingAction { return &p }
+
+// isAgentBusyError reports whether a send-prompt error is amq-squad's mid-turn
+// refusal. amq-squad exits non-zero with a message containing "busy" when the
+// target agent is mid-turn (and --force was not used); the NOC turns that into
+// an actionable "retry when idle" note instead of a raw subprocess error.
+func isAgentBusyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "busy")
+}
 
 // dropLast trims the last rune of an editor buffer.
 func dropLast(s string) string {

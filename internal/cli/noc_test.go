@@ -149,6 +149,9 @@ func TestExecuteNOC_PassesRootsAndThresholds(t *testing.T) {
 	if cap.cfg.BriefSeed == nil {
 		t.Error("BriefSeed seam should be wired")
 	}
+	if cap.cfg.SendPrompt == nil {
+		t.Error("SendPrompt seam should be wired")
+	}
 	if cap.cfg.Status == nil {
 		t.Error("Status seam should be wired")
 	}

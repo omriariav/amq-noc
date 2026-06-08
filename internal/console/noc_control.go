@@ -3289,11 +3289,15 @@ func (m *NOCModel) handleInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	default:
-		if len(msg.String()) == 1 {
+		if text := keyText(msg); text != "" {
 			if inputEditingSubject(in) {
-				in.subject += msg.String()
+				in.subject += singleLineInputText(text)
 			} else {
-				in.body += msg.String()
+				if inputBodyAcceptsMultiline(in.kind) {
+					in.body += normalizePastedText(text)
+				} else {
+					in.body += singleLineInputText(text)
+				}
 			}
 		}
 		return m, nil
@@ -3304,6 +3308,10 @@ func inputEditingSubject(in *inputAction) bool {
 	return in != nil && in.stage == 0 && (in.kind == ctlBroadcast || in.kind == ctlMessageWait || in.kind == ctlNewSession || in.kind == ctlNewTeam || in.kind == ctlSyncPointers || in.kind == ctlDeleteTeam || lifecycleControlKind(in.kind))
 }
 
+func inputBodyAcceptsMultiline(kind controlKind) bool {
+	return kind == ctlReply || kind == ctlMessage || kind == ctlMessageWait || kind == ctlBroadcast || kind == ctlDeny
+}
+
 func lifecycleControlKind(kind controlKind) bool {
 	return kind == ctlStop || kind == ctlResume || kind == ctlRestart
 }
@@ -3311,12 +3319,13 @@ func lifecycleControlKind(kind controlKind) bool {
 // ptrPending boxes a pendingAction value (the input builder returns a value).
 func ptrPending(p pendingAction) *pendingAction { return &p }
 
-// dropLast trims the last byte of a single-line editor buffer.
+// dropLast trims the last rune of an editor buffer.
 func dropLast(s string) string {
 	if s == "" {
 		return s
 	}
-	return s[:len(s)-1]
+	runes := []rune(s)
+	return string(runes[:len(runes)-1])
 }
 
 // --- selection helpers ----------------------------------------------------

@@ -42,11 +42,12 @@ type TmuxTarget struct {
 	Session string
 	Window  string
 	Pane    string
-	// PaneID is the tmux pane id (%N). When set it is the authoritative -t
-	// target: it is globally unique within the tmux server, so select-window /
-	// select-pane / switch-client hit the exact pane regardless of window/pane
-	// indices. It is populated when the target comes from amq-squad's runtime
-	// contract (the persisted pane id) rather than from scraping pane indices.
+	// PaneID is the tmux pane id (%N), the precise target-pane for select-pane
+	// (paneTarget). Globally unique within the tmux server, so it addresses the
+	// exact pane regardless of window/pane indices. It is populated when the
+	// target comes from amq-squad's runtime contract (the persisted pane id)
+	// rather than from scraping pane indices. switch-client targets the session,
+	// not the pane id (see SuggestJump / targetSpec).
 	PaneID string
 	// WindowID is the tmux window id (@N). When set it is the doc-correct
 	// target-window for select-window (the pane id resolves to it too, but the

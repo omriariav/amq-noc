@@ -247,6 +247,11 @@ type NOCModel struct {
 	panes    nocPaneLister
 	pidTree  func(pid int) []int
 	copyText func(string) error
+	// runtimeFetch consumes amq-squad's runtime contract (status --json
+	// actions[]/pane_alive) for a session, so the command picker offers the
+	// exact, runnable control commands amq-squad advertises. Total: a zero
+	// RuntimeStatus on any failure, so the picker degrades to static commands.
+	runtimeFetch func(dir, profile, session string) noc.RuntimeStatus
 
 	// bell is the injected terminal-bell seam for needs-you alerts. Production
 	// writes "\a" to the tty (wired by RunNOC); tests inject a counter so they can
@@ -307,15 +312,16 @@ type NOCModel struct {
 func newNOCModel(rebuild NOCRebuildConfig) NOCModel {
 	mode := resolveColorMode(true)
 	return NOCModel{
-		rebuild:   rebuild,
-		tree:      newNOCTreeState(),
-		colorMode: mode,
-		th:        newNOCTheme(mode),
-		switchTo:  noc.SwitchTo,
-		panes:     noc.DefaultPaneLister,
-		pidTree:   defaultPidTree,
-		copyText:  defaultClipboardCopy,
-		sendOp:    act.Send,
+		rebuild:      rebuild,
+		tree:         newNOCTreeState(),
+		colorMode:    mode,
+		th:           newNOCTheme(mode),
+		switchTo:     noc.SwitchTo,
+		panes:        noc.DefaultPaneLister,
+		pidTree:      defaultPidTree,
+		copyText:     defaultClipboardCopy,
+		runtimeFetch: defaultRuntimeFetch,
+		sendOp:       act.Send,
 	}
 }
 

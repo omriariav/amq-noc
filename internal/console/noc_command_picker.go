@@ -6,16 +6,30 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/omriariav/amq-noc/internal/noc"
 )
 
 type commandPickerOverlay struct {
 	title    string
 	commands []nocCommandAction
+	// selectionID is the node the picker was opened for; an async
+	// runtimeActionsMsg only augments the picker when it still matches, so a
+	// late fetch never bleeds into a different row.
+	selectionID string
 }
 
 type commandCopyMsg struct {
 	command string
 	err     error
+}
+
+// runtimeActionsMsg carries the runtime control commands amq-squad advertises
+// for the row the picker was opened on (fetched asynchronously so the picker
+// opens instantly with static commands and gains live actions when they land).
+type runtimeActionsMsg struct {
+	selectionID string
+	actions     []nocCommandAction
 }
 
 func defaultClipboardCopy(text string) error {
@@ -24,14 +38,23 @@ func defaultClipboardCopy(text string) error {
 	return cmd.Run()
 }
 
-func (m *NOCModel) beginCommandPicker() {
+func defaultRuntimeFetch(dir, profile, session string) noc.RuntimeStatus {
+	return noc.FetchRuntimeStatus(noc.DefaultSquadRunner, dir, profile, session)
+}
+
+// beginCommandPicker opens the copy-command overlay immediately with the static
+// commands (so it is always snappy), and — for a session/agent row — returns an
+// async command that fetches amq-squad's live runtime actions and folds them in
+// when they arrive. Returns nil when there is nothing to fetch.
+func (m *NOCModel) beginCommandPicker() tea.Cmd {
 	commands := m.selectedCommandActions()
 	if len(commands) == 0 {
 		m.actNote = "no action commands for this row"
-		return
+		return nil
 	}
+	n, ok := m.selectedNode()
 	title := "COPY COMMAND"
-	if n, ok := m.selectedNode(); ok {
+	if ok {
 		switch n.kind {
 		case nodeProject:
 			title = "COPY COMMAND  " + n.project.Project
@@ -41,10 +64,129 @@ func (m *NOCModel) beginCommandPicker() {
 			title = "COPY COMMAND  " + agentLabel(n.agent)
 		}
 	}
-	if len(commands) > 9 {
-		commands = commands[:9]
+	picker := &commandPickerOverlay{title: title, commands: capCommands(commands)}
+	if ok {
+		picker.selectionID = n.id
 	}
-	m.commandPicker = &commandPickerOverlay{title: title, commands: commands}
+	m.commandPicker = picker
+	if !ok || m.runtimeFetch == nil {
+		return nil
+	}
+	dir, profile, session := runtimeFetchScope(n)
+	if dir == "" || session == "" {
+		return nil
+	}
+	node := n
+	id := n.id
+	fetch := m.runtimeFetch
+	return func() tea.Msg {
+		rs := fetch(dir, profile, session)
+		return runtimeActionsMsg{selectionID: id, actions: runtimeCommandActions(rs, node)}
+	}
+}
+
+// handleRuntimeActions folds amq-squad's live runtime actions into the open
+// picker, but only if it is still the row they were fetched for. Runtime actions
+// lead (they are the exact, live control commands); static commands follow;
+// duplicates by command string are dropped; the list is capped to 9.
+func (m *NOCModel) handleRuntimeActions(msg runtimeActionsMsg) {
+	if m.commandPicker == nil || m.commandPicker.selectionID != msg.selectionID || len(msg.actions) == 0 {
+		return
+	}
+	merged := append([]nocCommandAction{}, msg.actions...)
+	merged = append(merged, m.commandPicker.commands...)
+	m.commandPicker.commands = capCommands(dedupeCommands(merged))
+}
+
+func capCommands(in []nocCommandAction) []nocCommandAction {
+	if len(in) > 9 {
+		return in[:9]
+	}
+	return in
+}
+
+func dedupeCommands(in []nocCommandAction) []nocCommandAction {
+	seen := make(map[string]bool, len(in))
+	out := in[:0]
+	for _, a := range in {
+		key := strings.TrimSpace(a.Command)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, a)
+	}
+	return out
+}
+
+// runtimeFetchScope resolves (project dir, profile, session) to query for a
+// session/agent row. The "PROFILE" placeholder (mixed profiles in one session)
+// maps to the default profile rather than passing a literal flag value.
+func runtimeFetchScope(n nocNode) (dir, profile, session string) {
+	switch n.kind {
+	case nodeSession:
+		dir, session = strings.TrimSpace(n.project.Dir), strings.TrimSpace(n.session.Name)
+		profile = sessionCommandProfile(n.project, n.session.Name)
+	case nodeAgent:
+		dir, session = strings.TrimSpace(n.project.Dir), strings.TrimSpace(n.session.Name)
+		profile = sessionCommandProfile(n.project, n.session.Name)
+	default:
+		return "", "", ""
+	}
+	if profile == "PROFILE" {
+		profile = ""
+	}
+	return dir, profile, session
+}
+
+// runtimeCommandActions maps amq-squad's advertised, AVAILABLE runtime actions
+// for the row into copyable command entries (focus/send/resume/status). For an
+// agent row only that member's actions; for a session row every member's.
+// Unavailable actions (e.g. focus/send on a dead pane) are omitted.
+func runtimeCommandActions(rs noc.RuntimeStatus, n nocNode) []nocCommandAction {
+	if !rs.HasActions() {
+		return nil
+	}
+	var members []noc.RuntimeMember
+	switch n.kind {
+	case nodeAgent:
+		if mem, ok := rs.MemberByRole(n.agent.Role); ok {
+			members = []noc.RuntimeMember{mem}
+		}
+	case nodeSession:
+		members = rs.Members
+	default:
+		return nil
+	}
+	var out []nocCommandAction
+	for _, mem := range members {
+		role := strings.TrimSpace(mem.Role)
+		if role == "" {
+			role = strings.TrimSpace(mem.Handle)
+		}
+		for _, a := range mem.Actions {
+			if !a.Available {
+				continue
+			}
+			out = append(out, commandAction(strings.TrimSpace(a.Kind+" "+role), a.Command, runtimeActionDesc(a.Kind, role)))
+		}
+	}
+	return out
+}
+
+func runtimeActionDesc(kind, role string) string {
+	switch kind {
+	case "focus":
+		return "focus " + role + "'s tmux pane (amq-squad)"
+	case "send":
+		return "deliver a prompt to " + role + "'s pane (amq-squad)"
+	case "resume":
+		return "resume " + role + " from its launch record"
+	case "status":
+		return "show " + role + "'s amq-squad status"
+	default:
+		return "amq-squad " + strings.TrimSpace(kind) + " for " + role
+	}
 }
 
 func (m *NOCModel) selectedCommandActions() []nocCommandAction {

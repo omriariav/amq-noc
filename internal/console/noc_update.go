@@ -59,6 +59,10 @@ func (m *NOCModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleCommandCopyResult(msg)
 		return m, nil
 
+	case runtimeActionsMsg:
+		m.handleRuntimeActions(msg)
+		return m, nil
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -190,8 +194,7 @@ func (m *NOCModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.refreshNote = "refreshed (just now)"
 		return m, nocRebuildCmd(m.rebuild)
 	case "C":
-		m.beginCommandPicker()
-		return m, nil
+		return m, m.beginCommandPicker()
 	case "/":
 		m.filterEditing = true
 		return m, nil

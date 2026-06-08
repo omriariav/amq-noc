@@ -235,17 +235,37 @@ func (m *NOCModel) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "backspace":
 		if len(m.filter) > 0 {
-			m.filter = m.filter[:len(m.filter)-1]
+			m.filter = dropLast(m.filter)
 		}
 		m.clampCursor()
 		return m, nil
 	default:
-		if len(msg.String()) == 1 {
-			m.filter += msg.String()
+		if text := keyText(msg); text != "" {
+			m.filter += singleLineInputText(text)
 			m.clampCursor()
 		}
 		return m, nil
 	}
+}
+
+func keyText(msg tea.KeyMsg) string {
+	if len(msg.Runes) > 0 {
+		return normalizePastedText(string(msg.Runes))
+	}
+	s := msg.String()
+	if len([]rune(s)) == 1 {
+		return s
+	}
+	return ""
+}
+
+func normalizePastedText(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	return strings.ReplaceAll(s, "\r", "\n")
+}
+
+func singleLineInputText(s string) string {
+	return strings.NewReplacer("\n", " ").Replace(normalizePastedText(s))
 }
 
 // moveCursor moves selection by delta and remembers the new id.

@@ -85,11 +85,12 @@ operationally live agents, so fresh presence alone never promotes a wait.
   mailbox rows
 - runtime-action helper commands for project, session, and agent rows
 - JSON/TUI status alignment for fresh-presence `dead-mailbox-live` agents
+- clipboard paste support in filter and action input prompts
 
 ## Install
 
 ```sh
-go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.4.0
+go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.4.1
 ```
 
 Requirements:

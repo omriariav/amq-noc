@@ -55,6 +55,10 @@ func nocKey(s string) tea.KeyMsg {
 	}
 }
 
+func nocPaste(s string) tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s), Paste: true}
+}
+
 // nocPress drives one real key message through the PUBLIC Update and returns the
 // model Update RETURNS — the one Bubble Tea renders next. It deliberately does
 // NOT call moveCursor / handleKey directly: a test that pokes the helpers would
@@ -63,6 +67,11 @@ func nocKey(s string) tea.KeyMsg {
 // arrow / j / k key.
 func nocPress(m *NOCModel, s string) (*NOCModel, tea.Cmd) {
 	mm, cmd := m.Update(nocKey(s))
+	return mm.(*NOCModel), cmd
+}
+
+func nocSend(m *NOCModel, msg tea.KeyMsg) (*NOCModel, tea.Cmd) {
+	mm, cmd := m.Update(msg)
 	return mm.(*NOCModel), cmd
 }
 
@@ -83,6 +92,40 @@ func TestNOCUpdate_MoveCursor(t *testing.T) {
 	m, _ = nocPress(m, "up")
 	if m.cursor != 0 {
 		t.Errorf("up at top should clamp to 0, got %d", m.cursor)
+	}
+}
+
+func TestNOCFilterAcceptsPastedRunes(t *testing.T) {
+	m := newSeededNOCModel(t)
+	m, _ = nocPress(m, "/")
+	if !m.filterEditing {
+		t.Fatal("filter editor should be open after /")
+	}
+
+	m, _ = nocSend(m, nocPaste("project:amq-noc"))
+	if m.filter != "project:amq-noc" {
+		t.Fatalf("filter after paste = %q, want project:amq-noc", m.filter)
+	}
+}
+
+func TestNOCFilterPasteFlattensNewlines(t *testing.T) {
+	m := newSeededNOCModel(t)
+	m, _ = nocPress(m, "/")
+
+	m, _ = nocSend(m, nocPaste("project:amq-noc\nsession:beta"))
+	if m.filter != "project:amq-noc session:beta" {
+		t.Fatalf("filter after multiline paste = %q", m.filter)
+	}
+}
+
+func TestNOCFilterBackspaceDropsLastRune(t *testing.T) {
+	m := newSeededNOCModel(t)
+	m, _ = nocPress(m, "/")
+	m, _ = nocSend(m, nocPaste("agent:qa✅"))
+
+	m, _ = nocPress(m, "backspace")
+	if m.filter != "agent:qa" {
+		t.Fatalf("filter after unicode backspace = %q", m.filter)
 	}
 }
 

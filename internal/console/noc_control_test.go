@@ -54,6 +54,59 @@ func TestControlCommandPreviewsDelegateToAMQSquad(t *testing.T) {
 	}
 }
 
+func TestNOCInputAcceptsPastedMessageBody(t *testing.T) {
+	m := newControlModel(t)
+	m.input = &inputAction{kind: ctlMessage, stage: 1}
+
+	m, _ = nocSend(m, nocPaste("line one\nline two"))
+
+	if m.input == nil {
+		t.Fatal("input editor should remain open after paste")
+	}
+	if m.input.body != "line one\nline two" {
+		t.Fatalf("message body after paste = %q", m.input.body)
+	}
+}
+
+func TestNOCInputPasteFlattensSingleLineFields(t *testing.T) {
+	m := newControlModel(t)
+	m.input = &inputAction{kind: ctlNewSession, stage: 1}
+
+	m, _ = nocSend(m, nocPaste("issue-8\nseed-from=issue:7"))
+
+	if m.input == nil {
+		t.Fatal("input editor should remain open after paste")
+	}
+	if m.input.body != "issue-8 seed-from=issue:7" {
+		t.Fatalf("new-session body after paste = %q", m.input.body)
+	}
+}
+
+func TestNOCInputPasteFlattensSubjectFields(t *testing.T) {
+	m := newControlModel(t)
+	m.input = &inputAction{kind: ctlBroadcast, stage: 0}
+
+	m, _ = nocSend(m, nocPaste("release note\nv0.4.1"))
+
+	if m.input == nil {
+		t.Fatal("input editor should remain open after paste")
+	}
+	if m.input.subject != "release note v0.4.1" {
+		t.Fatalf("broadcast subject after paste = %q", m.input.subject)
+	}
+}
+
+func TestNOCInputBackspaceDropsLastRune(t *testing.T) {
+	m := newControlModel(t)
+	m.input = &inputAction{kind: ctlMessage, stage: 1, body: "ship ✅"}
+
+	m, _ = nocPress(m, "backspace")
+
+	if m.input.body != "ship " {
+		t.Fatalf("message body after unicode backspace = %q", m.input.body)
+	}
+}
+
 // newControlModel builds a ready *NOCModel over a one-project / one-session
 // snapshot whose session carries a needs-you (AttnApprove) thread between the
 // operator ("user") and the agent "qa". The agent is alive. The model is sized +

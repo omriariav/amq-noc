@@ -4,9 +4,11 @@
 // router actually handles every key here (and nothing it dropped). So an
 // advertised key cannot drift from a handled key. The CLI `noc --help` keeps a
 // hand-written prose summary that is separately tested (noc_help_test.go) to carry
-// no removed key. Keys the 0.1.0 prune removed (jump J/o, palette p, mute A, the
-// AMQ context/DLQ/inbox/read c/D/i/v keys, timeline t) are absent here by
+// no removed key. Keys the 0.1.0 prune removed (jump J/o, mute A, the AMQ
+// context/DLQ/inbox/read c/D/i/v keys, timeline t) are absent here by
 // construction, so any surface that still names them fails a contract test.
+// (p was the old palette key; it was re-wired in v0.5.0 to send-prompt, so it is
+// intentionally present again — advertised and handled.)
 package console
 
 // nocKeyGroup buckets a binding for grouped rendering.
@@ -66,6 +68,7 @@ var nocKeyMap = []nocKeyBinding{
 	{Keys: []string{"r"}, HelpDisplay: "r", Label: "reply to the selected needs-you thread", Footer: "r reply", FooterAscii: "r reply", Group: keyGroupAction, Mutating: true, Scopes: []nocNodeKind{nodeSession, nodeAgent}},
 	{Keys: []string{"x"}, HelpDisplay: "x", Label: "deny the selected needs-you thread", Footer: "x deny", FooterAscii: "x deny", Group: keyGroupAction, Mutating: true, Scopes: []nocNodeKind{nodeSession, nodeAgent}},
 	{Keys: []string{"m"}, HelpDisplay: "m", Label: "message the selected agent", Footer: "m message", FooterAscii: "m message", Group: keyGroupAction, Mutating: true, Scopes: []nocNodeKind{nodeAgent}},
+	{Keys: []string{"p"}, HelpDisplay: "p", Label: "send a prompt to the selected agent's pane (amq-squad send; preview + confirm)", Footer: "p send-prompt", FooterAscii: "p send-prompt", Group: keyGroupAction, Mutating: true, Scopes: []nocNodeKind{nodeAgent}},
 	{Keys: []string{"b"}, HelpDisplay: "b", Label: "broadcast to the selected squad", Footer: "b broadcast", FooterAscii: "b broadcast", Group: keyGroupAction, Mutating: true, Scopes: []nocNodeKind{nodeProject, nodeSession}},
 	{Keys: []string{"S"}, HelpDisplay: "S", Label: "stop the selected squad (preview + confirm)", Footer: "S stop", FooterAscii: "S stop", Group: keyGroupAction, Mutating: true, Scopes: []nocNodeKind{nodeProject, nodeSession}},
 	{Keys: []string{"R"}, HelpDisplay: "R", Label: "resume the selected squad (preview + confirm)", Footer: "R resume", FooterAscii: "R resume", Group: keyGroupAction, Mutating: true, Scopes: []nocNodeKind{nodeProject, nodeSession}},

@@ -12,8 +12,10 @@ import (
 
 // The keymap (noc_keymap.go) is the single source of truth: every key it
 // advertises must be handled by the router, and keys the 0.1.0 prune removed
-// (jump J/o, palette p, mute A, context/DLQ/inbox/read c/D/i/v, timeline t) must
-// NOT be handled. These tests are the permanent guard against issue #4.1 drift.
+// (jump J/o, mute A, context/DLQ/inbox/read c/D/i/v, timeline t) must NOT be
+// handled. (p was re-wired in v0.5.0 to send-prompt, so it is now advertised +
+// handled, not dead.) These tests are the permanent guard against issue #4.1
+// drift.
 
 // CONTROL keys go through handleControlKey, which returns a handled bool.
 func TestKeymapContract_ControlKeysAdvertisedEqualHandled(t *testing.T) {
@@ -23,7 +25,7 @@ func TestKeymapContract_ControlKeysAdvertisedEqualHandled(t *testing.T) {
 			t.Errorf("manifest control key %q is advertised but NOT handled by handleControlKey", key)
 		}
 	}
-	for _, dead := range []string{"J", "o", "p", "A", "c", "D", "i", "v", "t"} {
+	for _, dead := range []string{"J", "o", "A", "c", "D", "i", "v", "t"} {
 		if _, handled := m.handleControlKey(dead); handled {
 			t.Errorf("removed key %q is still handled; re-wire it AND add it to nocKeyMap, or leave it removed", dead)
 		}
@@ -39,7 +41,7 @@ func TestKeymapContract_NavViewKeysHandled(t *testing.T) {
 			t.Errorf("nav/view key %q is advertised but appears NOT handled (no visible change, no command)", key)
 		}
 	}
-	for _, dead := range []string{"J", "o", "p", "A", "c", "D", "i", "v", "t"} {
+	for _, dead := range []string{"J", "o", "A", "c", "D", "i", "v", "t"} {
 		if keyHasEffect(t, dead) {
 			t.Errorf("removed key %q still has an effect; it must be a no-op (or re-wired and added to nocKeyMap)", dead)
 		}

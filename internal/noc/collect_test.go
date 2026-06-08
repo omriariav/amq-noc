@@ -152,6 +152,28 @@ func TestCollect_IncludesConfiguredTeamWithoutSessions(t *testing.T) {
 	}
 }
 
+func TestCollect_RuntimeActionsCapability(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "runtime-actions")
+	squadDir := filepath.Join(project, SquadDirName)
+	if err := os.MkdirAll(squadDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"schema":3,"operator":{"enabled":true,"handle":"user","runnable":false},"capabilities":{"operator_gates":true,"runtime_actions":true}}`
+	if err := os.WriteFile(filepath.Join(squadDir, "team.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	ms := Collect([]string{root}, DefaultDepth, deterministicProbe(time.Unix(0, 0)), state.Thresholds{})
+	if len(ms.Projects) != 1 {
+		t.Fatalf("expected configured team project, got %d: %+v", len(ms.Projects), ms.Projects)
+	}
+	ps := ms.Projects[0]
+	if !ps.Capabilities.OperatorGates || !ps.Capabilities.RuntimeActions {
+		t.Fatalf("capability metadata mismatch: %+v", ps.Capabilities)
+	}
+}
+
 func TestCollect_RecordsExistingAMQSessionDirs(t *testing.T) {
 	root := t.TempDir()
 	project := filepath.Join(root, "configured")

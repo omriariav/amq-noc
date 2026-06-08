@@ -178,12 +178,12 @@ func TestNOCOnce_MultiProjectBoard(t *testing.T) {
 func TestNOCHeaderUsesSimplifiedPrimaryStatusModel(t *testing.T) {
 	root, probe := seedNOCFixture(t)
 	out := renderNOCOnce(t, root, probe, ColorNone)
-	for _, want := range []string{"3 squads", "1 online", "1 needs-you", "0 waiting", "1 stale"} {
+	for _, want := range []string{"3 squads", "1 online", "1 needs-you", "0 blocked", "0 waiting", "1 stale"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("header missing %q:\n%s", want, out)
 		}
 	}
-	for _, noisy := range []string{"at-risk(live)", "blocked(live)", "gated(live)", "0 blocked"} {
+	for _, noisy := range []string{"at-risk(live)", "blocked(live)", "gated(live)"} {
 		if strings.Contains(out, noisy) {
 			t.Fatalf("header should not expose noisy primary segment %q:\n%s", noisy, out)
 		}
@@ -333,6 +333,39 @@ func TestNOCSessionDetailNowUsesNewestWhenNoNeedsYou(t *testing.T) {
 	}
 }
 
+func TestNOCSessionDetailBlockedThreadRowsUseWaitingPrimary(t *testing.T) {
+	m := newNOCModel(NOCRebuildConfig{})
+	m.colorMode = ColorNone
+	m.th = newNOCTheme(ColorNone)
+	m.width = 120
+	sess := state.Session{
+		Name: "pm-comms",
+		Agents: []state.Agent{
+			{Handle: "qa", Liveness: state.LivenessAlive, Attention: state.Attention{State: state.TriageBlocked}},
+		},
+		Attention: state.Attention{State: state.TriageBlocked},
+		Coordination: state.Coordination{Threads: []state.ThreadSummary{{
+			ID:           "p2p/cpo__qa",
+			Subject:      "ACK: Slack contract routed",
+			Participants: []string{"cpo", "qa"},
+			Triage:       state.TriageBlocked,
+			LastEventAt:  nocTestNow.Add(-23 * time.Second),
+			Freshness:    state.Freshness{Age: 23 * time.Second},
+		}}},
+	}
+	out := m.sessionDetail(nocNode{
+		label:   "pm-comms",
+		project: noc.ProjectSnapshot{Project: "taboola-pm-os"},
+		session: sess,
+	})
+	if !strings.Contains(out, "blocked ACK: Slack contract routed  blocked 23s") {
+		t.Fatalf("blocked thread should render as blocked primary with blocked reason:\n%s", out)
+	}
+	if strings.Contains(out, "waiting ACK: Slack contract routed") {
+		t.Fatalf("declared block must not be collapsed to waiting:\n%s", out)
+	}
+}
+
 func TestNOCSessionDetailCapsThreadHistory(t *testing.T) {
 	m := newNOCModel(NOCRebuildConfig{})
 	m.colorMode = ColorNone
@@ -365,10 +398,11 @@ func TestNOCSessionDetailCapsThreadHistory(t *testing.T) {
 	}
 }
 
-// S4b: a session whose only agents are dead-mailbox-live (non-operational) with
-// unowned at-risk evidence shows STALE, not waiting - waiting requires an
-// operational agent to be the waiter. The evidence is retained in the rollup.
-func TestNOCSessionVisible_AllDmblUnownedAtRiskIsStale(t *testing.T) {
+// S4b: a session whose only agents are dead-mailbox-live (fresh presence but
+// non-operational) with unowned at-risk evidence shows ONLINE, not waiting -
+// waiting requires an operational agent to be the waiter. The evidence is
+// retained in the rollup/detail, but stale means no fresh presence.
+func TestNOCSessionVisible_AllDmblUnownedAtRiskIsOnlineNotWaiting(t *testing.T) {
 	sess := state.Session{
 		Name: "issue-96",
 		Agents: []state.Agent{
@@ -381,10 +415,10 @@ func TestNOCSessionVisible_AllDmblUnownedAtRiskIsStale(t *testing.T) {
 	}
 	got := visibleState(sessionRollupState(sess))
 	if got == nocNeedsYou || got == nocWaiting {
-		t.Fatalf("dmbl session with unowned at-risk must be stale, got %s", nocStateText(got))
+		t.Fatalf("dmbl session with unowned at-risk must not be waiting, got %s", nocStateText(got))
 	}
-	if nocStateText(got) != "stale" {
-		t.Fatalf("visible status = %s, want stale", nocStateText(got))
+	if got != nocRunning {
+		t.Fatalf("visible status = %s, want online", nocStateText(got))
 	}
 }
 
@@ -398,16 +432,16 @@ func TestNOCSessionVisible_DefensivelyIgnoresNonHumanAttentionWithoutOperational
 		Attention: state.Attention{State: state.TriageAtRisk},
 		Rollup:    state.TriageRollup{AtRisk: 1},
 	}
-	if got := visibleState(sessionRollupState(sess)); got != nocStaleBlocked {
-		t.Fatalf("dead session with non-human attention must be stale, got %s", nocStateText(got))
+	if got := visibleState(sessionRollupState(sess)); got != nocRunning {
+		t.Fatalf("fresh-presence-only session with non-human attention must be online, not waiting; got %s", nocStateText(got))
 	}
-	if got := visibleState(agentNodeState(sess, sess.Agents[0])); got != nocStopped {
-		t.Fatalf("dead-mailbox-live agent with at-risk attention must not be waiting, got %s", nocStateText(got))
+	if got := visibleState(agentNodeState(sess, sess.Agents[0])); got != nocRunning {
+		t.Fatalf("dead-mailbox-live agent with at-risk attention must stay online, not waiting; got %s", nocStateText(got))
 	}
 
 	ps := noc.ProjectSnapshot{Snap: state.Snapshot{Sessions: []state.Session{sess}}}
-	if got := visibleState(projectRollupState(ps)); got != nocStaleBlocked {
-		t.Fatalf("project with only dead non-human attention must be stale, got %s", nocStateText(got))
+	if got := visibleState(projectRollupState(ps)); got != nocRunning {
+		t.Fatalf("project with fresh-presence-only non-human attention must be online, not waiting; got %s", nocStateText(got))
 	}
 }
 
@@ -494,7 +528,8 @@ func TestNeedsYouParentRowOwner(t *testing.T) {
 // narrative OWNER-LED even when the owner agent is non-operational (here
 // dead-mailbox-live). The thread's NeedsYouOwner is the source of truth, so the
 // session/project reads "fullstack needs you", not generic "team needs you". The
-// agent row itself stays liveness-true (stopped), not pretended-running.
+// agent row itself stays availability-true (online via fresh mailbox presence),
+// not pretended waiting.
 func TestNeedsYouParentRowOwner_StoppedOwnerFromThread(t *testing.T) {
 	sess := state.Session{
 		Name: "amq-noc-0-1-0",
@@ -525,9 +560,10 @@ func TestNeedsYouParentRowOwner_StoppedOwnerFromThread(t *testing.T) {
 		t.Fatalf("narrative must not fall back to 'team needs you' when the owner is known: %q", narrative)
 	}
 
-	// Agent row stays liveness-true: a dead-mailbox-live owner renders stopped.
-	if got := agentNodeState(sess, sess.Agents[1]); got != nocStopped {
-		t.Fatalf("fullstack agent node state = %s, want stopped (liveness-true, not pretended-running)", nocStateText(got))
+	// Agent row stays availability-true: a dead-mailbox-live owner renders
+	// online, but does not get promoted to a non-human waiting state.
+	if got := agentNodeState(sess, sess.Agents[1]); got != nocRunning {
+		t.Fatalf("fullstack agent node state = %s, want online (fresh mailbox presence, not pretended-waiting)", nocStateText(got))
 	}
 }
 
@@ -636,7 +672,7 @@ func TestNOCTree_ProjectParentTallyCountsChildTeams(t *testing.T) {
 	m.ms = ms
 	m.ready = true
 	out := m.treeView()
-	if !strings.Contains(out, "taboola-pm-os (1 waiting, 2 stale)") {
+	if !strings.Contains(out, "taboola-pm-os (1 blocked, 2 stale)") {
 		t.Fatalf("project row should count child teams/sessions by visible status:\n%s", out)
 	}
 	for _, noisy := range []string{"9 waiting", "16 blocked stale", "5 at-risk stale", "3 gated stale"} {
@@ -783,6 +819,65 @@ func TestKickRecoverLines(t *testing.T) {
 	}
 }
 
+func TestKickRecoverActionsLabelRuntimeCommands(t *testing.T) {
+	actions := kickRecoverActions(noc.ProjectSnapshot{
+		Dir:            "/repo/app",
+		TeamConfigured: true,
+		SessionStore:   true,
+		Profiles:       []string{"testers"},
+		Snap: state.Snapshot{Sessions: []state.Session{{
+			Name:   "issue-96",
+			Agents: []state.Agent{{Handle: "codex-tester", TeamProfile: "testers", Liveness: state.LivenessAlive}},
+		}}},
+	}, "issue-96", "")
+	labels := map[string]string{}
+	for _, action := range actions {
+		labels[action.Label] = action.Command
+	}
+	for _, want := range []string{"status", "resume preview", "resume here", "open new tmux session"} {
+		if labels[want] == "" {
+			t.Fatalf("missing runtime action label %q in %+v", want, actions)
+		}
+	}
+	if strings.Contains(labels["resume here"], "tmux") {
+		t.Fatalf("NOC command action should call amq-squad, not raw tmux: %s", labels["resume here"])
+	}
+	if !strings.Contains(labels["resume here"], "amq-squad resume") ||
+		!strings.Contains(labels["resume here"], "--target current-window") {
+		t.Fatalf("resume here command wrong: %s", labels["resume here"])
+	}
+}
+
+func TestAgentCommandActionsUseAMQFallbackAndSquadResume(t *testing.T) {
+	ps := noc.ProjectSnapshot{
+		Dir:            "/repo/app",
+		TeamConfigured: true,
+		Operator:       noc.OperatorConfig{Enabled: true, Handle: "operator"},
+		Capabilities:   noc.Capabilities{OperatorGates: true},
+	}
+	sess := state.Session{Name: "issue-96", Root: "/repo/app/.agent-mail/issue-96"}
+	ag := state.Agent{Handle: "qa", Role: "qa", Engine: "claude"}
+
+	actions := agentCommandActions(ps, sess, ag)
+	joined := ""
+	for _, action := range actions {
+		joined += action.Label + " => " + action.Command + "\n"
+	}
+	for _, want := range []string{
+		"list inbox => amq list --root /repo/app/.agent-mail/issue-96 --me qa --new",
+		"drain inbox => amq drain --root /repo/app/.agent-mail/issue-96 --me qa --include-body",
+		"send message => amq send --root /repo/app/.agent-mail/issue-96 --me operator --to qa --thread THREAD_ID",
+		"resume agent => amq-squad agent resume qa --project /repo/app --session issue-96",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("agent command actions missing %q:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "tmux") {
+		t.Fatalf("agent fallback actions must not scrape or construct raw tmux commands:\n%s", joined)
+	}
+}
+
 func TestCommandsSectionWrapsLongCommandsToDetailWidth(t *testing.T) {
 	ps := noc.ProjectSnapshot{
 		Project:        "app",
@@ -801,8 +896,12 @@ func TestCommandsSectionWrapsLongCommandsToDetailWidth(t *testing.T) {
 	m.width = 92
 	out := m.commandsSection(ps, "", "")
 	limit := m.commandDisplayWidth()
+	if !strings.Contains(out, "resume here:") || !strings.Contains(out, "open new tmux session:") {
+		t.Fatalf("commands section should label runtime actions:\n%s", out)
+	}
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
-		if !strings.HasPrefix(strings.TrimSpace(line), "amq-squad ") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.Contains(trimmed, "amq-squad ") && !strings.HasPrefix(trimmed, "--") {
 			continue
 		}
 		if visibleWidth(line) > limit {
@@ -843,8 +942,12 @@ func TestCommandPickerCopiesExactSelectedCommand(t *testing.T) {
 	if m.commandPicker == nil || len(m.commandPicker.commands) != 4 {
 		t.Fatalf("command picker = %+v, want four commands", m.commandPicker)
 	}
-	if !strings.Contains(m.commandPickerOverlayView(), "1-4") {
+	overlay := m.commandPickerOverlayView()
+	if !strings.Contains(overlay, "1-4") {
 		t.Fatalf("command picker overlay should show numbered choices:\n%s", m.commandPickerOverlayView())
+	}
+	if !strings.Contains(overlay, "resume here:") {
+		t.Fatalf("command picker overlay should show action labels:\n%s", overlay)
 	}
 
 	mm, cmd = m.Update(keyMsg("3"))
@@ -967,6 +1070,63 @@ func TestNOCAgentDetailShowsLatestSignalForRunningAgent(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("agent detail missing %q:\n%s", want, out)
 		}
+	}
+}
+
+func TestNOCAgentDetailShowsNeedsYouAsk(t *testing.T) {
+	m := newNOCModel(NOCRebuildConfig{})
+	m.colorMode = ColorNone
+	m.th = newNOCTheme(ColorNone)
+	m.width = 120
+	sess := state.Session{
+		Name: "pm-comms",
+		Coordination: state.Coordination{Threads: []state.ThreadSummary{
+			{
+				ID: "ask/newer-generic", Subject: "Question: later generic ask",
+				Participants:  []string{"cpo", "user"},
+				Triage:        state.TriageNeedsYou,
+				AttnReason:    state.AttnGeneric,
+				NeedsYouOwner: "cpo",
+				LatestBody:    "This generic ask is newer but lower priority.",
+				LastEventAt:   nocTestNow.Add(-2 * time.Minute),
+				Freshness:     state.Freshness{Age: 2 * time.Minute},
+			},
+			{
+				ID: "approval/comms", Subject: "APPROVAL: commit frozen /pm:comms collector+daemon snapshot",
+				Participants:  []string{"cpo", "user"},
+				Triage:        state.TriageNeedsYou,
+				AttnReason:    state.AttnApprove,
+				NeedsYouOwner: "cpo",
+				LatestBody:    "Please approve preserving the collector snapshot before daemon work. RAW [keep-exact].",
+				LastEventAt:   nocTestNow.Add(-18 * time.Minute),
+				Freshness:     state.Freshness{Age: 18 * time.Minute},
+			},
+		}},
+	}
+	out := m.agentDetail(nocNode{
+		label:   "cpo",
+		project: noc.ProjectSnapshot{Project: "taboola-pm-os"},
+		session: sess,
+		agent:   state.Agent{Handle: "cpo", Role: "cpo", Engine: "codex", Liveness: state.LivenessAlive, Attention: state.Attention{State: state.TriageNeedsYou, Reason: state.AttnApprove}},
+	})
+	for _, want := range []string{
+		"needs you",
+		"APPROVAL: commit frozen /pm:comms",
+		"collector+daemon snapshot",
+		"ask: Please approve preserving the collector snapshot before daemon work. RAW",
+		"[keep-exact].",
+		"cpo paused",
+		"18m",
+		"approve (a)",
+		"deny (x)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("agent needs-you detail missing %q:\n%s", want, out)
+		}
+	}
+	needsYouBlock := out[strings.Index(out, "needs you"):]
+	if strings.Contains(strings.Split(needsYouBlock, "latest signal")[0], "This generic ask is newer") {
+		t.Fatalf("agent needs-you detail should lead with approval over newer generic ask:\n%s", out)
 	}
 }
 

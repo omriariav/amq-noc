@@ -566,7 +566,8 @@ type nocOperatorJSONData struct {
 }
 
 type nocCapabilitiesJSONData struct {
-	OperatorGates bool `json:"operator_gates"`
+	OperatorGates  bool `json:"operator_gates"`
+	RuntimeActions bool `json:"runtime_actions,omitempty"`
 }
 
 type nocSessionJSONData struct {
@@ -2148,7 +2149,8 @@ func nocProjectEnvelope(ps noc.ProjectSnapshot) nocProjectJSONData {
 			Runnable: ps.Operator.Runnable,
 		},
 		Capabilities: nocCapabilitiesJSONData{
-			OperatorGates: ps.Capabilities.OperatorGates,
+			OperatorGates:  ps.Capabilities.OperatorGates,
+			RuntimeActions: ps.Capabilities.RuntimeActions,
 		},
 		Candidate:    ps.Candidate,
 		SessionStore: ps.SessionStore,
@@ -2176,11 +2178,14 @@ func nocProjectBaseRoot(ps noc.ProjectSnapshot) string {
 
 func nocSessionEnvelope(ps noc.ProjectSnapshot, sess state.Session) nocSessionJSONData {
 	agents := make([]nocAgentJSONData, 0, len(sess.Agents))
-	live := 0
+	liveVisible, liveOperational := 0, 0
 	sessionID := nocSessionJSONID(ps.Dir, sess.Name)
 	for _, ag := range sess.Agents {
-		if nocAgentLive(ag) {
-			live++
+		if nocAgentVisibleOnline(ag) {
+			liveVisible++
+		}
+		if nocAgentOperational(ag) {
+			liveOperational++
 		}
 		agentAttention := nocAgentPrimaryAttention(sess, ag)
 		profile := strings.TrimSpace(ag.TeamProfile)
@@ -2209,15 +2214,15 @@ func nocSessionEnvelope(ps noc.ProjectSnapshot, sess state.Session) nocSessionJS
 	if len(threads) > defaultThreadsLimit {
 		threads = threads[:defaultThreadsLimit]
 	}
-	sessionAttention := nocSessionPrimaryAttentionDetail(sess, live)
+	sessionAttention := nocSessionPrimaryAttentionDetail(sess)
 	return nocSessionJSONData{
 		ID:              sessionID,
 		Name:            sess.Name,
 		Root:            sess.Root,
-		State:           nocSessionJSONState(sess, live, len(sess.Agents)),
-		ReasonCode:      nocSessionJSONReasonCode(sess, live, len(sess.Agents)),
+		State:           nocSessionJSONState(sess, liveVisible, len(sess.Agents)),
+		ReasonCode:      nocSessionJSONReasonCode(sess, liveVisible, len(sess.Agents)),
 		AgentsTotal:     len(agents),
-		AgentsAlive:     live,
+		AgentsAlive:     liveVisible,
 		ThreadCount:     threadCount,
 		ThreadsReturned: len(threads),
 		Attention:       string(sessionAttention.State),
@@ -2226,7 +2231,7 @@ func nocSessionEnvelope(ps noc.ProjectSnapshot, sess state.Session) nocSessionJS
 		Rollup:          nocRollupEnvelope(sess.Rollup),
 		Threads:         threads,
 		Agents:          agents,
-		Actions:         nocSessionActions(ps, sess, sessionID, live, len(agents)),
+		Actions:         nocSessionActions(ps, sess, sessionID, liveOperational, len(agents)),
 	}
 }
 
@@ -3043,27 +3048,56 @@ func projectFallbackReason(ps noc.ProjectSnapshot) string {
 	return "unknown"
 }
 
-func nocSessionJSONState(sess state.Session, live, total int) string {
-	// Lead with the operational-OWNED attention (sess.Attention is already gated to
-	// operational agents in attachAttention). A live agent that owns a non-human
-	// wait surfaces it as the primary work state; unowned raw-rollup evidence does
-	// not (it stays in the rollup + unowned_evidence detail).
-	if s := nocAttnJSONState(nocSessionPrimaryAttentionDetail(sess, live).State); s != "" {
+func nocSessionJSONState(sess state.Session, liveVisible, total int) string {
+	// Lead with the operational-OWNED attention. nocSessionGatedAttention re-applies
+	// the strict operational-owner gate (mirroring console.sessionRollupState), so a
+	// non-human wait surfaces as the primary work state only when an operational
+	// agent owns it; a fresh-presence-only (dead-mailbox-live) session falls through
+	// to the rollup path and stays online, with the evidence retained in the rollup +
+	// unowned_evidence detail. liveVisible counts visible-online agents (alive or
+	// dead-mailbox-live), so the online determination matches the TUI.
+	if s := nocAttnJSONState(nocSessionGatedAttention(sess)); s != "" {
 		return s
 	}
-	return nocRollupJSONState(sess.Rollup, live, total)
+	return nocRollupJSONState(sess.Rollup, liveVisible, total)
 }
 
-func nocSessionJSONReasonCode(sess state.Session, live, total int) string {
-	if rc := nocAttnReasonCode(nocSessionPrimaryAttentionDetail(sess, live).State); rc != "" {
+func nocSessionJSONReasonCode(sess state.Session, liveVisible, total int) string {
+	if rc := nocAttnReasonCode(nocSessionGatedAttention(sess)); rc != "" {
 		return rc
 	}
-	return nocRollupReasonCode(sess.Rollup, live, total, "empty")
+	return nocRollupReasonCode(sess.Rollup, liveVisible, total, "empty")
 }
 
-func nocSessionPrimaryAttentionDetail(sess state.Session, live int) state.Attention {
+// nocSessionGatedAttention returns the session's primary attention tier ONLY when it
+// is a human needs-you ask OR an operational agent owns it; otherwise TriageClear.
+// This mirrors console.sessionRollupState's defensive operational-owner gate so a
+// fresh-presence-only (dead-mailbox-live) session never promotes non-human evidence
+// into a live waiting/blocked/gated/at-risk state, even if upstream attention gating
+// regresses. needs-you persists as a human action item regardless of liveness.
+func nocSessionGatedAttention(sess state.Session) state.Triage {
+	att := nocSessionPrimaryAttentionDetail(sess).State
+	if att == state.TriageNeedsYou || nocSessionHasOperationalAgent(sess) {
+		return att
+	}
+	return state.TriageClear
+}
+
+// nocSessionHasOperationalAgent reports whether any agent in the session is a
+// verified foreground (operational) owner of a non-human wait. dead-mailbox-live
+// presence does not count.
+func nocSessionHasOperationalAgent(sess state.Session) bool {
+	for _, ag := range sess.Agents {
+		if nocAgentOperational(ag) {
+			return true
+		}
+	}
+	return false
+}
+
+func nocSessionPrimaryAttentionDetail(sess state.Session) state.Attention {
 	att := sess.Attention
-	if att.State == state.TriageAtRisk && live > 0 && nocSessionHasNewerClearActivity(sess) {
+	if att.State == state.TriageAtRisk && nocSessionHasOperationalAgent(sess) && nocSessionHasNewerClearActivity(sess) {
 		return state.Attention{State: state.TriageClear}
 	}
 	return att
@@ -3071,7 +3105,7 @@ func nocSessionPrimaryAttentionDetail(sess state.Session, live int) state.Attent
 
 func nocAgentPrimaryAttention(sess state.Session, ag state.Agent) state.Attention {
 	att := ag.Attention
-	if att.State == state.TriageAtRisk && nocAgentLive(ag) && nocSessionHasNewerClearActivity(sess) {
+	if att.State == state.TriageAtRisk && nocAgentOperational(ag) && nocSessionHasNewerClearActivity(sess) {
 		return state.Attention{State: state.TriageClear}
 	}
 	return att
@@ -3164,22 +3198,12 @@ func nocRollupHasOutstanding(r state.TriageRollup) bool {
 func nocProjectOwnedAttn(ps noc.ProjectSnapshot) state.Triage {
 	best := state.TriageClear
 	for _, sess := range ps.Snap.Sessions {
-		att := nocSessionPrimaryAttentionDetail(sess, nocSessionLiveAgents(sess)).State
+		att := nocSessionGatedAttention(sess)
 		if nocTriageSeverity(att) < nocTriageSeverity(best) {
 			best = att
 		}
 	}
 	return best
-}
-
-func nocSessionLiveAgents(sess state.Session) int {
-	live := 0
-	for _, ag := range sess.Agents {
-		if nocAgentLive(ag) {
-			live++
-		}
-	}
-	return live
 }
 
 func nocSessionHasNewerClearActivity(sess state.Session) bool {
@@ -3233,10 +3257,14 @@ func nocProjectLastActivity(ps noc.ProjectSnapshot) time.Time {
 	return last
 }
 
+// nocProjectHasLiveAgent reports whether the project has any visible-online agent
+// (alive or dead-mailbox-live). This drives the live_projects counter and the
+// stale-only hide filter, so a fresh-presence-only project counts as online, not
+// stale, matching the TUI.
 func nocProjectHasLiveAgent(ps noc.ProjectSnapshot) bool {
 	for _, sess := range ps.Snap.Sessions {
 		for _, ag := range sess.Agents {
-			if nocAgentLive(ag) {
+			if nocAgentVisibleOnline(ag) {
 				return true
 			}
 		}
@@ -3294,13 +3322,26 @@ func nocProjectStaleOnly(ps noc.ProjectSnapshot) bool {
 	return !ps.Snap.Rollup.HasLiveAttention()
 }
 
-// nocAgentLive reports whether an agent is a verified foreground (OPERATIONAL)
-// agent: alive or wake-live only. dead-mailbox-live is NOT live - its process is
-// gone and only the AMQ notifier/wake presence is fresh, which is infra health, not
-// a work/run state. This drives JSON agents_alive, project live counts, and the
-// JSON primary state, so it MUST match the operational contract used by the TUI
-// (state.agentOperational / console.agentOperational / noc.hasRunningAgent).
-func nocAgentLive(ag state.Agent) bool {
+// nocAgentVisibleOnline mirrors console.agentVisibleOnline (the TUI agentState ==
+// nocRunning contract): an alive or dead-mailbox-live agent renders as online
+// presence. dead-mailbox-live has no verified pid, but amq-squad reports a fresh
+// active wake presence, so the operator TUI and these JSON snapshots both treat it
+// as reachable/online. This drives JSON agents_alive, the "online" primary state,
+// and project live counts, keeping JSON snapshots in the SAME primary vocabulary as
+// the TUI. wake-live renders as at-risk (a wait sub-tier), not online, so it is
+// excluded here and handled by nocAgentOperational.
+func nocAgentVisibleOnline(ag state.Agent) bool {
+	return ag.Liveness == state.LivenessAlive || ag.Liveness == state.LivenessDeadMailboxLive
+}
+
+// nocAgentOperational mirrors console.agentOperational / state.agentOperational: a
+// verified foreground agent (alive or wake-live) that may OWN a non-human
+// waiting/blocked/gated/at-risk state. A dead-mailbox-live agent is fresh presence
+// but its process is gone, so it is NOT operational and never promotes unowned
+// evidence into a live wait. This strictly gates the attention determination,
+// exactly as the TUI does, so a fresh-presence-only session stays online (never
+// waiting/blocked) while its evidence is retained in the rollup + attention detail.
+func nocAgentOperational(ag state.Agent) bool {
 	return ag.Liveness == state.LivenessAlive || ag.Liveness == state.LivenessWakeLive
 }
 

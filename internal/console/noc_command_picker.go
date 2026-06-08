@@ -10,7 +10,7 @@ import (
 
 type commandPickerOverlay struct {
 	title    string
-	commands []string
+	commands []nocCommandAction
 }
 
 type commandCopyMsg struct {
@@ -25,9 +25,9 @@ func defaultClipboardCopy(text string) error {
 }
 
 func (m *NOCModel) beginCommandPicker() {
-	commands := m.selectedCommandLines()
+	commands := m.selectedCommandActions()
 	if len(commands) == 0 {
-		m.actNote = "no helper commands for this row"
+		m.actNote = "no action commands for this row"
 		return
 	}
 	title := "COPY COMMAND"
@@ -37,6 +37,8 @@ func (m *NOCModel) beginCommandPicker() {
 			title = "COPY COMMAND  " + n.project.Project
 		case nodeSession:
 			title = "COPY COMMAND  " + n.session.Name
+		case nodeAgent:
+			title = "COPY COMMAND  " + agentLabel(n.agent)
 		}
 	}
 	if len(commands) > 9 {
@@ -45,16 +47,18 @@ func (m *NOCModel) beginCommandPicker() {
 	m.commandPicker = &commandPickerOverlay{title: title, commands: commands}
 }
 
-func (m *NOCModel) selectedCommandLines() []string {
+func (m *NOCModel) selectedCommandActions() []nocCommandAction {
 	n, ok := m.selectedNode()
 	if !ok {
 		return nil
 	}
 	switch n.kind {
 	case nodeProject:
-		return kickRecoverLines(n.project, "", projectDetailAMQRoot(n.project))
+		return kickRecoverActions(n.project, "", projectDetailAMQRoot(n.project))
 	case nodeSession:
-		return kickRecoverLines(n.project, n.session.Name, n.session.Root)
+		return kickRecoverActions(n.project, n.session.Name, n.session.Root)
+	case nodeAgent:
+		return agentCommandActions(n.project, n.session, n.agent)
 	default:
 		return nil
 	}
@@ -73,7 +77,7 @@ func (m *NOCModel) handleCommandPickerKey(key string) tea.Cmd {
 	if m.commandPicker == nil || idx < 0 || idx >= len(m.commandPicker.commands) {
 		return nil
 	}
-	command := m.commandPicker.commands[idx]
+	command := m.commandPicker.commands[idx].Command
 	copyFn := m.copyText
 	if copyFn == nil {
 		copyFn = defaultClipboardCopy
@@ -104,7 +108,12 @@ func (m NOCModel) commandPickerOverlayView() string {
 	b.WriteString(m.detailRule() + "\n")
 	for i, command := range p.commands {
 		label := strconv.Itoa(i+1) + ". "
-		lines := wrapPlainText(command, width-visibleWidth(label)-2)
+		actionLabel := strings.TrimSpace(command.Label)
+		if actionLabel == "" {
+			actionLabel = "command"
+		}
+		head := actionLabel + ": " + command.Command
+		lines := wrapPlainText(head, width-visibleWidth(label)-2)
 		if len(lines) == 0 {
 			lines = []string{""}
 		}

@@ -1396,6 +1396,11 @@ func TestParseNOCTeamSpecSelectionShortcuts(t *testing.T) {
 		t.Fatalf("parseNOCTeamSpec session = %+v, want roles cto,qa and session issue-96", spec)
 	}
 
+	if _, err := parseNOCTeamSpec("researcher=codex"); err == nil ||
+		!strings.Contains(err.Error(), "unknown persona/role") {
+		t.Fatalf("custom role error = %v, want unknown persona/role guidance", err)
+	}
+
 	if _, err := parseNOCTeamSpec("cto,session=Issue.96"); err == nil ||
 		!strings.Contains(err.Error(), "session names allow") {
 		t.Fatalf("invalid team session error = %v, want session guidance", err)
@@ -1875,7 +1880,11 @@ func TestControl_NewTeamConfirmGate(t *testing.T) {
 		if m.input == nil || m.input.kind != ctlNewTeam {
 			t.Fatalf("T should open the new-team input editor, got %+v", m.input)
 		}
-		if !strings.Contains(m.input.hint, "2,9") || !strings.Contains(m.input.hint, "all") {
+		if !strings.Contains(m.input.hint, "previews the exact command") ||
+			!strings.Contains(m.input.hint, "2,9") ||
+			!strings.Contains(m.input.hint, "all") ||
+			!strings.Contains(m.input.hint, "qa=codex") ||
+			!strings.Contains(m.input.hint, "session=issue-96") {
 			t.Fatalf("new-team editor should hint role shortcuts, got %q", m.input.hint)
 		}
 		m = typeRoles(m, "cto,qa")
@@ -1936,6 +1945,27 @@ func TestControl_NewTeamConfirmGate(t *testing.T) {
 		}
 		if ops[0].Roles != "cto,qa" || ops[0].Binary != "cto=codex,qa=codex" {
 			t.Fatalf("new team op mismatch: %+v", ops[0])
+		}
+	})
+
+	t.Run("T rejects custom role=binary until amq-squad supports it", func(t *testing.T) {
+		m := newControlModel(t)
+		addCandidateProject(m, "delta", "/fake/proj/delta")
+		selectProject(t, m, "delta")
+		called := false
+		m.newTeam = func(newTeamOp) error { called = true; return nil }
+
+		m, _ = nocPress(m, "T")
+		m = typeRoles(m, "researcher=codex")
+		m, _ = nocPress(m, "enter")
+		if called {
+			t.Fatal("unsupported custom role must not call the new-team seam")
+		}
+		if m.pending != nil {
+			t.Fatal("unsupported custom role must not open a confirm overlay")
+		}
+		if m.input == nil || !strings.Contains(m.actNote, "unknown persona/role") {
+			t.Fatalf("unsupported custom role should keep editor open with guidance, input=%+v note=%q", m.input, m.actNote)
 		}
 	})
 

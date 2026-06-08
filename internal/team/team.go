@@ -60,7 +60,8 @@ type OperatorConfig struct {
 
 // Capabilities advertises machine-readable behavior JSON clients can rely on.
 type Capabilities struct {
-	OperatorGates bool `json:"operator_gates"`
+	OperatorGates  bool `json:"operator_gates"`
+	RuntimeActions bool `json:"runtime_actions,omitempty"`
 }
 
 // EffectiveCWD returns the member's working directory, falling back to the

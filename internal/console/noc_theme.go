@@ -145,15 +145,13 @@ const (
 	nocEmpty                        // dim - scaffolding / no agents
 )
 
-// visibleState collapses the granular triage tiers into the SIMPLIFIED visible
-// status model used for PRIMARY surfaces (tree rows + header): blocked, gated,
-// and at-risk all read as a single "waiting" - the team is waiting on another
-// agent / work lane, not three separate broken-vs-paused concepts. needs-you,
-// online, and the stale/stopped tiers are unchanged. The granular triage stays
-// available for detail panes and JSON; this collapse is display-only.
+// visibleState collapses the softer granular triage tiers into the simplified
+// visible status model used for PRIMARY surfaces (tree rows + header): gated and
+// at-risk read as "waiting". A declared block remains "blocked" because it is a
+// deterministic hard-stop marker, not an inferred or aging-based wait.
 func visibleState(s nocState) nocState {
 	switch s {
-	case nocBlocked, nocGated, nocAtRisk:
+	case nocGated, nocAtRisk:
 		return nocWaiting
 	default:
 		return s
@@ -260,8 +258,8 @@ func rollupState(r state.TriageRollup, hasRunning, hasAny bool) nocState {
 
 // agentState maps a single agent's liveness to a display state. Per-agent triage
 // is carried by the session (the collapsed-thread bus), so an agent row reflects
-// liveness only: alive=online, dead-mailbox-live=stale (process gone; only the
-// AMQ wake/notifier presence is fresh), dead=stopped.
+// visible availability: alive=online, dead-mailbox-live=online (fresh active
+// mailbox/presence, even when the recorded pid is stale), dead=stopped.
 func agentState(a state.Agent) nocState {
 	switch a.Liveness {
 	case state.LivenessAlive:
@@ -269,9 +267,10 @@ func agentState(a state.Agent) nocState {
 	case state.LivenessWakeLive:
 		return nocAtRisk
 	case state.LivenessDeadMailboxLive:
-		// Process is gone (mailbox still touched) - a liveness anomaly, surfaced
-		// as stale/degraded, never a work "waiting".
-		return nocStopped
+		// Align the visible NOC row with amq-squad's "fresh active presence, no
+		// verified pid" contract: the agent is reachable/online. agentOperational
+		// remains stricter, so this cannot promote non-human evidence into waiting.
+		return nocRunning
 	case state.LivenessDead:
 		return nocStopped
 	default:
@@ -339,26 +338,30 @@ func projectRollupState(ps noc.ProjectSnapshot) nocState {
 // attention plus unowned evidence), falling back to the liveness/stale rollup
 // tiers only when the session carries no current attention.
 func sessionRollupState(sess state.Session) nocState {
-	hasRunning := false
+	hasOperational := false
+	hasVisibleOnline := false
 	hasAny := false
 	for _, ag := range sess.Agents {
 		hasAny = true
 		if agentOperational(ag) {
-			hasRunning = true
+			hasOperational = true
+		}
+		if agentVisibleOnline(ag) {
+			hasVisibleOnline = true
 		}
 	}
 	if att := sess.Attention.State; att != "" && att != state.TriageClear {
 		// Human asks remain actionable even if the originating process stopped.
 		// Non-human waits require an operational owner; otherwise stale evidence
-		// must not promote a dead session to primary "waiting".
-		if att == state.TriageNeedsYou || hasRunning {
+		// must not promote a fresh-presence-only session to primary "waiting".
+		if att == state.TriageNeedsYou || hasOperational {
 			if att == state.TriageAtRisk && hasNewerClearActivity(sess) {
 				return nocRunning
 			}
 			return triageState(att)
 		}
 	}
-	return rollupState(sess.Rollup, hasRunning, hasAny)
+	return rollupState(sess.Rollup, hasVisibleOnline, hasAny)
 }
 
 func hasNewerClearActivity(sess state.Session) bool {
@@ -405,23 +408,22 @@ func projectIsStaleOnly(ps noc.ProjectSnapshot) bool {
 	if ps.Warning != "" {
 		return false
 	}
-	if hasRunningAgentSnap(ps.Snap) {
+	if hasVisibleOnlineAgentSnap(ps.Snap) {
 		return false
 	}
 	return !ps.Snap.Rollup.HasLiveAttention()
 }
 
 // projectLivenessPhrase renders a squad's liveness UNAMBIGUOUSLY. The N/M counts
-// AGENTS (alive-or-mailbox-live of total discovered agents), not sessions, so it
-// is labeled "N/M agents alive" — the reviewer flagged a bare "online 4/10" as
-// ambiguous (4 alive of 10 agents? 4 sessions of 10?). A squad with no live
-// agent reads "stopped". The agent count is what drives the phrase everywhere it
-// appears (digest + tree project rows).
+// AGENTS (verified alive or fresh active mailbox of total discovered agents), not
+// sessions, so it is labeled "N/M agents online" rather than a bare "online 4/10".
+// A squad with no fresh live/presence signal reads "stopped". The agent count is
+// what drives the phrase everywhere it appears (digest + tree project rows).
 func projectLivenessPhrase(ps noc.ProjectSnapshot) string {
 	live, wakeLive, total := projectAgentLiveness(ps)
 	operational := live + wakeLive
 	if operational > 0 {
-		label := " agents alive"
+		label := " agents online"
 		if wakeLive > 0 {
 			label = " agents reachable"
 		}
@@ -430,15 +432,16 @@ func projectLivenessPhrase(ps noc.ProjectSnapshot) string {
 	return "stopped"
 }
 
-// projectAgentLiveness returns verified-live, wake-live, and total discovered
+// projectAgentLiveness returns visible-online, wake-live, and total discovered
 // agents across a project's sessions. It is the counter behind the liveness
-// phrase.
+// phrase. Fresh active mailbox presence counts as visible-online, but not as
+// agentOperational for waiting ownership.
 func projectAgentLiveness(ps noc.ProjectSnapshot) (live, wakeLive, total int) {
 	for _, sess := range ps.Snap.Sessions {
 		for _, ag := range sess.Agents {
 			total++
 			switch ag.Liveness {
-			case state.LivenessAlive:
+			case state.LivenessAlive, state.LivenessDeadMailboxLive:
 				live++
 			case state.LivenessWakeLive:
 				wakeLive++
@@ -455,4 +458,19 @@ func agentOperational(ag state.Agent) bool {
 	default:
 		return false
 	}
+}
+
+func agentVisibleOnline(ag state.Agent) bool {
+	return agentState(ag) == nocRunning
+}
+
+func hasVisibleOnlineAgentSnap(snap state.Snapshot) bool {
+	for _, sess := range snap.Sessions {
+		for _, ag := range sess.Agents {
+			if agentVisibleOnline(ag) {
+				return true
+			}
+		}
+	}
+	return false
 }

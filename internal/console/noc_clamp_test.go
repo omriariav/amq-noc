@@ -145,3 +145,16 @@ func TestLiveView_LeftRowsClampedToDivider(t *testing.T) {
 		}
 	}
 }
+
+func TestLiveView_RightPaneGetsMajorityOnWideTerminal(t *testing.T) {
+	m := newNOCModel(NOCRebuildConfig{})
+	m.width = 200
+	leftW := m.leftWidth()
+	rightW := m.width - leftW - 3
+	if rightW <= leftW {
+		t.Fatalf("wide terminal should allocate more columns to detail pane: left=%d right=%d", leftW, rightW)
+	}
+	if rightW < 125 {
+		t.Fatalf("wide terminal detail pane too narrow: left=%d right=%d", leftW, rightW)
+	}
+}

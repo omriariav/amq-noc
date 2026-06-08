@@ -2,7 +2,7 @@
 //
 // Layout:
 //  1. HEADER "pulse": a brand rule + a single rollup line
-//     "<N> squads · <n> online · <n> needs-you · <n> waiting · <n> stale · <clock>".
+//     "<N> squads · <n> online · <n> needs-you · <n> blocked · <n> waiting · <n> stale · <clock>".
 //     The needs-you segment is bold/hot when >0, all-dim (calm) when 0.
 //  2. MAIN two-pane: LEFT a collapsible attention-first tree (root → project →
 //     session → agent); RIGHT a detail pane for the selected node.
@@ -34,7 +34,7 @@ const (
 	// right-pane width, so a wide terminal shows more of the thread evidence while
 	// a narrow one stays bounded. The left tree no longer repeats subjects, so the
 	// detail pane is where the thread text belongs.
-	detailThreadTitleWidth = 72
+	detailThreadTitleWidth = 160
 )
 
 // View implements tea.Model. Pointer receiver to match Update / Init: *NOCModel
@@ -574,8 +574,8 @@ func (m NOCModel) headerView() string {
 }
 
 // pulseLine is the operator-scan headline. It keeps the primary model compact:
-// squads, online, needs-you, waiting, stale. Granular at-risk/gated/stale
-// buckets remain in row tallies, detail panes, and JSON.
+// squads, online, needs-you, blocked, waiting, stale. Gated/at-risk remain
+// collapsed into waiting; declared blocks stay visible as hard stops.
 func (m NOCModel) pulseLine() string {
 	projects := m.scopedProjects()
 	tally := childTallyProjects(projects)
@@ -596,6 +596,12 @@ func (m NOCModel) pulseLine() string {
 		segs = append(segs, m.th.paint(m.th.needsYou, nocStateGlyph(nocNeedsYou, m.colorMode)+" "+nyText))
 	} else {
 		segs = append(segs, dim(nyText))
+	}
+
+	if tally.Blocked > 0 {
+		segs = append(segs, m.th.paint(m.th.blocked, nocStateGlyph(nocBlocked, m.colorMode)+" "+strconv.Itoa(tally.Blocked)+" blocked"))
+	} else {
+		segs = append(segs, dim("0 blocked"))
 	}
 
 	// waiting/stale follow the visible project rows as well, so the pulse answers
@@ -744,12 +750,14 @@ func (m NOCModel) bodyHeight() int {
 	return bh
 }
 
-// leftWidth is the tree pane width (about 55% of the terminal, bounded).
+// leftWidth is the tree pane width. The NOC tree is primarily an index; the
+// right detail pane carries the operator ask, diagnostics, and commands, so wide
+// terminals reserve a little more space for the detail text.
 func (m NOCModel) leftWidth() int {
 	if m.width <= 0 {
 		return 0
 	}
-	w := m.width*55/100 - 2
+	w := m.width*35/100 - 2
 	if w < 24 {
 		w = 24
 	}
@@ -758,6 +766,20 @@ func (m NOCModel) leftWidth() int {
 	}
 	if w < 0 {
 		return 0
+	}
+	return w
+}
+
+func (m NOCModel) detailTextWidth() int {
+	w := detailThreadTitleWidth
+	if m.width > 0 {
+		rightW := m.width - m.leftWidth() - 3
+		if rightW > 0 && rightW < w {
+			w = rightW
+		}
+	}
+	if w < 40 {
+		w = 40
 	}
 	return w
 }
@@ -852,11 +874,11 @@ func (m NOCModel) renderNode(n nocNode, selected bool) string {
 		b.WriteString("  ")
 	}
 
-	// State glyph + TEXT label (text always present). The row shows the SIMPLIFIED
-	// visible status (running / stale / waiting / needs-you): blocked/gated/at-risk
-	// collapse to "waiting" via visibleState. Granular triage stays in the detail
-	// pane. Sorting still uses the granular n.state, so waiting subtiers order
-	// sensibly within the group.
+	// State glyph + TEXT label (text always present). The row shows the simplified
+	// visible status: needs-you / blocked / waiting / online / stale. Gated and
+	// at-risk collapse to waiting via visibleState; declared blocks stay blocked.
+	// Sorting still uses the granular n.state, so waiting subtiers order sensibly
+	// within the group.
 	vs := visibleState(n.state)
 	glyph := nocStateGlyph(vs, m.colorMode)
 	label := nocStateText(vs)
@@ -996,23 +1018,38 @@ func squadKindTag(ps noc.ProjectSnapshot) string {
 	}
 }
 
+type nocCommandAction struct {
+	Label       string
+	Command     string
+	Description string
+}
+
 // kickRecoverLines returns deterministic, copy-pasteable commands to kick off or
 // recover work, chosen structurally by whether the project is amq-squad-managed
 // (delegate to the amq-squad CLI) or a plain AMQ surface (use the amq CLI scoped
 // to the resolved root). sessionName/amqRoot narrow to a session when known.
 // Display-only: nothing here is executed.
 func kickRecoverLines(ps noc.ProjectSnapshot, sessionName, amqRoot string) []string {
+	actions := kickRecoverActions(ps, sessionName, amqRoot)
+	out := make([]string, 0, len(actions))
+	for _, action := range actions {
+		out = append(out, action.Command)
+	}
+	return out
+}
+
+func kickRecoverActions(ps noc.ProjectSnapshot, sessionName, amqRoot string) []nocCommandAction {
 	switch squadKindTag(ps) {
 	case "squad":
 		dir := shellToken(strings.TrimSpace(ps.Dir))
 		if strings.TrimSpace(sessionName) != "" {
 			s := shellToken(sessionName)
 			profile := squadProfileFlag(sessionCommandProfile(ps, sessionName))
-			return []string{
-				"amq-squad status --project " + dir + profile + " --session " + s,
-				"amq-squad resume --project " + dir + profile + " --session " + s,
-				squadResumeCurrentWindowCommand(ps.Dir, sessionName, sessionCommandProfile(ps, sessionName)),
-				squadResumeNewSessionCommand(ps.Dir, sessionName, sessionCommandProfile(ps, sessionName)),
+			return []nocCommandAction{
+				commandAction("status", "amq-squad status --project "+dir+profile+" --session "+s, "show this session's amq-squad state"),
+				commandAction("resume preview", "amq-squad resume --project "+dir+profile+" --session "+s, "print the recovery plan without launching"),
+				commandAction("resume here", squadResumeCurrentWindowCommand(ps.Dir, sessionName, sessionCommandProfile(ps, sessionName)), "resume agents in the current tmux window"),
+				commandAction("open new tmux session", squadResumeNewSessionCommand(ps.Dir, sessionName, sessionCommandProfile(ps, sessionName)), "resume agents in a named tmux session"),
 			}
 		}
 		profileName := projectCommandProfile(ps)
@@ -1021,52 +1058,75 @@ func kickRecoverLines(ps noc.ProjectSnapshot, sessionName, amqRoot string) []str
 			s := shellToken(activeSession)
 			activeProfileName := sessionCommandProfile(ps, activeSession)
 			activeProfile := squadProfileFlag(activeProfileName)
-			return []string{
-				"amq-squad status --project " + dir + activeProfile + " --session " + s,
-				"amq-squad resume --project " + dir + activeProfile + " --session " + s,
-				squadResumeCurrentWindowCommand(ps.Dir, activeSession, activeProfileName),
-				squadResumeNewSessionCommand(ps.Dir, activeSession, activeProfileName),
+			return []nocCommandAction{
+				commandAction("status", "amq-squad status --project "+dir+activeProfile+" --session "+s, "show the active session's amq-squad state"),
+				commandAction("resume preview", "amq-squad resume --project "+dir+activeProfile+" --session "+s, "print the active session recovery plan"),
+				commandAction("resume here", squadResumeCurrentWindowCommand(ps.Dir, activeSession, activeProfileName), "resume agents in the current tmux window"),
+				commandAction("open new tmux session", squadResumeNewSessionCommand(ps.Dir, activeSession, activeProfileName), "resume agents in a named tmux session"),
 			}
 		}
-		lines := []string{
-			"amq-squad status --project " + dir + profile,
+		actions := []nocCommandAction{
+			commandAction("status", "amq-squad status --project "+dir+profile, "show this team-home's session board"),
 		}
 		if profileName != "PROFILE" {
-			lines = append(lines,
-				"amq-squad resume --project "+dir+profile,
-				"amq-squad up --project "+dir+profile,
+			actions = append(actions,
+				commandAction("resume preview", "amq-squad resume --project "+dir+profile, "print the project recovery plan"),
+				commandAction("up", "amq-squad up --project "+dir+profile, "start the configured team profile"),
 			)
 		}
-		return lines
+		return actions
 	case "amq":
 		root := strings.TrimSpace(amqRoot)
 		if root == "" {
 			return nil
 		}
 		rt := shellToken(root)
-		out := []string{}
+		out := []nocCommandAction{}
 		if strings.TrimSpace(sessionName) != "" && strings.TrimSpace(ps.Dir) != "" {
 			dir := shellToken(strings.TrimSpace(ps.Dir))
 			s := shellToken(strings.TrimSpace(sessionName))
 			out = append(out,
-				"amq-squad archive --project "+dir+" --yes "+s,
-				"amq-squad rm --project "+dir+" --yes "+s,
+				commandAction("archive session", "amq-squad archive --project "+dir+" --yes "+s, "move this AMQ session into the project archive"),
+				commandAction("remove session", "amq-squad rm --project "+dir+" --yes "+s, "permanently remove this AMQ session root"),
 			)
 		}
 		// Plain AMQ: the resolved root is known; AGENT / MESSAGE_ID / THREAD_ID are
 		// placeholders the operator fills in. Covers inspect (who/list/drain),
 		// read/thread, and send.
 		out = append(out,
-			"amq who --root "+rt,
-			"amq list --root "+rt+" --me AGENT",
-			"amq drain --root "+rt+" --me AGENT --include-body",
-			"amq read --root "+rt+" --me AGENT --id MESSAGE_ID",
-			"amq thread --root "+rt+" --id THREAD_ID --include-body",
-			"amq send --root "+rt+" --me AGENT --to AGENT --thread THREAD_ID",
+			commandAction("amq who", "amq who --root "+rt, "list AMQ sessions and agents for this root"),
+			commandAction("list inbox", "amq list --root "+rt+" --me AGENT", "list one agent inbox"),
+			commandAction("drain inbox", "amq drain --root "+rt+" --me AGENT --include-body", "drain one agent inbox with bodies"),
+			commandAction("read message", "amq read --root "+rt+" --me AGENT --id MESSAGE_ID", "read one message without guessing"),
+			commandAction("read thread", "amq thread --root "+rt+" --id THREAD_ID --include-body", "read a full AMQ thread"),
+			commandAction("send message", "amq send --root "+rt+" --me AGENT --to AGENT --thread THREAD_ID", "send a scoped AMQ message"),
 		)
 		return out
 	}
 	return nil
+}
+
+func commandAction(label, command, description string) nocCommandAction {
+	return nocCommandAction{Label: label, Command: command, Description: description}
+}
+
+func agentCommandActions(ps noc.ProjectSnapshot, sess state.Session, ag state.Agent) []nocCommandAction {
+	root := strings.TrimSpace(sess.Root)
+	handle := strings.TrimSpace(ag.Handle)
+	if root == "" || handle == "" {
+		return nil
+	}
+	rt := shellToken(root)
+	me := shellToken(handle)
+	actions := []nocCommandAction{
+		commandAction("list inbox", "amq list --root "+rt+" --me "+me+" --new", "show new messages for this agent"),
+		commandAction("drain inbox", "amq drain --root "+rt+" --me "+me+" --include-body", "drain this agent inbox with bodies"),
+		commandAction("send message", "amq send --root "+rt+" --me "+shellToken(operatorHandleForProject(ps))+" --to "+me+" --thread THREAD_ID", "send an operator message to this agent"),
+	}
+	if ps.TeamConfigured && strings.TrimSpace(ag.Role) != "" && strings.TrimSpace(ps.Dir) != "" && strings.TrimSpace(sess.Name) != "" {
+		actions = append(actions, commandAction("resume agent", "amq-squad agent resume "+shellToken(ag.Role)+" --project "+shellToken(ps.Dir)+" --session "+shellToken(sess.Name), "resume this agent from its saved launch record"))
+	}
+	return actions
 }
 
 func projectCommandSession(ps noc.ProjectSnapshot) string {
@@ -1150,22 +1210,43 @@ func squadResumeNewSessionCommand(projectDir, sessionName, profile string) strin
 // for a project (sessionName == "") or a session, or "" when there is nothing
 // deterministic to show. Quiet (dim), inline - never a shortcut or palette.
 func (m NOCModel) commandsSection(ps noc.ProjectSnapshot, sessionName, amqRoot string) string {
-	lines := kickRecoverLines(ps, sessionName, amqRoot)
-	if len(lines) == 0 {
+	return m.commandActionsSection(kickRecoverActions(ps, sessionName, amqRoot))
+}
+
+func (m NOCModel) agentCommandsSection(ps noc.ProjectSnapshot, sess state.Session, ag state.Agent) string {
+	return m.commandActionsSection(agentCommandActions(ps, sess, ag))
+}
+
+func (m NOCModel) commandActionsSection(actions []nocCommandAction) string {
+	if len(actions) == 0 {
 		return ""
 	}
 	var b strings.Builder
 	b.WriteString(m.detailRule() + "\n")
-	b.WriteString(m.th.paint(m.th.dim, "commands (C copies)") + "\n")
+	b.WriteString(m.th.paint(m.th.dim, "actions (C copies command)") + "\n")
 	width := m.commandDisplayWidth()
-	for _, l := range lines {
-		wrapped := wrapPlainText(l, width-4)
+	for _, action := range actions {
+		label := strings.TrimSpace(action.Label)
+		if label == "" {
+			label = "command"
+		}
+		prefix := "  " + label + ": "
+		cmdWidth := width - visibleWidth(prefix)
+		if cmdWidth < 24 {
+			cmdWidth = 24
+		}
+		wrapped := wrapPlainText(action.Command, cmdWidth)
 		if len(wrapped) == 0 {
 			continue
 		}
-		b.WriteString(m.th.paint(m.th.dim, "  "+wrapped[0]) + "\n")
+		b.WriteString(m.th.paint(m.th.brand, "  "+label+": ") + m.th.paint(m.th.dim, wrapped[0]) + "\n")
 		for _, cont := range wrapped[1:] {
-			b.WriteString(m.th.paint(m.th.dim, "    "+cont) + "\n")
+			b.WriteString(m.th.paint(m.th.dim, strings.Repeat(" ", visibleWidth(prefix))+cont) + "\n")
+		}
+		if strings.TrimSpace(action.Description) != "" {
+			for _, desc := range wrapPlainText(action.Description, width-4) {
+				b.WriteString(m.th.paint(m.th.dim, "    "+desc) + "\n")
+			}
 		}
 	}
 	return b.String()
@@ -1188,12 +1269,15 @@ func (m NOCModel) commandDisplayWidth() int {
 
 // childTallyText is a compact per-parent tally over visible immediate children.
 // It deliberately uses the simplified primary states so a project row says, for
-// example, "(1 waiting, 2 stale)" rather than repeating thread-level evidence
-// like "16 blocked stale, 5 at-risk stale".
+// example, "(1 blocked, 1 waiting, 2 stale)" rather than repeating thread-level
+// evidence like "16 blocked stale, 5 at-risk stale".
 func (m NOCModel) childTallyText(t nocChildTally) string {
 	var parts []string
 	if t.NeedsYou > 0 {
 		parts = append(parts, m.th.paint(m.th.needsYou, strconv.Itoa(t.NeedsYou)+" needs-you"))
+	}
+	if t.Blocked > 0 {
+		parts = append(parts, m.th.paint(m.th.blocked, strconv.Itoa(t.Blocked)+" blocked"))
 	}
 	if t.Waiting > 0 {
 		parts = append(parts, m.th.paint(m.th.atRisk, strconv.Itoa(t.Waiting)+" waiting"))
@@ -1221,9 +1305,12 @@ func (m NOCModel) tallyText(r state.TriageRollup) string {
 	if r.NeedsYou > 0 {
 		live = append(live, m.th.paint(m.th.needsYou, strconv.Itoa(r.NeedsYou)+" needs-you"))
 	}
-	// Simplified visible model: blocked + gated + at-risk collapse to one
-	// "waiting" count. The granular split stays in the detail pane / JSON.
-	if n := r.Blocked + r.Gated + r.AtRisk; n > 0 {
+	if r.Blocked > 0 {
+		live = append(live, m.th.paint(m.th.blocked, strconv.Itoa(r.Blocked)+" blocked"))
+	}
+	// Simplified visible model: gated + at-risk collapse to one "waiting" count.
+	// The granular split stays in the detail pane / JSON.
+	if n := r.Gated + r.AtRisk; n > 0 {
 		live = append(live, m.th.paint(m.th.atRisk, strconv.Itoa(n)+" waiting"))
 	}
 
@@ -1425,14 +1512,14 @@ func (m NOCModel) sessionDetail(n nocNode) string {
 			shown = shown[:sessionNowLimit]
 		}
 		for _, th := range shown {
-			b.WriteString("  " + m.compactThreadRow(th, detailThreadTitleWidth) + "\n")
+			m.writeCompactThreadRows(&b, th, "  ", m.detailTextWidth())
 			b.WriteString(m.needsYouContextLines(th))
 		}
 		if len(nowThreads) > len(shown) {
 			b.WriteString(m.th.paint(m.th.dim, "  +"+strconv.Itoa(len(nowThreads)-len(shown))+" more current attention") + "\n")
 		}
 	} else if th, ok := topThread(n.session); ok {
-		b.WriteString("  " + m.compactThreadRow(th, detailThreadTitleWidth) + "\n")
+		m.writeCompactThreadRows(&b, th, "  ", m.detailTextWidth())
 		b.WriteString(m.needsYouContextLines(th))
 	} else {
 		b.WriteString(m.th.paint(m.th.dim, "  (no current thread signal)") + "\n")
@@ -1456,7 +1543,7 @@ func (m NOCModel) sessionDetail(n nocNode) string {
 		shownThreads = shownThreads[:sessionThreadPreviewLimit]
 	}
 	for _, th := range shownThreads {
-		b.WriteString("  " + m.compactThreadRow(th, detailThreadTitleWidth) + "\n")
+		m.writeCompactThreadRows(&b, th, "  ", m.detailTextWidth())
 	}
 	if len(threads) > len(shownThreads) {
 		b.WriteString(m.th.paint(m.th.dim, "  +"+strconv.Itoa(len(threads)-len(shownThreads))+" older hidden") + "\n")
@@ -1517,19 +1604,20 @@ func (m NOCModel) needsYouContextLines(th state.ThreadSummary) string {
 	b.WriteString(m.th.paint(m.th.dim, "      "+ctx) + "\n")
 	// The actual ask/context inline: the latest message body, capped + indented,
 	// so the operator sees what is being asked before the CTA (no re-fetch).
-	for _, ln := range askBodyLines(th.LatestBody) {
+	for _, ln := range m.askBodyLines(th.LatestBody) {
 		b.WriteString(m.th.paint(m.th.dim, "      "+ln) + "\n")
 	}
 	b.WriteString(m.th.paint(m.th.needsYou, "      "+m.needsYouCTA(th.AttnReason)) + "\n")
 	return b.String()
 }
 
-// askBodyLines renders the needs-you ask body for the right pane: non-empty lines
-// each truncated to the detail width, capped to a few lines with an ellipsis,
-// prefixed "ask: " on the first line and aligned under it after. Empty when there
-// is no body.
-func askBodyLines(body string) []string {
-	const maxLines = 5
+// askBodyLines renders the needs-you ask body for the right pane: non-empty
+// lines wrapped to the detail width, capped to a few lines with an ellipsis,
+// prefixed "ask: " on the first line and aligned under it after. Empty when
+// there is no body.
+func (m NOCModel) askBodyLines(body string) []string {
+	const maxLines = 8
+	bodyWidth := m.detailTextWidth()
 	var raw []string
 	for _, ln := range strings.Split(body, "\n") {
 		if s := strings.TrimSpace(ln); s != "" {
@@ -1540,16 +1628,25 @@ func askBodyLines(body string) []string {
 		return nil
 	}
 	var out []string
-	for i, s := range raw {
-		if i >= maxLines {
-			out = append(out, "     …")
-			break
-		}
-		prefix := "     " // align continuation lines under the first line's text
-		if i == 0 {
+	first := true
+	for _, s := range raw {
+		prefix := "     "
+		if first {
 			prefix = "ask: "
 		}
-		out = append(out, prefix+truncate(s, detailThreadTitleWidth))
+		width := bodyWidth - visibleWidth(prefix)
+		if width < 24 {
+			width = 24
+		}
+		for _, ln := range wrapPlainText(s, width) {
+			if len(out) >= maxLines {
+				out = append(out, "     …")
+				return out
+			}
+			out = append(out, prefix+ln)
+			first = false
+			prefix = "     " // align continuation lines under the first line's text
+		}
 	}
 	return out
 }
@@ -1591,6 +1688,12 @@ func (m NOCModel) agentDetail(n nocNode) string {
 	b.WriteString(m.detailRule() + "\n")
 
 	if agentOperational(n.agent) {
+		if th, ok := mostUrgent(n.session.Coordination.NeedsYouThreads(), n.agent.Handle); ok && !th.Historical {
+			b.WriteString(m.th.paint(m.th.needsYou, "needs you") + "\n")
+			m.writeCompactThreadRows(&b, th, "  ", m.detailTextWidth())
+			b.WriteString(m.needsYouContextLines(th))
+			b.WriteString(m.detailRule() + "\n")
+		}
 		if th, ok := newestThreadForAgent(n.session, n.agent.Handle); ok {
 			parts := []string{truncate(threadTitle(th), detailThreadTitleWidth)}
 			if age := nocThreadAge(th); age != "" {
@@ -1613,7 +1716,7 @@ func (m NOCModel) agentDetail(n nocNode) string {
 		if !threadHasParticipant(th, n.agent.Handle) {
 			continue
 		}
-		b.WriteString("  " + m.compactThreadRow(th, detailThreadTitleWidth) + "\n")
+		m.writeCompactThreadRows(&b, th, "  ", m.detailTextWidth())
 		shown++
 		if shown >= agentThreadPreviewLimit {
 			break
@@ -1622,6 +1725,7 @@ func (m NOCModel) agentDetail(n nocNode) string {
 	if shown == 0 {
 		b.WriteString(m.th.paint(m.th.dim, "  (no open threads)") + "\n")
 	}
+	b.WriteString(m.agentCommandsSection(n.project, n.session, n.agent))
 	return b.String()
 }
 
@@ -1785,7 +1889,8 @@ func (m NOCModel) helpView() string {
 		"",
 		"PRIMARY STATUS MODEL",
 		"  online            team/session/agent is live; no current wait detected",
-		"  waiting           an operational agent is waiting on non-human work (peer review, block, or gate)",
+		"  blocked           an operational agent declared a hard stop",
+		"  waiting           an operational agent is waiting on non-human work (peer review, gate, or aging)",
 		"  needs-you         an agent is explicitly waiting for operator action now",
 		"  stale             stopped, aged, or historical context",
 		"  Text labels are authoritative; color and glyphs are hints.",
@@ -1833,6 +1938,7 @@ func currentControlThreads(sess state.Session) []state.ThreadSummary {
 		if th.Historical || th.Stale || th.Triage != state.TriageNeedsYou {
 			continue
 		}
+		needsYou = append(needsYou, th)
 	}
 	sortControlThreads(needsYou)
 	return needsYou
@@ -1857,8 +1963,63 @@ func sortControlThreads(out []state.ThreadSummary) {
 	})
 }
 
+func (m NOCModel) writeCompactThreadRows(b *strings.Builder, th state.ThreadSummary, indent string, titleMax int) {
+	contentMax := titleMax - visibleWidth(indent)
+	if contentMax < 40 {
+		contentMax = 40
+	}
+	for _, row := range m.compactThreadRows(th, contentMax) {
+		b.WriteString(indent + row + "\n")
+	}
+}
+
+func (m NOCModel) compactThreadRows(th state.ThreadSummary, rowMax int) []string {
+	const maxTitleLines = 2
+	if rowMax < 40 {
+		rowMax = 40
+	}
+	st := compactThreadDisplayState(th)
+	prefixPlain := nocStateGlyph(st, m.colorMode)
+	if label := compactThreadStateText(th); label != "" {
+		prefixPlain += " " + label
+	}
+	detail := compactThreadDetail(th)
+	detailPlain := ""
+	if detail != "" {
+		detailPlain = "  " + detail
+	}
+
+	titleWidth := rowMax - visibleWidth(prefixPlain) - 1 - visibleWidth(detailPlain)
+	if titleWidth < 24 {
+		titleWidth = rowMax - visibleWidth(prefixPlain) - 1
+	}
+	if titleWidth < 16 {
+		titleWidth = 16
+	}
+	titleLines := wrapPlainText(threadTitle(th), titleWidth)
+	if len(titleLines) == 0 {
+		titleLines = []string{shortID(th.ID)}
+	}
+	if len(titleLines) > maxTitleLines {
+		titleLines = titleLines[:maxTitleLines]
+		titleLines[maxTitleLines-1] = withEllipsis(titleLines[maxTitleLines-1], titleWidth)
+	}
+
+	prefixStyled := m.th.paint(m.th.nocStateStyle(st), prefixPlain)
+	first := prefixStyled + " " + titleLines[0]
+	if detailPlain != "" {
+		first += m.th.paint(m.th.dim, detailPlain)
+	}
+	rows := []string{first}
+	continuationPrefix := strings.Repeat(" ", visibleWidth(prefixPlain)+1)
+	for _, title := range titleLines[1:] {
+		rows = append(rows, m.th.paint(m.th.dim, continuationPrefix+title))
+	}
+	return rows
+}
+
 func (m NOCModel) compactThreadRow(th state.ThreadSummary, titleMax int) string {
-	st := triageState(th.Triage)
+	st := compactThreadDisplayState(th)
 	var b strings.Builder
 	b.WriteString(m.th.paint(m.th.nocStateStyle(st), nocStateGlyph(st, m.colorMode)))
 	if label := compactThreadStateText(th); label != "" {
@@ -1871,6 +2032,23 @@ func (m NOCModel) compactThreadRow(th state.ThreadSummary, titleMax int) string 
 	return b.String()
 }
 
+func compactThreadDisplayState(th state.ThreadSummary) nocState {
+	if th.Historical {
+		return triageState(th.Triage)
+	}
+	return visibleState(triageState(th.Triage))
+}
+
+func withEllipsis(s string, max int) string {
+	if max <= 1 {
+		return "…"
+	}
+	if visibleWidth(s) >= max {
+		return truncate(s, max)
+	}
+	return s + "…"
+}
+
 func compactThreadStateText(th state.ThreadSummary) string {
 	if th.Triage == state.TriageClear {
 		return ""
@@ -1878,7 +2056,7 @@ func compactThreadStateText(th state.ThreadSummary) string {
 	if th.Historical {
 		return "history"
 	}
-	return nocStateText(triageState(th.Triage))
+	return nocStateText(compactThreadDisplayState(th))
 }
 
 func compactThreadDetail(th state.ThreadSummary) string {
@@ -1897,6 +2075,13 @@ func compactThreadDetail(th state.ThreadSummary) string {
 		case state.AttnGoalReached:
 			reason = "review or close"
 		}
+		if age != "" {
+			return reason + " " + age
+		}
+		return reason
+	}
+	if th.Triage != state.TriageClear && !th.Historical {
+		reason := nocStateText(triageState(th.Triage))
 		if age != "" {
 			return reason + " " + age
 		}

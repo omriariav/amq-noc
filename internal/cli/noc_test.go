@@ -922,6 +922,20 @@ func TestNOCProjectEnvelopeLabelsHistoricalNeedsYouAsNonLive(t *testing.T) {
 	}
 }
 
+func TestNOCProjectEnvelopeIncludesRuntimeActionCapability(t *testing.T) {
+	project := nocProjectEnvelope(noc.ProjectSnapshot{
+		Project: "api",
+		Dir:     "/root/api",
+		Capabilities: noc.Capabilities{
+			OperatorGates:  true,
+			RuntimeActions: true,
+		},
+	})
+	if !project.Capabilities.OperatorGates || !project.Capabilities.RuntimeActions {
+		t.Fatalf("capabilities = %+v, want operator_gates + runtime_actions", project.Capabilities)
+	}
+}
+
 func TestNOCSessionEnvelopeIncludesThreadIntegrationMetadata(t *testing.T) {
 	row := nocSessionEnvelope(noc.ProjectSnapshot{Dir: "/root/api"}, state.Session{
 		Name: "issue-96",
@@ -3947,12 +3961,14 @@ func TestNOCJSONReasonCodesDistinguishRollupStates(t *testing.T) {
 	}
 }
 
-// S4c regression: the JSON/API path must obey the same source-backed status
-// contract as the TUI. A session whose only agents are dead-mailbox-live (process
-// gone, only AMQ presence fresh) plus an aged peer review (unowned at-risk) must
-// report agents_alive=0 and a STALE primary state, never online or a live at-risk.
-// The raw evidence is retained in the rollup + unowned_evidence detail.
-func TestNOCSessionJSONAllDmblUnownedAtRiskIsStale(t *testing.T) {
+// v0.3 JSON/TUI alignment: the JSON/API path must use the same primary vocabulary as
+// the TUI (README contract). A session whose only agents are dead-mailbox-live
+// (process gone, fresh AMQ wake presence) is VISIBLE-ONLINE - the same contract the
+// TUI applies via console.agentVisibleOnline / sessionRollupState - so it reports
+// agents_alive=2 and an "online" primary state. The aged peer review is UNOWNED (no
+// operational owner), so it never promotes a live wait; the evidence is retained in
+// the rollup + unowned_evidence detail.
+func TestNOCSessionJSONAllDmblUnownedAtRiskIsOnline(t *testing.T) {
 	row := nocSessionEnvelope(noc.ProjectSnapshot{Dir: "/root/api"}, state.Session{
 		Name: "issue-1",
 		Agents: []state.Agent{
@@ -3963,14 +3979,48 @@ func TestNOCSessionJSONAllDmblUnownedAtRiskIsStale(t *testing.T) {
 		UnownedAttention: state.Attention{State: state.TriageAtRisk},
 		Rollup:           state.TriageRollup{AtRisk: 1},
 	})
-	if row.AgentsAlive != 0 {
-		t.Fatalf("agents_alive = %d, want 0 (dead-mailbox-live is not live)", row.AgentsAlive)
+	if row.AgentsAlive != 2 {
+		t.Fatalf("agents_alive = %d, want 2 (dead-mailbox-live is visible-online)", row.AgentsAlive)
 	}
-	if row.State != "stale-blocked" || row.ReasonCode != "stale_blocked" {
-		t.Fatalf("state/reason = %q/%q, want stale-blocked/stale_blocked (unowned at-risk is not a live wait)", row.State, row.ReasonCode)
+	if row.State != "online" || row.ReasonCode != "online" {
+		t.Fatalf("state/reason = %q/%q, want online/online (visible-online presence; unowned at-risk is not a live wait)", row.State, row.ReasonCode)
 	}
 	if row.UnownedEvidence != "at-risk" {
 		t.Fatalf("unowned_evidence = %q, want at-risk (evidence retained as detail)", row.UnownedEvidence)
+	}
+}
+
+// v0.3 JSON/TUI alignment: the JSON layer self-enforces the strict operational-owner
+// gate (mirroring console.sessionRollupState's defensive check). A session whose only
+// agents are dead-mailbox-live stays online even when sess.Attention carries a
+// non-human blocked/at-risk tier - because no operational agent owns it, the wait is
+// never promoted. The evidence is retained in the per-agent attention + rollup detail,
+// never lost. Mirrors console TestNOCSessionVisible_DefensivelyIgnoresNonHumanAttentionWithoutOperationalOwner.
+func TestNOCSessionJSONDmblOwnedNonHumanAttentionStaysOnline(t *testing.T) {
+	row := nocSessionEnvelope(noc.ProjectSnapshot{Dir: "/root/api"}, state.Session{
+		Name: "issue-96",
+		Agents: []state.Agent{
+			{Handle: "cto", Liveness: state.LivenessDeadMailboxLive, Attention: state.Attention{State: state.TriageAtRisk}},
+			{Handle: "fullstack", Liveness: state.LivenessDeadMailboxLive, Attention: state.Attention{State: state.TriageBlocked}},
+		},
+		Attention: state.Attention{State: state.TriageBlocked},
+		Rollup:    state.TriageRollup{Blocked: 1, AtRisk: 1},
+	})
+	if row.AgentsAlive != 2 {
+		t.Fatalf("agents_alive = %d, want 2 (dead-mailbox-live is visible-online)", row.AgentsAlive)
+	}
+	if row.State != "online" || row.ReasonCode != "online" {
+		t.Fatalf("state/reason = %q/%q, want online/online (no operational owner promotes the wait)", row.State, row.ReasonCode)
+	}
+	if row.Rollup.Blocked != 1 || row.Rollup.AtRisk != 1 {
+		t.Fatalf("rollup blocked/at-risk = %d/%d, want 1/1 (evidence retained as detail)", row.Rollup.Blocked, row.Rollup.AtRisk)
+	}
+	agentAttn := map[string]string{}
+	for _, ag := range row.Agents {
+		agentAttn[ag.Handle] = ag.Attention
+	}
+	if agentAttn["cto"] != "at-risk" || agentAttn["fullstack"] != "blocked" {
+		t.Fatalf("agent attention = %v, want cto=at-risk fullstack=blocked (evidence retained)", agentAttn)
 	}
 }
 
@@ -4026,9 +4076,10 @@ func TestNOCSessionJSONNewerClearActivityBeatsOldAtRisk(t *testing.T) {
 	}
 }
 
-// S4c project-level: a project whose only session is all dead-mailbox-live with
-// unowned at-risk is STALE, not online, and contributes zero live agents.
-func TestNOCProjectJSONAllDmblIsStaleNotRunning(t *testing.T) {
+// v0.3 JSON/TUI alignment, project level: a project whose only session is all
+// dead-mailbox-live is VISIBLE-ONLINE (agents_alive=2, online), matching the TUI. The
+// unowned at-risk stays in the rollup detail and never promotes a live wait.
+func TestNOCProjectJSONAllDmblIsOnlineNotStale(t *testing.T) {
 	project := nocProjectEnvelope(noc.ProjectSnapshot{
 		Project: "api",
 		Dir:     "/root/api",
@@ -4046,11 +4097,14 @@ func TestNOCProjectJSONAllDmblIsStaleNotRunning(t *testing.T) {
 			}},
 		},
 	})
-	if project.AgentsAlive != 0 {
-		t.Fatalf("project agents_alive = %d, want 0", project.AgentsAlive)
+	if project.AgentsAlive != 2 {
+		t.Fatalf("project agents_alive = %d, want 2 (dead-mailbox-live is visible-online)", project.AgentsAlive)
 	}
-	if project.State != "stale-blocked" || project.ReasonCode != "stale_blocked" {
-		t.Fatalf("project state/reason = %q/%q, want stale-blocked/stale_blocked", project.State, project.ReasonCode)
+	if project.State != "online" || project.ReasonCode != "online" {
+		t.Fatalf("project state/reason = %q/%q, want online/online", project.State, project.ReasonCode)
+	}
+	if len(project.Sessions) != 1 || project.Sessions[0].State != "online" {
+		t.Fatalf("session state = %#v, want one online child", project.Sessions)
 	}
 }
 

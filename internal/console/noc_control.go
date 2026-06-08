@@ -2503,7 +2503,7 @@ func (m *NOCModel) beginNewTeamForProject(project noc.ProjectSnapshot) tea.Cmd {
 	if project.TeamConfigured {
 		stage = 0
 		if profiles := projectLaunchProfiles(project); len(profiles) > 0 {
-			hint = "existing profiles: " + strings.Join(profiles, ", ")
+			hint = nocNewTeamProfileHint(profiles)
 		}
 		validateSubject = func(profile string) error {
 			return validateNOCNewTeamProfile(profile, project)
@@ -4959,7 +4959,21 @@ type nocTeamSpec struct {
 }
 
 func nocTeamSpecHint() string {
-	return "roles: cto,fullstack,qa or 2,9 or all; add role=binary and session=issue-96"
+	return strings.Join([]string{
+		"Create an amq-squad team profile for this project; enter previews the exact command before anything runs.",
+		"built-in roles: cto,fullstack,qa or role numbers like 2,9; use all for every built-in role",
+		"optional: override built-ins with qa=codex; add session=issue-96 for the initial workstream",
+	}, "\n")
+}
+
+func nocNewTeamProfileHint(profiles []string) string {
+	lines := []string{
+		"Create another amq-squad profile for this project; enter the new profile name, then choose roles.",
+	}
+	if len(profiles) > 0 {
+		lines = append(lines, "existing profiles: "+strings.Join(profiles, ", "))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func parseNOCTeamSpec(raw string) (nocTeamSpec, error) {
@@ -4990,15 +5004,15 @@ func parseNOCTeamSpec(raw string) (nocTeamSpec, error) {
 			}
 			continue
 		}
-		resolved, err := catalog.ResolveSelection(selection)
-		if err != nil {
-			return nocTeamSpec{}, err
-		}
 		if hasBinary {
 			binary = strings.TrimSpace(binary)
 			if err := team.ValidateDisplayValue("binary", binary); err != nil {
 				return nocTeamSpec{}, err
 			}
+		}
+		resolved, err := catalog.ResolveSelection(selection)
+		if err != nil {
+			return nocTeamSpec{}, err
 		}
 		for _, role := range resolved {
 			if hasBinary {

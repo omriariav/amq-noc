@@ -229,14 +229,14 @@ func TestNOCHeadline_ReconcilesWithVisibleProjectStates(t *testing.T) {
 
 	scope := m.scopedProjects()
 	tally := childTallyProjects(scope)
-	if tally.Waiting != 2 {
-		t.Fatalf("fixture should produce 2 visible waiting projects, got tally=%+v", tally)
+	if tally.Blocked != 2 {
+		t.Fatalf("fixture should produce 2 visible blocked projects, got tally=%+v", tally)
 	}
 
 	// And the rendered pulse line must show the reconciled count under the
-	// simplified visible model: blocked/gated/at-risk collapse into "waiting".
+	// simplified visible model: declared blocks stay blocked.
 	pulse := m.pulseLine()
-	want := fmt.Sprintf("%d waiting", tally.Waiting)
+	want := fmt.Sprintf("%d blocked", tally.Blocked)
 	if !strings.Contains(pulse, want) {
 		t.Errorf("pulse line should show reconciled %q:\n%s", want, pulse)
 	}
@@ -287,12 +287,12 @@ func TestNOCHeadline_ReconcilesUnderHideStale(t *testing.T) {
 
 	scope := m.scopedProjects()
 	tally := childTallyProjects(scope)
-	if tally.Waiting != 1 {
-		t.Fatalf("under hide-stale, pulse should count only the visible waiting project, got tally=%+v", tally)
+	if tally.Blocked != 1 {
+		t.Fatalf("under hide-stale, pulse should count only the visible blocked project, got tally=%+v", tally)
 	}
 	pulse := m.pulseLine()
-	if !strings.Contains(pulse, "1 waiting") {
-		t.Errorf("pulse should count only the 1 visible waiting project:\n%s", pulse)
+	if !strings.Contains(pulse, "1 blocked") {
+		t.Errorf("pulse should count only the 1 visible blocked project:\n%s", pulse)
 	}
 	if strings.Contains(pulse, "1 stale") {
 		t.Errorf("hidden stale squad should not appear in the pulse:\n%s", pulse)

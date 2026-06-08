@@ -58,6 +58,11 @@ JSON snapshots use the same primary vocabulary as the TUI. In `v0.2.1`,
 `state` and `reason_code` values for live/no-wait rows changed from `running` to
 `online`; filters still accept `running` as an alias for `online`.
 
+The `agents_alive` count is the visible-online count: it includes fresh-presence
+agents (dead-mailbox-live, reachable without a verified pid) and matches what the
+TUI renders as online. Non-human waits (blocked, gated, at-risk) stay gated to
+operationally live agents, so fresh presence alone never promotes a wait.
+
 ## Features
 
 - multi-project NOC TUI
@@ -174,6 +179,19 @@ After the reply, the gate clears automatically because the latest message is no
 longer addressed to the operator.
 
 For more detail, see [`docs/operator-gate.md`](docs/operator-gate.md).
+
+## Runtime actions
+
+amq-squad owns runtime orchestration (start / stop / resume / focus / open /
+prompt-delivery and the tmux mechanics behind them). amq-noc consumes the
+capability metadata amq-squad publishes and, in `v0.3`, generates the labeled action
+commands itself, deterministically; it renders them as operator UI, lets you pick
+and copy the exact command (`C`), and falls back gracefully when runtime support is
+absent. The NOC never drives the runtime itself. Consuming a published action
+catalog from amq-squad is the future tracked by amq-squad #61/#62/#47.
+
+For the consume/orchestrate boundary and fallback behavior, see
+[`docs/runtime-actions.md`](docs/runtime-actions.md).
 
 ## Machine-readable snapshots
 

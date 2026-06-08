@@ -54,6 +54,7 @@ type nocNode struct {
 // count agents, and root rows count projects.
 type nocChildTally struct {
 	NeedsYou int
+	Blocked  int
 	Waiting  int
 	Running  int
 	Stale    int
@@ -289,6 +290,8 @@ func (t *nocChildTally) add(s nocState) {
 	switch visibleState(s) {
 	case nocNeedsYou:
 		t.NeedsYou++
+	case nocBlocked:
+		t.Blocked++
 	case nocWaiting:
 		t.Waiting++
 	case nocRunning:

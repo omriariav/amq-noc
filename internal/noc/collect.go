@@ -41,7 +41,8 @@ type OperatorConfig struct {
 
 // Capabilities advertises behaviors JSON/API clients can rely on.
 type Capabilities struct {
-	OperatorGates bool
+	OperatorGates  bool
+	RuntimeActions bool
 }
 
 // OperatorGateHandle returns the configured human mailbox handle only when the
@@ -191,22 +192,27 @@ func listTeamProfiles(projectDir string, defaultTeam bool) []string {
 }
 
 func readProjectOperatorMetadata(projectDir string, profiles []string) (OperatorConfig, Capabilities) {
+	var outOp OperatorConfig
+	var outCaps Capabilities
 	for _, profile := range profiles {
 		t, err := team.ReadProfile(projectDir, profile)
 		if err != nil {
 			continue
 		}
 		op, caps := teamOperatorMetadata(t)
-		if caps.OperatorGates {
-			return op, caps
+		outCaps.OperatorGates = outCaps.OperatorGates || caps.OperatorGates
+		outCaps.RuntimeActions = outCaps.RuntimeActions || caps.RuntimeActions
+		if caps.OperatorGates && !outOp.Enabled {
+			outOp = op
 		}
 	}
-	return OperatorConfig{}, Capabilities{}
+	return outOp, outCaps
 }
 
 func teamOperatorMetadata(t team.Team) (OperatorConfig, Capabilities) {
+	caps := Capabilities{RuntimeActions: t.Capabilities.RuntimeActions}
 	if t.Schema >= 3 && !t.Operator.Enabled {
-		return OperatorConfig{}, Capabilities{}
+		return OperatorConfig{}, caps
 	}
 	handle := strings.TrimSpace(t.Operator.Handle)
 	if handle == "" {
@@ -214,14 +220,15 @@ func teamOperatorMetadata(t team.Team) (OperatorConfig, Capabilities) {
 	}
 	for _, member := range t.Members {
 		if strings.TrimSpace(member.Handle) == handle {
-			return OperatorConfig{}, Capabilities{}
+			return OperatorConfig{}, caps
 		}
 	}
+	caps.OperatorGates = true
 	return OperatorConfig{
 		Enabled:  true,
 		Handle:   handle,
 		Runnable: false,
-	}, Capabilities{OperatorGates: true}
+	}, caps
 }
 
 func listAMQSessionNames(projectDir string) []string {

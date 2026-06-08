@@ -164,8 +164,8 @@ func TestNOC_HeadlineSeparatesLiveFromStale(t *testing.T) {
 	if !strings.Contains(pulse, "1 waiting") {
 		t.Errorf("headline should count the 1 visible waiting squad:\n%s", pulse)
 	}
-	if strings.Contains(pulse, "blocked") {
-		t.Errorf("simplified header should not show a primary 'blocked' segment:\n%s", pulse)
+	if strings.Contains(pulse, "blocked(live)") {
+		t.Errorf("simplified header should not show raw blocked(live) segment:\n%s", pulse)
 	}
 	if !strings.Contains(pulse, "1 stale") {
 		t.Errorf("headline should show aggregate stale count:\n%s", pulse)
@@ -199,8 +199,8 @@ func TestNOC_OnceRendersRollupsAndNeedsAttention(t *testing.T) {
 	}
 	// The online at-risk squad heads the needs-attention section; the stale
 	// squad collapses to the simplified stale surface, never live attention.
-	if !strings.Contains(digest, "online 2/2 agents alive") {
-		t.Errorf("rollup should show the unambiguous liveness phrase 'online 2/2 agents alive':\n%s", digest)
+	if !strings.Contains(digest, "online 2/2 agents online") {
+		t.Errorf("rollup should show the unambiguous liveness phrase 'online 2/2 agents online':\n%s", digest)
 	}
 	if !strings.Contains(digest, "1 stale") {
 		t.Errorf("stale squad should render as simplified stale:\n%s", digest)

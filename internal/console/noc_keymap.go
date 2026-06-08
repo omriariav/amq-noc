@@ -4,9 +4,11 @@
 // router actually handles every key here (and nothing it dropped). So an
 // advertised key cannot drift from a handled key. The CLI `noc --help` keeps a
 // hand-written prose summary that is separately tested (noc_help_test.go) to carry
-// no removed key. Keys the 0.1.0 prune removed (jump J/o, palette p, mute A, the
-// AMQ context/DLQ/inbox/read c/D/i/v keys, timeline t) are absent here by
+// no removed key. Keys the 0.1.0 prune removed (jump J/o, mute A, the AMQ
+// context/DLQ/inbox/read c/D/i/v keys, timeline t) are absent here by
 // construction, so any surface that still names them fails a contract test.
+// (p was the old palette key; it was re-wired in v0.5.0 to send-prompt, so it is
+// intentionally present again — advertised and handled.)
 package console
 
 // nocKeyGroup buckets a binding for grouped rendering.

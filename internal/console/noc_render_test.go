@@ -349,6 +349,7 @@ func TestNOCSessionDetailBlockedThreadRowsUseWaitingPrimary(t *testing.T) {
 			Subject:      "ACK: Slack contract routed",
 			Participants: []string{"cpo", "qa"},
 			Triage:       state.TriageBlocked,
+			Status:       state.ThreadBlocked,
 			LastEventAt:  nocTestNow.Add(-23 * time.Second),
 			Freshness:    state.Freshness{Age: 23 * time.Second},
 		}}},
@@ -358,11 +359,43 @@ func TestNOCSessionDetailBlockedThreadRowsUseWaitingPrimary(t *testing.T) {
 		project: noc.ProjectSnapshot{Project: "taboola-pm-os"},
 		session: sess,
 	})
-	if !strings.Contains(out, "blocked ACK: Slack contract routed  blocked 23s") {
-		t.Fatalf("blocked thread should render as blocked primary with blocked reason:\n%s", out)
+	if !strings.Contains(out, "waiting ACK: Slack contract routed  waiting 23s") {
+		t.Fatalf("soft block thread should render as waiting primary:\n%s", out)
 	}
-	if strings.Contains(out, "waiting ACK: Slack contract routed") {
-		t.Fatalf("declared block must not be collapsed to waiting:\n%s", out)
+	if strings.Contains(out, "blocked ACK: Slack contract routed") {
+		t.Fatalf("soft coordination block must not render as primary blocked:\n%s", out)
+	}
+}
+
+func TestNOCSessionDetailHardStopThreadRowsStayBlocked(t *testing.T) {
+	m := newNOCModel(NOCRebuildConfig{})
+	m.colorMode = ColorNone
+	m.th = newNOCTheme(ColorNone)
+	m.width = 120
+	sess := state.Session{
+		Name: "pm-comms",
+		Agents: []state.Agent{
+			{Handle: "qa", Liveness: state.LivenessAlive, Attention: state.Attention{State: state.TriageBlocked}},
+		},
+		Attention: state.Attention{State: state.TriageBlocked},
+		Coordination: state.Coordination{Threads: []state.ThreadSummary{{
+			ID:           "p2p/cpo__qa",
+			Subject:      "NO-GO: migration unsafe",
+			LatestBody:   "Cannot proceed until the migration is repaired.",
+			Participants: []string{"cpo", "qa"},
+			Triage:       state.TriageBlocked,
+			Status:       state.ThreadBlocked,
+			LastEventAt:  nocTestNow.Add(-23 * time.Second),
+			Freshness:    state.Freshness{Age: 23 * time.Second},
+		}}},
+	}
+	out := m.sessionDetail(nocNode{
+		label:   "pm-comms",
+		project: noc.ProjectSnapshot{Project: "taboola-pm-os"},
+		session: sess,
+	})
+	if !strings.Contains(out, "blocked NO-GO: migration unsafe  blocked 23s") {
+		t.Fatalf("hard-stop thread should stay blocked primary:\n%s", out)
 	}
 }
 
@@ -486,6 +519,102 @@ func TestNOCSessionVisible_NewerClearActivityBeatsOldAtRisk(t *testing.T) {
 	ps := noc.ProjectSnapshot{Snap: state.Snapshot{Sessions: []state.Session{sess}}}
 	if got := visibleState(projectRollupState(ps)); got != nocRunning {
 		t.Fatalf("newer clear activity should make the project online, got %s", nocStateText(got))
+	}
+}
+
+func TestNOCSessionVisible_NewerWaitingActivityBeatsOldHardStop(t *testing.T) {
+	old := nocTestNow.Add(-20 * time.Minute)
+	fresh := nocTestNow.Add(-4 * time.Minute)
+	sess := state.Session{
+		Name: "pm-comms",
+		Agents: []state.Agent{
+			{Handle: "cto", Liveness: state.LivenessAlive, Attention: state.Attention{State: state.TriageBlocked}},
+		},
+		Attention: state.Attention{State: state.TriageBlocked},
+		Rollup:    state.TriageRollup{Blocked: 1, Gated: 1},
+		Coordination: state.Coordination{Threads: []state.ThreadSummary{
+			{
+				ID:           "decision/rebase",
+				Subject:      "NO-GO: rebase unsafe",
+				LatestBody:   "Cannot proceed until master contains the prior release.",
+				Participants: []string{"cto", "qa"},
+				Status:       state.ThreadBlocked,
+				Triage:       state.TriageBlocked,
+				LastEventAt:  old,
+				Freshness:    state.Freshness{Age: 20 * time.Minute},
+			},
+			{
+				ID:           "release/qa",
+				Subject:      "CTO awaiting 3.2.2 final QA verdict",
+				Participants: []string{"cto", "qa"},
+				Triage:       state.TriageGated,
+				LastEventAt:  fresh,
+				Freshness:    state.Freshness{Age: 4 * time.Minute},
+			},
+		}},
+	}
+	if got := visibleState(sessionRollupState(sess)); got != nocWaiting {
+		t.Fatalf("newer waiting activity should soften the session primary state, got %s", nocStateText(got))
+	}
+	if got := visibleState(agentNodeState(sess, sess.Agents[0])); got != nocWaiting {
+		t.Fatalf("newer waiting activity should soften the agent primary state, got %s", nocStateText(got))
+	}
+	ps := noc.ProjectSnapshot{Snap: state.Snapshot{Sessions: []state.Session{sess}}}
+	if got := visibleState(projectRollupState(ps)); got != nocWaiting {
+		t.Fatalf("newer waiting activity should soften the project primary state, got %s", nocStateText(got))
+	}
+
+	m := newNOCModel(NOCRebuildConfig{})
+	m.colorMode = ColorNone
+	m.th = newNOCTheme(ColorNone)
+	m.width = 140
+	out := m.sessionDetail(nocNode{label: "pm-comms", project: noc.ProjectSnapshot{Project: "taboola-pm-os"}, session: sess})
+	if !strings.Contains(out, "blocked NO-GO: rebase unsafe  blocked 20m") {
+		t.Fatalf("old hard-stop thread should remain visible as blocked detail:\n%s", out)
+	}
+	if !strings.Contains(out, "waiting CTO awaiting 3.2.2 final QA verdict  waiting 4m") {
+		t.Fatalf("newer waiting thread should render as waiting detail:\n%s", out)
+	}
+}
+
+func TestNOCSessionVisible_UnrelatedNewerWaitingDoesNotBeatHardStop(t *testing.T) {
+	old := nocTestNow.Add(-20 * time.Minute)
+	fresh := nocTestNow.Add(-4 * time.Minute)
+	sess := state.Session{
+		Name: "pm-comms",
+		Agents: []state.Agent{
+			{Handle: "cto", Liveness: state.LivenessAlive, Attention: state.Attention{State: state.TriageBlocked}},
+			{Handle: "fullstack", Liveness: state.LivenessAlive, Attention: state.Attention{State: state.TriageGated}},
+		},
+		Attention: state.Attention{State: state.TriageBlocked},
+		Rollup:    state.TriageRollup{Blocked: 1, Gated: 1},
+		Coordination: state.Coordination{Threads: []state.ThreadSummary{
+			{
+				ID:           "decision/rebase",
+				Subject:      "NO-GO: rebase unsafe",
+				LatestBody:   "Cannot proceed until master contains the prior release.",
+				Participants: []string{"cto", "qa"},
+				Status:       state.ThreadBlocked,
+				Triage:       state.TriageBlocked,
+				LastEventAt:  old,
+			},
+			{
+				ID:           "p2p/fullstack__cpo",
+				Subject:      "Awaiting PM review",
+				Participants: []string{"fullstack", "cpo"},
+				Triage:       state.TriageGated,
+				LastEventAt:  fresh,
+			},
+		}},
+	}
+	if got := visibleState(sessionRollupState(sess)); got != nocBlocked {
+		t.Fatalf("unrelated newer wait must not soften a hard-stop session, got %s", nocStateText(got))
+	}
+	if got := visibleState(agentNodeState(sess, sess.Agents[0])); got != nocBlocked {
+		t.Fatalf("unrelated newer wait must not soften the hard-stop agent, got %s", nocStateText(got))
+	}
+	if got := visibleState(agentNodeState(sess, sess.Agents[1])); got != nocWaiting {
+		t.Fatalf("gated unrelated agent should still render waiting, got %s", nocStateText(got))
 	}
 }
 
@@ -672,10 +801,10 @@ func TestNOCTree_ProjectParentTallyCountsChildTeams(t *testing.T) {
 	m.ms = ms
 	m.ready = true
 	out := m.treeView()
-	if !strings.Contains(out, "taboola-pm-os (1 blocked, 2 stale)") {
+	if !strings.Contains(out, "taboola-pm-os (1 waiting, 2 stale)") {
 		t.Fatalf("project row should count child teams/sessions by visible status:\n%s", out)
 	}
-	for _, noisy := range []string{"9 waiting", "16 blocked stale", "5 at-risk stale", "3 gated stale"} {
+	for _, noisy := range []string{"9 blocked", "16 blocked stale", "5 at-risk stale", "3 gated stale"} {
 		if strings.Contains(out, noisy) {
 			t.Fatalf("project row should not expose thread/evidence rollup %q:\n%s", noisy, out)
 		}
@@ -1025,8 +1154,8 @@ func TestNOCAgentNodeStateReflectsCurrentAttention(t *testing.T) {
 			{Handle: "qa", Liveness: state.LivenessAlive, Attention: state.Attention{State: state.TriageNeedsYou, Reason: state.AttnGeneric}},
 		},
 	}
-	if got := agentNodeState(sess, sess.Agents[0]); got != nocBlocked {
-		t.Fatalf("cto state = %s, want blocked", nocStateText(got))
+	if got := agentNodeState(sess, sess.Agents[0]); got != nocWaiting {
+		t.Fatalf("cto state = %s, want waiting for soft block attention", nocStateText(got))
 	}
 	if got := agentNodeState(sess, sess.Agents[1]); got != nocNeedsYou {
 		t.Fatalf("qa state = %s, want needs-you", nocStateText(got))

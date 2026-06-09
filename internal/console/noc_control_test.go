@@ -678,6 +678,9 @@ func TestControl_MessageConfirmGate(t *testing.T) {
 		if got[0].To != "qa" || got[0].Body != "hello qa" {
 			t.Errorf("confirmed message OpMessage mismatch: %+v", got[0])
 		}
+		if !strings.Contains(m.actNote, "direct AMQ message") || !strings.Contains(m.actNote, "use reply/approve/deny to clear needs-you") {
+			t.Fatalf("direct message success should not look like a needs-you answer, got %q", m.actNote)
+		}
 	})
 
 	t.Run("empty body: stays in editor and sends nothing", func(t *testing.T) {

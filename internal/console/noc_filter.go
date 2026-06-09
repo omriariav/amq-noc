@@ -94,6 +94,9 @@ func ProjectMatchesNOCFilter(ps noc.ProjectSnapshot, filter string) bool {
 func projectSatisfies(ps noc.ProjectSnapshot, c nocFilterClause) bool {
 	switch c.key {
 	case "triage":
+		if c.val == "blocked" {
+			return projectHasHardStop(ps)
+		}
 		return triageMatchesRollup(c.val, ps.Snap.Rollup)
 	case "state":
 		return nocVisibleStateMatches(c.val, projectRollupState(ps))
@@ -153,6 +156,9 @@ func sessionSatisfiesInProject(ps noc.ProjectSnapshot, sess state.Session, c noc
 func sessionSatisfies(sess state.Session, c nocFilterClause) bool {
 	switch c.key {
 	case "triage":
+		if c.val == "blocked" {
+			return sessionHasHardStop(sess)
+		}
 		return triageMatchesRollup(c.val, sess.Rollup)
 	case "state":
 		return nocVisibleStateMatches(c.val, sessionRollupState(sess))

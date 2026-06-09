@@ -13,6 +13,7 @@ package console
 import (
 	"io"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
@@ -289,6 +290,9 @@ func agentNodeState(sess state.Session, ag state.Agent) nocState {
 			return agentState(ag)
 		}
 		if att == state.TriageNeedsYou || agentOperational(ag) {
+			if att == state.TriageBlocked && !agentHasHardStop(sess, ag.Handle) {
+				return nocWaiting
+			}
 			return triageState(att)
 		}
 	}
@@ -358,10 +362,79 @@ func sessionRollupState(sess state.Session) nocState {
 			if att == state.TriageAtRisk && hasNewerClearActivity(sess) {
 				return nocRunning
 			}
+			if att == state.TriageBlocked && !sessionHasHardStop(sess) {
+				return nocWaiting
+			}
 			return triageState(att)
 		}
 	}
 	return rollupState(sess.Rollup, hasVisibleOnline, hasAny)
+}
+
+func sessionHasHardStop(sess state.Session) bool {
+	for _, th := range sess.Coordination.Threads {
+		if th.Historical || th.Stale || !state.ThreadHardStop(th) {
+			continue
+		}
+		if th.LastEventAt.IsZero() {
+			return true
+		}
+		if !hardStopSupersededByNewerWait(sess, th) {
+			return true
+		}
+	}
+	return false
+}
+
+func hardStopSupersededByNewerWait(sess state.Session, hard state.ThreadSummary) bool {
+	for _, th := range sess.Coordination.Threads {
+		if th.Historical || th.Stale || th.LastEventAt.IsZero() || !th.LastEventAt.After(hard.LastEventAt) {
+			continue
+		}
+		if state.ThreadPrimaryWait(th) && state.ThreadsShareParticipant(hard, th) {
+			return true
+		}
+	}
+	return false
+}
+
+func projectHasHardStop(ps noc.ProjectSnapshot) bool {
+	for _, sess := range ps.Snap.Sessions {
+		if sessionHasHardStop(sess) {
+			return true
+		}
+	}
+	return false
+}
+
+func agentHasHardStop(sess state.Session, handle string) bool {
+	handle = strings.TrimSpace(handle)
+	if handle == "" {
+		return sessionHasHardStop(sess)
+	}
+	var newestHard time.Time
+	var hardWithoutTime bool
+	var newestWait time.Time
+	for _, th := range sess.Coordination.Threads {
+		if th.Historical || th.Stale || !threadHasParticipant(th, handle) {
+			continue
+		}
+		if state.ThreadHardStop(th) {
+			if th.LastEventAt.IsZero() {
+				hardWithoutTime = true
+			} else if th.LastEventAt.After(newestHard) {
+				newestHard = th.LastEventAt
+			}
+			continue
+		}
+		if state.ThreadPrimaryWait(th) && th.LastEventAt.After(newestWait) {
+			newestWait = th.LastEventAt
+		}
+	}
+	if hardWithoutTime {
+		return true
+	}
+	return !newestHard.IsZero() && !newestWait.After(newestHard)
 }
 
 func hasNewerClearActivity(sess state.Session) bool {

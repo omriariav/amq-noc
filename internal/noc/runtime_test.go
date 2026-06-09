@@ -8,6 +8,11 @@ import (
 
 const sampleStatusJSON = `{"schema_version":1,"kind":"status","data":{
   "capabilities":{"operator_gates":true},
+  "actions":[
+    {"kind":"resume_current_window","label":"resume in current window","scope":"session","command":"amq-squad resume --session s --exec --target current-window","mutates":true,"needs_confirmation":true,"available":true},
+    {"kind":"resume_new_session","label":"resume in new tmux session","scope":"session","command":"amq-squad resume --session s --exec --target new-session","mutates":true,"needs_confirmation":true,"available":true},
+    {"kind":"stop","label":"stop the session","scope":"session","command":"amq-squad stop --session s --all","mutates":true,"needs_confirmation":true,"available":false,"reason":"already stopped"}
+  ],
   "records":[
     {"role":"cto","handle":"cto","tmux":{"session":"main","window_id":"@3","window_name":"squad","pane_id":"%1","pane_alive":true},
      "actions":[
@@ -41,6 +46,20 @@ func TestFetchRuntimeStatusParsesContract(t *testing.T) {
 	}
 	if !rs.HasActions() {
 		t.Fatal("HasActions should be true when records carry actions")
+	}
+	if len(rs.SessionActions) != 3 {
+		t.Fatalf("want 3 session actions, got %d", len(rs.SessionActions))
+	}
+	if rs.SessionActions[0].Kind != "resume_current_window" ||
+		rs.SessionActions[0].Label != "resume in current window" ||
+		rs.SessionActions[0].Scope != "session" ||
+		!rs.SessionActions[0].Mutates ||
+		!rs.SessionActions[0].NeedsConfirmation ||
+		!rs.SessionActions[0].Available {
+		t.Fatalf("session action parsed wrong: %+v", rs.SessionActions[0])
+	}
+	if rs.SessionActions[2].Available || rs.SessionActions[2].Reason != "already stopped" {
+		t.Fatalf("unavailable session action metadata parsed wrong: %+v", rs.SessionActions[2])
 	}
 	if len(rs.Members) != 2 {
 		t.Fatalf("want 2 members, got %d", len(rs.Members))

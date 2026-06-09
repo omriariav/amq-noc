@@ -47,14 +47,18 @@ The primary visible statuses are intentionally simple:
 
 - `online`: at least one agent in the team/session is live, with no current wait detected.
 - `needs-you`: an agent sent a structural question to the operator mailbox.
-- `blocked`: an agent declared a hard stop that needs another agent or workflow
-  condition to clear.
-- `waiting`: a live agent is waiting on another agent or non-human coordination.
+- `blocked`: an agent declared a current hard stop such as no-go, unsafe, or
+  cannot-proceed.
+- `waiting`: a live agent is waiting on QA, review, peer reply, merge, release
+  artifact, or another normal non-human coordination step.
 - `stale`: the team/session is dead or old enough to demote.
 
 Thread-level evidence such as gated and at-risk is still collected for
 detail panes and diagnostics, but the main tree leads with the operational state
 of projects, sessions, and agents.
+
+Older blocked evidence remains visible in thread detail/history, but a newer
+clear or waiting signal softens the primary row back to `online` or `waiting`.
 
 JSON snapshots use the same primary vocabulary as the TUI. In `v0.2.1`,
 `state` and `reason_code` values for live/no-wait rows changed from `running` to
@@ -79,27 +83,29 @@ operationally live agents, so fresh presence alone never promotes a wait.
   selected row
 - session detail ordering that leads with active `needs-you`, otherwise newest
   current activity
-- wrapped right-pane helper commands with `C copy-cmd` for exact clipboard copy
+- canonical `C copy-cmd` picker for exact command copy, with right-pane fallback
+  commands kept as deterministic preview hints
 - tmux recovery helpers for both current-window and new-session launch targets
 - row-sensitive delete behavior for team profiles, named sessions, and root AMQ
   mailbox rows
 - runtime-action helper commands for project, session, and agent rows
 - published `amq-squad v1.5` runtime-action consumption in CLI action JSON and
-  the `C copy-cmd` picker, with fallback generation for older contracts
+  the `C copy-cmd` picker, including the v1.5.2+ session action catalog, with
+  fallback generation for older contracts
 - JSON/TUI status alignment for fresh-presence `dead-mailbox-live` agents
 - clipboard paste support in filter and action input prompts
 
 ## Install
 
 ```sh
-go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.5.0
+go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.6.0
 ```
 
 Requirements:
 
 - Go 1.25+
 - `amq`
-- `amq-squad` v1.5.0 or newer for published runtime actions; older builds keep
+- `amq-squad` v1.5.2 or newer for the session action catalog; older builds keep
   deterministic fallback commands
 - `tmux`
 
@@ -194,8 +200,11 @@ amq-squad owns runtime orchestration (start / stop / resume / focus / open /
 prompt-delivery and the tmux mechanics behind them). amq-noc consumes published
 `amq-squad v1.5` action metadata when available, renders it as operator UI,
 lets you pick and copy the exact command (`C`), and falls back to deterministic
-NOC-generated commands when runtime support is absent or partial. The NOC never
-drives the runtime itself.
+NOC-generated commands when runtime support is absent or partial. With
+`amq-squad v1.5.2+`, session-row actions come from the published `data.actions[]`
+catalog. Published-but-unavailable actions such as agent `focus`, `send`, or
+session `attach_control` are omitted instead of replaced with raw tmux
+orchestration. The NOC never drives the runtime itself.
 
 For the consume/orchestrate boundary and fallback behavior, see
 [`docs/runtime-actions.md`](docs/runtime-actions.md).
@@ -238,7 +247,7 @@ amq-noc --filter project:amq-noc \
 Recommended companion version for published runtime actions:
 
 ```sh
-go install github.com/omriariav/amq-squad/cmd/amq-squad@v1.5.0
+go install github.com/omriariav/amq-squad/cmd/amq-squad@v1.5.4
 ```
 
 Older `amq-squad` builds keep deterministic fallback action commands.

@@ -3112,7 +3112,7 @@ func (m *NOCModel) runPending(p *pendingAction) bool {
 			m.actNote = "send prompt failed: " + err.Error()
 			return false
 		}
-		m.actNote = "SEND PROMPT sent: " + p.preview
+		m.actNote = "SEND PROMPT sent (pane-only; does not clear needs-you): " + p.preview
 		return true
 	case p.session != nil:
 		if m.newSession == nil {
@@ -3145,8 +3145,19 @@ func (m *NOCModel) runPending(p *pendingAction) bool {
 			m.actNote = strings.ToLower(p.kind.label()) + " failed: " + err.Error()
 			return false
 		}
-		m.actNote = p.kind.label() + " sent: " + p.preview
+		m.actNote = sentAMQActionNote(p.kind, p.preview)
 		return true
+	}
+}
+
+func sentAMQActionNote(kind controlKind, preview string) string {
+	switch kind {
+	case ctlApprove, ctlReply, ctlDeny:
+		return kind.label() + " sent (gate answer; refresh should clear needs-you): " + preview
+	case ctlMessage:
+		return kind.label() + " sent (direct AMQ message; use reply/approve/deny to clear needs-you): " + preview
+	default:
+		return kind.label() + " sent: " + preview
 	}
 }
 

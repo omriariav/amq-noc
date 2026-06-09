@@ -15,13 +15,18 @@ import (
 )
 
 // RuntimeAction is one runnable control command amq-squad advertises for a
-// member (kind: focus/send/resume/status). Command is copy-ready (already
-// scoped with --project/--session/--role). Available is amq-squad's own gate:
-// focus/send are only available while the member's pane is alive.
+// session or member. Command is copy-ready (already scoped with
+// --project/--session/--role). Available is amq-squad's own gate: focus/send
+// are only available while the member's pane is alive.
 type RuntimeAction struct {
-	Kind      string
-	Command   string
-	Available bool
+	Kind              string
+	Label             string
+	Scope             string
+	Command           string
+	Mutates           bool
+	NeedsConfirmation bool
+	Available         bool
+	Reason            string
 }
 
 // RuntimeMember is one member's runtime view as reported by amq-squad.
@@ -69,14 +74,18 @@ func (m RuntimeMember) JumpTarget(workstream, role string) (TmuxTarget, bool) {
 // reports whether amq-squad declared capabilities.runtime_actions (true on
 // builds that set it; absent on v1.5.0, where Members still carry actions).
 type RuntimeStatus struct {
-	Advertised bool
-	Members    []RuntimeMember
+	Advertised     bool
+	SessionActions []RuntimeAction
+	Members        []RuntimeMember
 }
 
 // HasActions reports whether any member carries runtime actions — the robust
 // gate for showing runtime commands, since v1.5.0 ships actions[] without yet
 // advertising the capability flag (that lands in v1.5.1).
 func (rs RuntimeStatus) HasActions() bool {
+	if len(rs.SessionActions) > 0 {
+		return true
+	}
 	for _, m := range rs.Members {
 		if len(m.Actions) > 0 {
 			return true
@@ -123,6 +132,7 @@ type squadStatusEnvelope struct {
 		Capabilities struct {
 			RuntimeActions bool `json:"runtime_actions"`
 		} `json:"capabilities"`
+		Actions []runtimeActionEnvelope `json:"actions"`
 		Records []struct {
 			Role   string `json:"role"`
 			Handle string `json:"handle"`
@@ -133,13 +143,20 @@ type squadStatusEnvelope struct {
 				PaneID     string `json:"pane_id"`
 				PaneAlive  bool   `json:"pane_alive"`
 			} `json:"tmux"`
-			Actions []struct {
-				Kind      string `json:"kind"`
-				Command   string `json:"command"`
-				Available bool   `json:"available"`
-			} `json:"actions"`
+			Actions []runtimeActionEnvelope `json:"actions"`
 		} `json:"records"`
 	} `json:"data"`
+}
+
+type runtimeActionEnvelope struct {
+	Kind              string `json:"kind"`
+	Label             string `json:"label"`
+	Scope             string `json:"scope"`
+	Command           string `json:"command"`
+	Mutates           bool   `json:"mutates"`
+	NeedsConfirmation bool   `json:"needs_confirmation"`
+	Available         bool   `json:"available"`
+	Reason            string `json:"reason"`
 }
 
 // FetchRuntimeStatus runs `amq-squad status --project DIR [--profile P] --session
@@ -172,6 +189,11 @@ func parseRuntimeStatus(out []byte) RuntimeStatus {
 		return RuntimeStatus{}
 	}
 	rs := RuntimeStatus{Advertised: env.Data.Capabilities.RuntimeActions}
+	for _, a := range env.Data.Actions {
+		if action, ok := parseRuntimeAction(a); ok {
+			rs.SessionActions = append(rs.SessionActions, action)
+		}
+	}
 	for _, r := range env.Data.Records {
 		m := RuntimeMember{Role: r.Role, Handle: r.Handle}
 		if r.Tmux != nil {
@@ -182,10 +204,9 @@ func parseRuntimeStatus(out []byte) RuntimeStatus {
 			m.PaneAlive = r.Tmux.PaneAlive
 		}
 		for _, a := range r.Actions {
-			if strings.TrimSpace(a.Command) == "" {
-				continue
+			if action, ok := parseRuntimeAction(a); ok {
+				m.Actions = append(m.Actions, action)
 			}
-			m.Actions = append(m.Actions, RuntimeAction{Kind: a.Kind, Command: a.Command, Available: a.Available})
 		}
 		rs.Members = append(rs.Members, m)
 	}
@@ -196,4 +217,20 @@ func parseRuntimeStatus(out []byte) RuntimeStatus {
 		return RuntimeStatus{}
 	}
 	return rs
+}
+
+func parseRuntimeAction(a runtimeActionEnvelope) (RuntimeAction, bool) {
+	if strings.TrimSpace(a.Command) == "" {
+		return RuntimeAction{}, false
+	}
+	return RuntimeAction{
+		Kind:              strings.TrimSpace(a.Kind),
+		Label:             strings.TrimSpace(a.Label),
+		Scope:             strings.TrimSpace(a.Scope),
+		Command:           a.Command,
+		Mutates:           a.Mutates,
+		NeedsConfirmation: a.NeedsConfirmation,
+		Available:         a.Available,
+		Reason:            strings.TrimSpace(a.Reason),
+	}, true
 }

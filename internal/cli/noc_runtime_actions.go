@@ -7,7 +7,8 @@ package cli
 // picker already consumes the same noc.RuntimeStatus contract.
 //
 // Preference rule: when a squad-managed session reports AVAILABLE published
-// actions, the published status/resume commands replace the fallback session
+// actions, the top-level v1.5.2 session action catalog replaces generated
+// runtime/lifecycle commands, older per-member status/resume replace fallback
 // commands, and published agent focus/send are added (the CLI has no fallback
 // for those). Older/missing/partial runtime metadata leaves the fallback model
 // untouched, so the catalog degrades gracefully.
@@ -88,19 +89,31 @@ func sessionEnvelopeRuntimeProfile(sess nocSessionJSONData) string {
 }
 
 // foldRuntimeActionsIntoSession overlays a session's published runtime actions.
-// Session-scope status/resume (identical across members) replace the fallback
-// commands; agent-scope focus/send are attached to the matching member. Only
-// AVAILABLE actions are folded, mirroring the TUI picker, so dead-pane focus/send
-// never surface as runnable commands.
+// v1.5.2 top-level session actions are preferred over member-level session
+// actions because they carry the richer session-row catalog (resume_preview,
+// resume_current_window, resume_new_session, stop). Older member-level
+// status/resume still replace fallbacks. Agent-scope focus/send are attached to
+// the matching member. Only AVAILABLE actions are folded, mirroring the TUI
+// picker, so dead-pane focus/send never surface as runnable commands.
 func foldRuntimeActionsIntoSession(sess *nocSessionJSONData, rs noc.RuntimeStatus) {
-	seenSessionKind := map[string]bool{}
-	for _, mem := range rs.Members {
-		for _, a := range mem.Actions {
-			if !a.Available || (a.Kind != "status" && a.Kind != "resume") || seenSessionKind[a.Kind] {
+	if hasPublishedSessionCatalog(rs) {
+		sess.Actions = removeSupersededFallbackSessionActions(sess.Actions, rs.SessionActions)
+		for _, a := range rs.SessionActions {
+			if !runtimeActionAvailable(a) || !runtimeSessionAction(a) {
 				continue
 			}
-			seenSessionKind[a.Kind] = true
-			sess.Actions = replaceOrAppendNOCAction(sess.Actions, publishedSessionAction(sess.ID, a))
+			sess.Actions = replaceOrAppendNOCAction(sess.Actions, publishedCatalogSessionAction(sess.ID, a))
+		}
+	} else {
+		seenSessionKind := map[string]bool{}
+		for _, mem := range rs.Members {
+			for _, a := range mem.Actions {
+				if !runtimeActionAvailable(a) || (a.Kind != "status" && a.Kind != "resume") || seenSessionKind[a.Kind] {
+					continue
+				}
+				seenSessionKind[a.Kind] = true
+				sess.Actions = replaceOrAppendNOCAction(sess.Actions, publishedLegacySessionAction(sess.ID, a))
+			}
 		}
 	}
 	for ai := range sess.Agents {
@@ -117,7 +130,7 @@ func foldRuntimeActionsIntoSession(sess *nocSessionJSONData, rs noc.RuntimeStatu
 			role = strings.TrimSpace(ag.Handle)
 		}
 		for _, a := range mem.Actions {
-			if !a.Available || (a.Kind != "focus" && a.Kind != "send") {
+			if !runtimeActionAvailable(a) || (a.Kind != "focus" && a.Kind != "send") {
 				continue
 			}
 			ag.Actions = replaceOrAppendNOCAction(ag.Actions, publishedAgentAction(ag.ID, role, a))
@@ -125,10 +138,66 @@ func foldRuntimeActionsIntoSession(sess *nocSessionJSONData, rs noc.RuntimeStatu
 	}
 }
 
-// publishedSessionAction classifies a session-scope published action. status is
-// read-only; resume mutates and is confirm-gated. The published command is exact
-// and concrete, so it carries no template vars.
-func publishedSessionAction(sessionID string, a noc.RuntimeAction) nocActionJSONData {
+func hasPublishedSessionCatalog(rs noc.RuntimeStatus) bool {
+	for _, a := range rs.SessionActions {
+		if runtimeActionPresent(a) && runtimeSessionAction(a) {
+			return true
+		}
+	}
+	return false
+}
+
+func runtimeSessionAction(a noc.RuntimeAction) bool {
+	scope := strings.TrimSpace(a.Scope)
+	return scope == "" || scope == "session"
+}
+
+func runtimeActionAvailable(a noc.RuntimeAction) bool {
+	return a.Available && runtimeActionPresent(a)
+}
+
+func runtimeActionPresent(a noc.RuntimeAction) bool {
+	return strings.TrimSpace(a.Command) != "" && strings.TrimSpace(a.Kind) != ""
+}
+
+func removeSupersededFallbackSessionActions(actions []nocActionJSONData, published []noc.RuntimeAction) []nocActionJSONData {
+	remove := map[string]bool{}
+	hasResumeVariants := false
+	for _, a := range published {
+		if !runtimeActionPresent(a) || !runtimeSessionAction(a) {
+			continue
+		}
+		switch a.Kind {
+		case "status", "stop":
+			remove[a.Kind] = true
+		case "resume_preview", "resume_current_window", "resume_new_session":
+			hasResumeVariants = true
+		}
+	}
+	if hasResumeVariants {
+		remove["resume"] = true
+		remove["restart"] = true
+	}
+	if remove["stop"] {
+		remove["restart"] = true
+	}
+	if len(remove) == 0 {
+		return actions
+	}
+	out := actions[:0]
+	for _, action := range actions {
+		if action.Scope == "session" && remove[action.Name] {
+			continue
+		}
+		out = append(out, action)
+	}
+	return out
+}
+
+// publishedLegacySessionAction classifies the v1.5.0/v1.5.1 member-level
+// session actions. status is read-only; resume mutates and is confirm-gated. The
+// published command is exact and concrete, so it carries no template vars.
+func publishedLegacySessionAction(sessionID string, a noc.RuntimeAction) nocActionJSONData {
 	if a.Kind == "resume" {
 		return nocAction("session", sessionID, "resume", a.Command,
 			"Resume this session in tmux via amq-squad's published runtime action.",
@@ -137,6 +206,21 @@ func publishedSessionAction(sessionID string, a noc.RuntimeAction) nocActionJSON
 	return nocAction("session", sessionID, "status", a.Command,
 		"Show this session's amq-squad status via the published runtime action.",
 		false, false, false)
+}
+
+// publishedCatalogSessionAction classifies v1.5.2 top-level session actions.
+// amq-squad owns mutability/availability; NOC preserves that metadata and uses
+// the published kind as the explicit action name.
+func publishedCatalogSessionAction(sessionID string, a noc.RuntimeAction) nocActionJSONData {
+	name := strings.TrimSpace(a.Kind)
+	label := strings.TrimSpace(a.Label)
+	description := "Run amq-squad published session action " + name + "."
+	if label != "" {
+		description = label + " via amq-squad's published runtime action."
+	}
+	return nocAction("session", sessionID, name, a.Command,
+		description,
+		a.Mutates, a.NeedsConfirmation || a.Mutates, false)
 }
 
 // publishedAgentAction classifies an agent-scope published action. focus is a

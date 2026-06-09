@@ -1,6 +1,7 @@
 package console
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/omriariav/amq-noc/internal/noc"
@@ -24,6 +25,18 @@ func sampleRuntimeStatus() noc.RuntimeStatus {
 	}
 }
 
+func sampleRuntimeStatusWithSessionCatalog() noc.RuntimeStatus {
+	rs := sampleRuntimeStatus()
+	rs.SessionActions = []noc.RuntimeAction{
+		{Kind: "status", Label: "show session status", Scope: "session", Command: "amq-squad status --session s --json", Available: true},
+		{Kind: "resume_preview", Label: "preview resume plan", Scope: "session", Command: "amq-squad resume --session s --json", Available: true},
+		{Kind: "resume_current_window", Label: "resume in current window", Scope: "session", Command: "amq-squad resume --session s --exec --target current-window", Mutates: true, NeedsConfirmation: true, Available: true},
+		{Kind: "resume_new_session", Label: "resume in new tmux session", Scope: "session", Command: "amq-squad resume --session s --exec --target new-session", Mutates: true, NeedsConfirmation: true, Available: true},
+		{Kind: "stop", Label: "stop the session", Scope: "session", Command: "amq-squad stop --session s --all", Mutates: true, NeedsConfirmation: true, Available: false},
+	}
+	return rs
+}
+
 func TestRuntimeCommandActionsSessionNode(t *testing.T) {
 	rs := sampleRuntimeStatus()
 	n := nocNode{kind: nodeSession, session: state.Session{Name: "issue-96"}}
@@ -39,6 +52,40 @@ func TestRuntimeCommandActionsSessionNode(t *testing.T) {
 		if a.Command == "amq-squad focus --role qa" {
 			t.Error("qa's unavailable focus must be omitted")
 		}
+	}
+}
+
+func TestRuntimeCommandActionsSessionNodePrefersTopLevelCatalog(t *testing.T) {
+	rs := sampleRuntimeStatusWithSessionCatalog()
+	n := nocNode{kind: nodeSession, session: state.Session{Name: "issue-96"}}
+	got := runtimeCommandActions(rs, n)
+	// Top-level session catalog has 4 available actions; unavailable stop is
+	// omitted, and member focus/send/resume/status do not bleed into session rows
+	// while the explicit session catalog exists.
+	if len(got) != 4 {
+		t.Fatalf("want 4 top-level session actions, got %d: %+v", len(got), got)
+	}
+	if got[0].Label != "show session status" || got[0].Command != "amq-squad status --session s --json" {
+		t.Fatalf("first published session action wrong: %+v", got[0])
+	}
+	for _, a := range got {
+		if strings.Contains(a.Label, "cto") || strings.Contains(a.Label, "qa") {
+			t.Fatalf("member action leaked into top-level session catalog: %+v", a)
+		}
+		if a.Command == "amq-squad stop --session s --all" {
+			t.Fatal("unavailable session stop must be omitted")
+		}
+	}
+}
+
+func TestRuntimeCommandActionsUnavailableSessionCatalogSuppressesMemberFallback(t *testing.T) {
+	rs := sampleRuntimeStatus()
+	rs.SessionActions = []noc.RuntimeAction{
+		{Kind: "stop", Label: "stop the session", Scope: "session", Command: "amq-squad stop --session s --all", Mutates: true, NeedsConfirmation: true, Available: false},
+	}
+	n := nocNode{kind: nodeSession, session: state.Session{Name: "issue-96"}}
+	if got := runtimeCommandActions(rs, n); len(got) != 0 {
+		t.Fatalf("published-but-unavailable session catalog should suppress member fallback, got %+v", got)
 	}
 }
 

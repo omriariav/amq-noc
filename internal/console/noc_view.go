@@ -2036,6 +2036,9 @@ func compactThreadDisplayState(th state.ThreadSummary) nocState {
 	if th.Historical {
 		return triageState(th.Triage)
 	}
+	if th.Triage == state.TriageBlocked && !state.ThreadHardStop(th) {
+		return nocWaiting
+	}
 	return visibleState(triageState(th.Triage))
 }
 
@@ -2081,7 +2084,7 @@ func compactThreadDetail(th state.ThreadSummary) string {
 		return reason
 	}
 	if th.Triage != state.TriageClear && !th.Historical {
-		reason := nocStateText(triageState(th.Triage))
+		reason := nocStateText(compactThreadDisplayState(th))
 		if age != "" {
 			return reason + " " + age
 		}

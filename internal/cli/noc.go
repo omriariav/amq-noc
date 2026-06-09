@@ -3018,7 +3018,7 @@ func nocProjectJSONState(ps noc.ProjectSnapshot, live, total int) string {
 	// Lead with the most-urgent operational-OWNED attention across the project's
 	// sessions (mirrors console projectRollupState). Unowned raw-rollup evidence
 	// does not drive the primary state - it stays in the rollup detail.
-	if s := nocAttnJSONState(nocProjectOwnedAttn(ps)); s != "" {
+	if s := nocAttnJSONState(nocProjectOwnedAttn(ps), nocProjectHasHardStop(ps)); s != "" {
 		return s
 	}
 	switch s := nocRollupJSONState(ps.Snap.Rollup, live, total); s {
@@ -3043,7 +3043,7 @@ func nocProjectJSONReasonCode(ps noc.ProjectSnapshot, live, total int) string {
 	if ps.Warning != "" {
 		return "warning"
 	}
-	if rc := nocAttnReasonCode(nocProjectOwnedAttn(ps)); rc != "" {
+	if rc := nocAttnReasonCode(nocProjectOwnedAttn(ps), nocProjectHasHardStop(ps)); rc != "" {
 		return rc
 	}
 	return nocRollupReasonCode(ps.Snap.Rollup, live, total, projectFallbackReason(ps))
@@ -3070,14 +3070,14 @@ func nocSessionJSONState(sess state.Session, liveVisible, total int) string {
 	// to the rollup path and stays online, with the evidence retained in the rollup +
 	// unowned_evidence detail. liveVisible counts visible-online agents (alive or
 	// dead-mailbox-live), so the online determination matches the TUI.
-	if s := nocAttnJSONState(nocSessionGatedAttention(sess)); s != "" {
+	if s := nocAttnJSONState(nocSessionGatedAttention(sess), nocSessionHasHardStop(sess)); s != "" {
 		return s
 	}
 	return nocRollupJSONState(sess.Rollup, liveVisible, total)
 }
 
 func nocSessionJSONReasonCode(sess state.Session, liveVisible, total int) string {
-	if rc := nocAttnReasonCode(nocSessionGatedAttention(sess)); rc != "" {
+	if rc := nocAttnReasonCode(nocSessionGatedAttention(sess), nocSessionHasHardStop(sess)); rc != "" {
 		return rc
 	}
 	return nocRollupReasonCode(sess.Rollup, liveVisible, total, "empty")
@@ -3128,32 +3128,34 @@ func nocAgentPrimaryAttention(sess state.Session, ag state.Agent) state.Attentio
 // nocAttnJSONState maps an operational-OWNED attention tier to the JSON primary
 // state vocabulary, returning "" for clear/empty so the caller falls through to the
 // rollup-based state.
-func nocAttnJSONState(t state.Triage) string {
+func nocAttnJSONState(t state.Triage, hardStop bool) string {
 	switch t {
 	case state.TriageNeedsYou:
 		return "needs-you"
 	case state.TriageBlocked:
+		if !hardStop {
+			return "waiting"
+		}
 		return "blocked"
-	case state.TriageGated:
-		return "gated"
-	case state.TriageAtRisk:
-		return "at-risk"
+	case state.TriageGated, state.TriageAtRisk:
+		return "waiting"
 	default:
 		return ""
 	}
 }
 
 // nocAttnReasonCode is nocAttnJSONState's reason-code companion.
-func nocAttnReasonCode(t state.Triage) string {
+func nocAttnReasonCode(t state.Triage, hardStop bool) string {
 	switch t {
 	case state.TriageNeedsYou:
 		return "needs_user"
 	case state.TriageBlocked:
+		if !hardStop {
+			return "waiting"
+		}
 		return "blocked"
-	case state.TriageGated:
-		return "gated"
-	case state.TriageAtRisk:
-		return "at_risk"
+	case state.TriageGated, state.TriageAtRisk:
+		return "waiting"
 	default:
 		return ""
 	}
@@ -3218,6 +3220,42 @@ func nocProjectOwnedAttn(ps noc.ProjectSnapshot) state.Triage {
 		}
 	}
 	return best
+}
+
+func nocProjectHasHardStop(ps noc.ProjectSnapshot) bool {
+	for _, sess := range ps.Snap.Sessions {
+		if nocSessionHasHardStop(sess) {
+			return true
+		}
+	}
+	return false
+}
+
+func nocSessionHasHardStop(sess state.Session) bool {
+	for _, th := range sess.Coordination.Threads {
+		if th.Historical || th.Stale || !state.ThreadHardStop(th) {
+			continue
+		}
+		if th.LastEventAt.IsZero() {
+			return true
+		}
+		if !nocHardStopSupersededByNewerWait(sess, th) {
+			return true
+		}
+	}
+	return false
+}
+
+func nocHardStopSupersededByNewerWait(sess state.Session, hard state.ThreadSummary) bool {
+	for _, th := range sess.Coordination.Threads {
+		if th.Historical || th.Stale || th.LastEventAt.IsZero() || !th.LastEventAt.After(hard.LastEventAt) {
+			continue
+		}
+		if state.ThreadPrimaryWait(th) && state.ThreadsShareParticipant(hard, th) {
+			return true
+		}
+	}
+	return false
 }
 
 func nocSessionHasNewerClearActivity(sess state.Session) bool {

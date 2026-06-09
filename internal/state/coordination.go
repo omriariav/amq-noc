@@ -396,6 +396,26 @@ func (r TriageRollup) String() string {
 // "NO-GO" / "blocked" / "blocker" prose to declare blocks.
 var blockMarkers = []string{"no-go", "blocked on", "blocker:", "i am blocked", "we are blocked", "blocking:"}
 
+// hardStopMarkers are the subset of block prose that should stay "blocked" on
+// primary NOC surfaces. Softer dependency language such as "blocked on qa" is
+// still retained as blocked thread evidence, but the primary tree/header can
+// render it as waiting unless a hard-stop marker is present.
+var hardStopMarkers = []string{
+	"no-go",
+	"blocker:",
+	"cannot proceed",
+	"can't proceed",
+	"unable to proceed",
+	"i am blocked",
+	"we are blocked",
+	"blocking:",
+	"hard stop",
+	"unsafe",
+	"broken environment",
+	"preflight failure",
+	"unrecoverable",
+}
+
 // declaresBlock reports whether a message declares a block, via an explicit
 // marker in the body. (There is no dedicated block kind on disk; blocks are
 // declared in review_response/status prose, which is why this is defensive.)
@@ -499,6 +519,20 @@ var gateMarkers = []string{
 	"governance-gated",
 	"approval-gated",
 	"policy-gated",
+	"awaiting qa",
+	"awaiting final qa",
+	"qa verdict",
+	"awaiting review",
+	"pending review",
+	"review in flight",
+	"revalidation in flight",
+	"awaiting peer",
+	"awaiting peer response",
+	"pending peer",
+	"merge pending",
+	"pending merge",
+	"release artifact pending",
+	"pending release artifact",
 }
 
 func declaresGate(m Message) bool {
@@ -524,6 +558,62 @@ func clearsBlock(m Message) bool {
 			affirmativeWord(text, "resolved") || affirmativeWord(text, "approved") ||
 			affirmativeWord(text, "green")) && !declaresBlock(m) {
 			return true
+		}
+	}
+	// A later coordination-wait signal supersedes an older declared block without
+	// claiming the work is complete. This keeps primary NOC surfaces calm for
+	// normal dependency waits like "awaiting QA verdict" while preserving hard
+	// block evidence in the thread history.
+	if declaresGate(m) && !declaresBlock(m) {
+		return true
+	}
+	return false
+}
+
+// ThreadHardStop reports whether a blocked thread should remain a red primary
+// "blocked" state rather than a softer "waiting" dependency. It is intentionally
+// conservative and derives from the latest visible subject/body so renderers can
+// distinguish hard stops from ordinary coordination waits without re-reading AMQ.
+func ThreadHardStop(th ThreadSummary) bool {
+	if th.Triage != TriageBlocked && th.Status != ThreadBlocked {
+		return false
+	}
+	text := strings.ToLower(th.Subject + "\n" + th.LatestBody)
+	for _, mk := range hardStopMarkers {
+		if strings.Contains(text, mk) {
+			return true
+		}
+	}
+	return false
+}
+
+// ThreadPrimaryWait reports whether a current thread is evidence of ordinary
+// coordination progress/waiting that can supersede older block evidence on
+// primary NOC surfaces. The older blocked thread remains in history/detail.
+func ThreadPrimaryWait(th ThreadSummary) bool {
+	switch th.Triage {
+	case TriageClear, TriageGated, TriageAtRisk:
+		return true
+	case TriageBlocked:
+		return !ThreadHardStop(th)
+	default:
+		return false
+	}
+}
+
+// ThreadsShareParticipant reports whether two collapsed threads have at least
+// one participant in common. It lets renderers decide whether a newer wait/clear
+// signal is relevant to an older hard-stop thread in the same session.
+func ThreadsShareParticipant(a, b ThreadSummary) bool {
+	for _, ap := range a.Participants {
+		ap = strings.TrimSpace(ap)
+		if ap == "" {
+			continue
+		}
+		for _, bp := range b.Participants {
+			if strings.EqualFold(ap, strings.TrimSpace(bp)) {
+				return true
+			}
 		}
 	}
 	return false

@@ -140,24 +140,57 @@ func runtimeFetchScope(n nocNode) (dir, profile, session string) {
 }
 
 // runtimeCommandActions maps amq-squad's advertised, AVAILABLE runtime actions
-// for the row into copyable command entries (focus/send/resume/status). For an
-// agent row only that member's actions; for a session row every member's.
-// Unavailable actions (e.g. focus/send on a dead pane) are omitted.
+// for the row into copyable command entries. For session rows, v1.5.2 top-level
+// data.actions[] lead because they are the explicit session action catalog. For
+// older contracts, session rows fall back to every member's runtime actions. For
+// agent rows only that member's actions are shown. Unavailable actions (e.g.
+// focus/send on a dead pane) are omitted.
 func runtimeCommandActions(rs noc.RuntimeStatus, n nocNode) []nocCommandAction {
 	if !rs.HasActions() {
 		return nil
 	}
-	var members []noc.RuntimeMember
 	switch n.kind {
 	case nodeAgent:
+		var members []noc.RuntimeMember
 		if mem, ok := rs.MemberByRole(n.agent.Role); ok {
 			members = []noc.RuntimeMember{mem}
 		}
+		return runtimeMemberCommandActions(members)
 	case nodeSession:
-		members = rs.Members
+		if runtimeSessionCatalogPresent(rs.SessionActions) {
+			return runtimeSessionCommandActions(rs.SessionActions)
+		}
+		return runtimeMemberCommandActions(rs.Members)
 	default:
 		return nil
 	}
+}
+
+func runtimeSessionCatalogPresent(actions []noc.RuntimeAction) bool {
+	for _, a := range actions {
+		if runtimeActionPresent(a) && runtimeSessionScope(a) {
+			return true
+		}
+	}
+	return false
+}
+
+func runtimeSessionCommandActions(actions []noc.RuntimeAction) []nocCommandAction {
+	var out []nocCommandAction
+	for _, a := range actions {
+		if !runtimeActionAvailable(a) || !runtimeSessionScope(a) {
+			continue
+		}
+		label := strings.TrimSpace(a.Label)
+		if label == "" {
+			label = strings.ReplaceAll(strings.TrimSpace(a.Kind), "_", " ")
+		}
+		out = append(out, commandAction(label, a.Command, runtimeSessionActionDesc(a)))
+	}
+	return out
+}
+
+func runtimeMemberCommandActions(members []noc.RuntimeMember) []nocCommandAction {
 	var out []nocCommandAction
 	for _, mem := range members {
 		role := strings.TrimSpace(mem.Role)
@@ -172,6 +205,27 @@ func runtimeCommandActions(rs noc.RuntimeStatus, n nocNode) []nocCommandAction {
 		}
 	}
 	return out
+}
+
+func runtimeActionAvailable(a noc.RuntimeAction) bool {
+	return a.Available && runtimeActionPresent(a)
+}
+
+func runtimeActionPresent(a noc.RuntimeAction) bool {
+	return strings.TrimSpace(a.Command) != "" && strings.TrimSpace(a.Kind) != ""
+}
+
+func runtimeSessionScope(a noc.RuntimeAction) bool {
+	scope := strings.TrimSpace(a.Scope)
+	return scope == "" || scope == "session"
+}
+
+func runtimeSessionActionDesc(a noc.RuntimeAction) string {
+	label := strings.TrimSpace(a.Label)
+	if label == "" {
+		label = strings.ReplaceAll(strings.TrimSpace(a.Kind), "_", " ")
+	}
+	return label + " (amq-squad)"
 }
 
 func runtimeActionDesc(kind, role string) string {

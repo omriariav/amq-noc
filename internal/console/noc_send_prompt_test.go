@@ -178,6 +178,9 @@ func TestSendPrompt_ConfirmGate(t *testing.T) {
 		if !strings.Contains(m.actNote, "SEND PROMPT sent") {
 			t.Fatalf("successful send-prompt should note success, got %q", m.actNote)
 		}
+		if !strings.Contains(m.actNote, "pane-only") || !strings.Contains(m.actNote, "does not clear needs-you") {
+			t.Fatalf("successful send-prompt should not look like a gate-clearing AMQ reply, got %q", m.actNote)
+		}
 		if cmd == nil {
 			t.Fatal("a successful confirmed send-prompt should request an immediate refresh")
 		}

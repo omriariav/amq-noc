@@ -1,30 +1,70 @@
 # amq-noc Release Plan
 
-## Active Release Handoff: amq-squad 1.5 runtime actions
+## Active Release Handoff: amq-noc 0.6.0 integrated NOC polish
 
 Updated: 2026-06-09.
 
 Current release state:
 
-- `amq-noc v0.4.1` is shipped and installed on PATH.
-- `amq-squad v1.5.0` is available and installed locally.
-- [#7](https://github.com/omriariav/amq-noc/issues/7): implemented in the
-  current PR. CLI `--actions`, `--json`, and `--run-action` now fold available
-  published `amq-squad status --session --json` runtime actions into the NOC
-  action model:
-  - session `status` and `resume` prefer published commands while preserving
-    stable action IDs;
-  - agent `focus` and `send` are added when `available:true`;
-  - `send --body-file -` remains display/copy only and errors under real
-    `--run-action`, while `--dry-run` remains inspectable;
-  - older, missing, or partial runtime contracts keep deterministic fallback
-    actions.
-- [#5](https://github.com/omriariav/amq-noc/issues/5): remains open as the
-  deferred TUI controls/diagnostics cleanup tracker. CTO decision: do not block
-  #7 on the inline right-pane helper list. The `C copy-cmd` picker and CLI
-  action JSON consume published runtime metadata in this slice; the inline
-  `kickRecoverLines` helper list remains fallback-only and should be folded, if
-  still desired, under #5.
+- `amq-noc v0.5.0` is shipped and is the latest GitHub release; this tree is the
+  `v0.6.0` release candidate.
+- `amq-squad v1.5.4` is shipped and contains the fork-free liveness fix needed
+  by the NOC board/status consistency checks.
+- The release candidate consumes the `amq-squad v1.5.2+` top-level session
+  `data.actions[]` catalog in CLI `--actions`, JSON snapshots, and the TUI
+  `C copy-cmd` picker.
+
+0.6.0 scope is now the integrated "make the NOC feel right" release. It should
+close every currently open amq-noc issue:
+
+- [#15](https://github.com/omriariav/amq-noc/issues/15): consume
+  `amq-squad v1.5.2+` session-scope `data.actions[]`.
+  - Prefer published session actions over generated session controls.
+  - Surface explicit `status`, `resume_preview`, `resume_current_window`,
+    `resume_new_session`, and `stop` actions.
+  - Suppress generated `restart` when published resume/stop variants make it
+    redundant or unsafe.
+  - Preserve fallback behavior for older `amq-squad v1.5.0/v1.5.1`
+    `records[].actions[]` contracts and for partial/missing runtime metadata.
+- [#16](https://github.com/omriariav/amq-noc/issues/16): reserve `blocked` for
+  hard stops and render normal coordination dependencies as `waiting`.
+  - Primary tree/header/JSON states should use `waiting` for awaiting QA,
+    review, peer reply, revalidation, merge, or release artifact states.
+  - `blocked` should remain for explicit hard stops such as `NO-GO`,
+    `blocker:`, `cannot proceed`, broken environment, unsafe conflict, or
+    unrecoverable preflight failure.
+  - Older blocked evidence must remain visible in detail/history without
+    dominating a newer clear/waiting signal.
+- [#14](https://github.com/omriariav/amq-noc/issues/14): clear `needs-you`
+  after the operator approves, denies, or replies on the same gate thread, and
+  make direct message / pane prompt results explicit when they do not clear a
+  gate.
+  - The board must stop showing `needs-you` once the same gate thread has a
+    later operator answer/action.
+  - Confirm the TUI refresh, JSON snapshot, and action result overlays all agree
+    without requiring a manual agent-side Enter or separate inbox interaction.
+- [#5](https://github.com/omriariav/amq-noc/issues/5): close the deferred TUI
+  controls and diagnostics cleanup from the 0.2.x line.
+  - Remove or fully wire dormant controls; advertised keys, footer help, and
+    handled actions must stay in sync.
+  - Fold any remaining fallback-only right-pane helper lists into the canonical
+    runtime action model, or delete them if the `C copy-cmd` picker supersedes
+    them.
+  - Keep diagnostics/action availability explicit when amq-squad does not
+    publish `focus`, `send`, or `attach_control`.
+
+Out of scope for 0.6.0:
+
+- Fixing missing `focus` / `attach_control` publication in amq-squad is tracked
+  upstream in
+  [amq-squad #95](https://github.com/omriariav/amq-squad/issues/95). NOC should
+  consume those actions when published, but amq-squad owns their availability.
+- Broad visual redesign beyond the 0.6.0 status semantics and dormant-control
+  cleanup is tracked in
+  [#17](https://github.com/omriariav/amq-noc/issues/17).
+- Additional multi-squad workflow features not already represented by 0.6.0
+  issues are tracked in
+  [#18](https://github.com/omriariav/amq-noc/issues/18).
 
 Current squad/workstream:
 
@@ -59,8 +99,11 @@ amq-squad resume --project /Users/omri.a/Code/amq-noc --exec --target new-sessio
 amq drain --root /Users/omri.a/Code/amq-noc/.agent-mail/amq-noc-0-1-0 --me cto --include-body
 amq drain --root /Users/omri.a/Code/amq-noc/.agent-mail/amq-noc-0-1-0 --me fullstack --include-body
 
-# Check the NOC integration target and release comments:
-gh issue view 7 --repo omriariav/amq-noc --comments
+# Check the NOC integration targets and release comments:
+gh issue view 15 --repo omriariav/amq-noc --comments
+gh issue view 16 --repo omriariav/amq-noc --comments
+gh issue view 14 --repo omriariav/amq-noc --comments
+gh issue view 5 --repo omriariav/amq-noc --comments
 ```
 
 Release closeout checklist:
@@ -69,16 +112,16 @@ Release closeout checklist:
   `git diff --check`, `go vet ./...`, `go test ./...`, `make ci`.
 - Smoke the RC against this workstream:
   `amq-noc --actions --root /Users/omri.a/Code/amq-noc/.agent-mail --filter amq-noc-0-1-0 --scope session`.
-- Confirm published session `status` includes `--json` and published `resume`
-  uses the `amq-squad resume --session ... --exec` command.
-- Expect no `focus`/`send` rows in this stale workstream until amq-squad reports
-  live panes with `available:true`.
-- Close #7 on release. Keep #5 open unless the release also includes the
-  deferred inline right-pane helper cleanup.
-- Upstream amq-squad JSON polish is tracked separately in
-  <https://github.com/omriariav/amq-squad/issues/79>; do not block this NOC PR
-  on it because NOC keys off `records[].actions[]` presence and retains
-  fallback behavior.
+- Confirm published session `status` includes `--json` and the published resume
+  variants map to the exact `amq-squad resume --session ...` commands.
+- Confirm the status pulse can show `waiting` without inflating `blocked` for an
+  awaiting QA/review/peer dependency.
+- Confirm a handled operator approval/reply/message clears `needs-you` on the
+  next refresh.
+- Expect no `focus`/`send`/`attach_control` rows unless amq-squad publishes them
+  with `available:true`; this should be shown as unavailable runtime capability,
+  not a NOC failure.
+- Close #5, #14, #15, and #16 on release.
 
 ## amq-noc 0.2.2 Goal
 

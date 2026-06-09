@@ -43,6 +43,38 @@ func availableRuntimeStatus() noc.RuntimeStatus {
 	return noc.RuntimeStatus{Members: []noc.RuntimeMember{member("cto"), member("fullstack")}}
 }
 
+func availableRuntimeStatusWithSessionCatalog() noc.RuntimeStatus {
+	rs := availableRuntimeStatus()
+	rs.SessionActions = []noc.RuntimeAction{
+		{
+			Kind: "status", Label: "show session status", Scope: "session",
+			Command:   "amq-squad status --project /repo --session s --json",
+			Available: true,
+		},
+		{
+			Kind: "resume_preview", Label: "preview resume plan", Scope: "session",
+			Command:   "amq-squad resume --project /repo --session s --json",
+			Available: true,
+		},
+		{
+			Kind: "resume_current_window", Label: "resume in current window", Scope: "session",
+			Command: "amq-squad resume --project /repo --session s --exec --target current-window",
+			Mutates: true, NeedsConfirmation: true, Available: true,
+		},
+		{
+			Kind: "resume_new_session", Label: "resume in new tmux session", Scope: "session",
+			Command: "amq-squad resume --project /repo --session s --exec --target new-session",
+			Mutates: true, NeedsConfirmation: true, Available: true,
+		},
+		{
+			Kind: "stop", Label: "stop the session", Scope: "session",
+			Command: "amq-squad stop --project /repo --session s --all",
+			Mutates: true, NeedsConfirmation: true, Available: true,
+		},
+	}
+	return rs
+}
+
 func findNOCAction(actions []nocActionJSONData, scope, name string) (nocActionJSONData, bool) {
 	for _, a := range actions {
 		if a.Scope == scope && a.Name == name {
@@ -156,6 +188,64 @@ func TestApplyRuntimeActionsPrefersPublishedAndAddsFocusSend(t *testing.T) {
 	}
 }
 
+func TestApplyRuntimeActionsPrefersTopLevelSessionCatalog(t *testing.T) {
+	env := squadEnvFixture(t)
+	before := sessionRow(t, env)
+	fallbackStatus, _ := findNOCAction(before.Actions, "session", "status")
+	fallbackStop, _ := findNOCAction(before.Actions, "session", "stop")
+	if _, ok := findNOCAction(before.Actions, "session", "resume"); !ok {
+		t.Fatal("fixture should include fallback generic resume")
+	}
+
+	applyRuntimeActions(&env, func(string, string, string) noc.RuntimeStatus {
+		return availableRuntimeStatusWithSessionCatalog()
+	})
+
+	sess := sessionRow(t, env)
+	if _, ok := findNOCAction(sess.Actions, "session", "resume"); ok {
+		t.Fatal("top-level resume variants should supersede the generic fallback resume")
+	}
+	status, ok := findNOCAction(sess.Actions, "session", "status")
+	if !ok || status.Command != "amq-squad status --project /repo --session s --json" {
+		t.Fatalf("published status missing: %+v ok=%v", status, ok)
+	}
+	if status.ID != fallbackStatus.ID {
+		t.Errorf("status selector id should stay stable: got %q want %q", status.ID, fallbackStatus.ID)
+	}
+	if status.Command == fallbackStatus.Command {
+		t.Fatal("status command should be replaced by the published catalog command")
+	}
+	stop, ok := findNOCAction(sess.Actions, "session", "stop")
+	if !ok || stop.Command != "amq-squad stop --project /repo --session s --all" || !stop.Mutates || !stop.RequiresConfirmation {
+		t.Fatalf("published stop missing/wrong: %+v ok=%v", stop, ok)
+	}
+	if stop.ID != fallbackStop.ID {
+		t.Errorf("stop selector id should stay stable: got %q want %q", stop.ID, fallbackStop.ID)
+	}
+
+	for _, name := range []string{"resume_preview", "resume_current_window", "resume_new_session"} {
+		action, ok := findNOCAction(sess.Actions, "session", name)
+		if !ok {
+			t.Fatalf("missing published session action %q", name)
+		}
+		if !strings.HasPrefix(action.Command, "amq-squad ") {
+			t.Fatalf("published action %q must delegate to amq-squad, got %q", name, action.Command)
+		}
+		if name == "resume_preview" && action.Mutates {
+			t.Fatal("resume_preview must remain read-only")
+		}
+		if name != "resume_preview" && (!action.Mutates || !action.RequiresConfirmation) {
+			t.Fatalf("%s must be mutating+confirm-gated: %+v", name, action)
+		}
+	}
+
+	// Agent focus/send still come from member actions even when session catalog is
+	// present.
+	if _, ok := findNOCAction(agentRow(t, sess, "cto").Actions, "agent", "focus"); !ok {
+		t.Fatal("top-level session catalog must not suppress agent focus/send")
+	}
+}
+
 func countActions(actions []nocActionJSONData, scope, name string) int {
 	n := 0
 	for _, a := range actions {
@@ -195,6 +285,26 @@ func TestApplyRuntimeActionsOnlyAvailable(t *testing.T) {
 	}
 	if _, ok := findNOCAction(agentRow(t, sess, "cto").Actions, "agent", "send"); ok {
 		t.Error("unavailable send must not be folded in")
+	}
+}
+
+func TestApplyRuntimeActionsUnavailableCatalogSuppressesFallback(t *testing.T) {
+	env := squadEnvFixture(t)
+	applyRuntimeActions(&env, func(string, string, string) noc.RuntimeStatus {
+		return noc.RuntimeStatus{SessionActions: []noc.RuntimeAction{
+			{
+				Kind: "stop", Label: "stop the session", Scope: "session",
+				Command: "amq-squad stop --project /repo --session s --all",
+				Mutates: true, NeedsConfirmation: true, Available: false, Reason: "not running",
+			},
+		}}
+	})
+
+	if _, ok := findNOCAction(sessionRow(t, env).Actions, "session", "stop"); ok {
+		t.Fatal("published-but-unavailable stop should suppress the generated fallback stop")
+	}
+	if _, ok := findNOCAction(sessionRow(t, env).Actions, "session", "restart"); ok {
+		t.Fatal("published stop should suppress generated restart so it cannot bypass availability")
 	}
 }
 

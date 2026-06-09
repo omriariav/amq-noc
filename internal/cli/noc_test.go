@@ -4042,8 +4042,55 @@ func TestNOCSessionJSONOneLiveAgentOwnsAtRiskIsWaiting(t *testing.T) {
 	if row.AgentsAlive != 1 {
 		t.Fatalf("agents_alive = %d, want 1", row.AgentsAlive)
 	}
-	if row.State != "at-risk" || row.ReasonCode != "at_risk" {
-		t.Fatalf("state/reason = %q/%q, want at-risk/at_risk (owned live wait)", row.State, row.ReasonCode)
+	if row.State != "waiting" || row.ReasonCode != "waiting" {
+		t.Fatalf("state/reason = %q/%q, want waiting/waiting (owned live wait)", row.State, row.ReasonCode)
+	}
+	if row.Attention != "at-risk" {
+		t.Fatalf("attention = %q, want at-risk detail retained", row.Attention)
+	}
+}
+
+func TestNOCSessionJSONSoftBlockIsWaitingHardStopIsBlocked(t *testing.T) {
+	soft := nocSessionEnvelope(noc.ProjectSnapshot{Dir: "/root/api"}, state.Session{
+		Name: "soft",
+		Agents: []state.Agent{
+			{Handle: "cto", Liveness: state.LivenessAlive, Attention: state.Attention{State: state.TriageBlocked}},
+		},
+		Attention: state.Attention{State: state.TriageBlocked},
+		Rollup:    state.TriageRollup{Blocked: 1},
+		Coordination: state.Coordination{Threads: []state.ThreadSummary{{
+			ID:           "release/qa",
+			Subject:      "CTO awaiting 3.2.2 final QA verdict",
+			Participants: []string{"cto", "qa"},
+			Status:       state.ThreadBlocked,
+			Triage:       state.TriageBlocked,
+		}}},
+	})
+	if soft.State != "waiting" || soft.ReasonCode != "waiting" {
+		t.Fatalf("soft block state/reason = %q/%q, want waiting/waiting", soft.State, soft.ReasonCode)
+	}
+	if soft.Attention != "blocked" || soft.Rollup.Blocked != 1 {
+		t.Fatalf("soft block should retain blocked evidence detail: attention=%q rollup=%+v", soft.Attention, soft.Rollup)
+	}
+
+	hard := nocSessionEnvelope(noc.ProjectSnapshot{Dir: "/root/api"}, state.Session{
+		Name: "hard",
+		Agents: []state.Agent{
+			{Handle: "cto", Liveness: state.LivenessAlive, Attention: state.Attention{State: state.TriageBlocked}},
+		},
+		Attention: state.Attention{State: state.TriageBlocked},
+		Rollup:    state.TriageRollup{Blocked: 1},
+		Coordination: state.Coordination{Threads: []state.ThreadSummary{{
+			ID:           "release/qa",
+			Subject:      "NO-GO: cannot proceed",
+			LatestBody:   "Cannot proceed while preflight failure remains.",
+			Participants: []string{"cto", "qa"},
+			Status:       state.ThreadBlocked,
+			Triage:       state.TriageBlocked,
+		}}},
+	})
+	if hard.State != "blocked" || hard.ReasonCode != "blocked" {
+		t.Fatalf("hard stop state/reason = %q/%q, want blocked/blocked", hard.State, hard.ReasonCode)
 	}
 }
 
@@ -4076,6 +4123,78 @@ func TestNOCSessionJSONNewerClearActivityBeatsOldAtRisk(t *testing.T) {
 		if ag.Attention != "clear" || ag.AttentionReason != "" {
 			t.Fatalf("%s attention = %q/%q, want clear/empty", ag.Handle, ag.Attention, ag.AttentionReason)
 		}
+	}
+}
+
+func TestNOCSessionJSONNewerWaitingActivityBeatsOldHardStop(t *testing.T) {
+	old := time.Now().Add(-20 * time.Minute)
+	fresh := time.Now().Add(-4 * time.Minute)
+	row := nocSessionEnvelope(noc.ProjectSnapshot{Dir: "/root/api"}, state.Session{
+		Name: "pm-comms",
+		Agents: []state.Agent{
+			{Handle: "cto", Liveness: state.LivenessAlive, Attention: state.Attention{State: state.TriageBlocked}},
+		},
+		Attention: state.Attention{State: state.TriageBlocked},
+		Rollup:    state.TriageRollup{Blocked: 1, Gated: 1},
+		Coordination: state.Coordination{Threads: []state.ThreadSummary{
+			{
+				ID:           "decision/rebase",
+				Subject:      "NO-GO: rebase unsafe",
+				LatestBody:   "Cannot proceed until master contains the prior release.",
+				Participants: []string{"cto", "qa"},
+				Status:       state.ThreadBlocked,
+				Triage:       state.TriageBlocked,
+				LastEventAt:  old,
+			},
+			{
+				ID:           "release/qa",
+				Subject:      "CTO awaiting 3.2.2 final QA verdict",
+				Participants: []string{"cto", "qa"},
+				Triage:       state.TriageGated,
+				LastEventAt:  fresh,
+			},
+		}},
+	})
+	if row.State != "waiting" || row.ReasonCode != "waiting" {
+		t.Fatalf("state/reason = %q/%q, want waiting/waiting (newer wait supersedes old hard-stop primary)", row.State, row.ReasonCode)
+	}
+	if row.Attention != "blocked" || row.Rollup.Blocked != 1 {
+		t.Fatalf("blocked evidence should remain in detail: attention=%q rollup=%+v", row.Attention, row.Rollup)
+	}
+}
+
+func TestNOCSessionJSONUnrelatedNewerWaitingDoesNotBeatHardStop(t *testing.T) {
+	old := time.Now().Add(-20 * time.Minute)
+	fresh := time.Now().Add(-4 * time.Minute)
+	row := nocSessionEnvelope(noc.ProjectSnapshot{Dir: "/root/api"}, state.Session{
+		Name: "pm-comms",
+		Agents: []state.Agent{
+			{Handle: "cto", Liveness: state.LivenessAlive, Attention: state.Attention{State: state.TriageBlocked}},
+			{Handle: "fullstack", Liveness: state.LivenessAlive, Attention: state.Attention{State: state.TriageGated}},
+		},
+		Attention: state.Attention{State: state.TriageBlocked},
+		Rollup:    state.TriageRollup{Blocked: 1, Gated: 1},
+		Coordination: state.Coordination{Threads: []state.ThreadSummary{
+			{
+				ID:           "decision/rebase",
+				Subject:      "NO-GO: rebase unsafe",
+				LatestBody:   "Cannot proceed until master contains the prior release.",
+				Participants: []string{"cto", "qa"},
+				Status:       state.ThreadBlocked,
+				Triage:       state.TriageBlocked,
+				LastEventAt:  old,
+			},
+			{
+				ID:           "p2p/fullstack__cpo",
+				Subject:      "Awaiting PM review",
+				Participants: []string{"fullstack", "cpo"},
+				Triage:       state.TriageGated,
+				LastEventAt:  fresh,
+			},
+		}},
+	})
+	if row.State != "blocked" || row.ReasonCode != "blocked" {
+		t.Fatalf("state/reason = %q/%q, want blocked/blocked (unrelated wait must not supersede hard-stop)", row.State, row.ReasonCode)
 	}
 }
 

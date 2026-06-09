@@ -712,6 +712,36 @@ func TestTriageNeedsYouViaWaitingForInstructions(t *testing.T) {
 	}
 }
 
+func TestTriageNeedsYouClearsAfterOperatorAnswer(t *testing.T) {
+	base := t.TempDir()
+	proj := t.TempDir()
+	ctoDir := seedAgent(t, base, "s", "cto", launch.Record{Binary: "codex", Handle: "cto", Session: "s", AgentPID: 1})
+	userDir := seedAgent(t, base, "s", "user", launch.Record{Binary: "claude", Handle: "user", Session: "s", AgentPID: 9})
+
+	seedMessage(t, userDir, "new", msgSpec{
+		id: "ask", from: "cto", to: []string{"user"},
+		thread: "gate/deploy", subject: "APPROVAL: deploy?", kind: "question",
+		body: "Please approve the deploy.", createdAt: coordNow.Add(-2 * time.Minute),
+	})
+	seedMessage(t, ctoDir, "new", msgSpec{
+		id: "approved", from: "user", to: []string{"cto"},
+		thread: "gate/deploy", subject: "Re: APPROVAL: deploy?", kind: "answer",
+		body: "APPROVED", createdAt: coordNow.Add(-time.Minute),
+	})
+
+	snap, err := Build(proj, base, coordProbe())
+	if err != nil {
+		t.Fatal(err)
+	}
+	th := findThread(t, snap.Sessions[0].Coordination, "gate/deploy")
+	if th.Status != ThreadResolved {
+		t.Fatalf("Status = %q, want resolved after operator answer", th.Status)
+	}
+	if th.Triage == TriageNeedsYou || snap.Sessions[0].Rollup.NeedsYou != 0 || snap.Rollup.NeedsYou != 0 {
+		t.Fatalf("operator answer must clear needs-you: thread=%+v session=%+v snap=%+v", th, snap.Sessions[0].Rollup, snap.Rollup)
+	}
+}
+
 // Deterministic guard: an agent-to-agent status/ack whose prose mentions
 // "user" / "approval" / "manual RC test" must NOT be promoted to needs-you when
 // it is not structurally addressed to the operator. This is exactly our own
@@ -812,6 +842,39 @@ func TestBlockClearedByLaterGo(t *testing.T) {
 	}
 	if th.Triage == TriageBlocked {
 		t.Fatal("cleared block must not stay triage=blocked")
+	}
+}
+
+func TestBlockSupersededByLaterCoordinationWait(t *testing.T) {
+	base := t.TempDir()
+	proj := t.TempDir()
+	ctoDir := seedAgent(t, base, "s", "cto", launch.Record{Binary: "codex", Handle: "cto", Session: "s", AgentPID: 1})
+	_ = seedAgent(t, base, "s", "qa", launch.Record{Binary: "claude", Handle: "qa", Session: "s", AgentPID: 2})
+
+	seedMessage(t, ctoDir, "cur", msgSpec{
+		id: "blk", from: "cto", to: []string{"qa"},
+		thread: "release/qa", subject: "Proceed: rebase 3.2.2 onto final master", kind: "status",
+		body: "blocked on final QA path.", createdAt: coordNow.Add(-10 * time.Minute),
+	})
+	seedMessage(t, ctoDir, "cur", msgSpec{
+		id: "wait", from: "cto", to: []string{"qa"},
+		thread: "release/qa", subject: "CTO awaiting 3.2.2 final QA verdict", kind: "status",
+		body: "Awaiting QA verdict before release.", createdAt: coordNow.Add(-time.Minute),
+	})
+
+	snap, err := Build(proj, base, coordProbe())
+	if err != nil {
+		t.Fatal(err)
+	}
+	th := findThread(t, snap.Sessions[0].Coordination, "release/qa")
+	if th.Triage != TriageGated {
+		t.Fatalf("Triage = %q, want gated/waiting after later QA wait supersedes block", th.Triage)
+	}
+	if th.Status == ThreadBlocked || snap.Sessions[0].Rollup.Blocked != 0 {
+		t.Fatalf("later QA wait must not leave primary blocked evidence: thread=%+v rollup=%+v", th, snap.Sessions[0].Rollup)
+	}
+	if snap.Sessions[0].Rollup.Gated != 1 {
+		t.Fatalf("rollup Gated = %d, want 1", snap.Sessions[0].Rollup.Gated)
 	}
 }
 

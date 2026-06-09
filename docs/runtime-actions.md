@@ -21,10 +21,17 @@ operator a command; amq-squad (or the operator running that command) does the wo
   machine-readable flags a project advertises, e.g. operator gates and runtime
   action support. The NOC consumes these when present but also accepts v1.5.0
   `records[].actions[]` without requiring a capability flag.
-- **Published action metadata**: in v0.5 the NOC consumes available
-  `amq-squad status --session --json` actions. Session `status` and `resume`
-  replace fallback commands while preserving stable action IDs; agent `focus`
-  and `send` are added when `available:true`.
+- **Published action metadata**: the NOC consumes available
+  `amq-squad status --session --json` actions. With `amq-squad v1.5.2+`,
+  top-level `data.actions[]` is the preferred session-row catalog (`status`,
+  `resume_preview`, `resume_current_window`, `resume_new_session`, `stop`).
+  These explicit resume variants replace the older generic NOC `resume` action
+  for that session. Published-but-unavailable session actions also suppress the
+  generated fallback for the same control, so NOC does not offer a local command
+  that bypasses amq-squad availability.
+  With older v1.5 contracts, member-level session `status` and `resume`
+  replace fallback commands while preserving stable action IDs. Agent `focus`
+  and `send` are added only when `available:true`.
 - **Command templates**: when published action metadata is absent or partial,
   the NOC still generates deterministic fallback commands from the read-only
   session/coordination snapshot: `amq` fallbacks (drain, send) and
@@ -38,14 +45,15 @@ prose, and does not synthesize an action amq-squad cannot perform.
 
 ## What the NOC renders
 
-- The right-pane command helper for the selected row, wrapped to the pane width.
-  This inline helper remains deterministic fallback in v0.5 and is tracked for
-  possible published-action folding under #5.
-- The `C` copy-cmd picker: a numbered list of the exact commands for the
+- The `C` copy-cmd picker: the canonical numbered list of exact commands for the
   selection, including published runtime actions when available, copied verbatim
   to the clipboard via the injectable clipboard seam (pbcopy in production).
   The operator runs the copied command; the NOC does not execute the runtime
   action itself.
+- The right-pane command helper for the selected row, wrapped to the pane width.
+  This inline helper stays deterministic and fallback-oriented so the detail pane
+  remains useful before async runtime metadata arrives. Exact runtime-action
+  selection belongs in `C copy-cmd`.
 - Context-sensitive footer actions: only the actions whose guards would actually
   proceed on the selected row (see `docs/tui-keymap.md`).
 
@@ -61,6 +69,9 @@ gracefully rather than break:
   bundled `new`/`resume`/`archive`/`rm` helpers) for manual copy/run.
 - It does not show runtime-action affordances that the metadata does not back,
   and it does not error or hang waiting on runtime support.
+- Published-but-unavailable runtime actions, including agent `focus`, agent
+  `send`, and session `attach_control`, are omitted rather than replaced with
+  raw tmux or pane-delivery commands.
 
 The rule: absence of runtime metadata reduces the affordances offered, never the
 correctness or stability of the read-only view.
@@ -72,19 +83,17 @@ resume / focus / open / prompt-delivery and all the tmux/window/process mechanic
 behind them. amq-noc must not add tmux orchestration to drive runtime actions.
 
 One pre-existing, separate exception: `internal/noc/tmux.go` shells
-`tmux list-panes -a` READ-ONLY to resolve panes for the legacy jump/focus view
-movement. That is read-only discovery, not runtime control, and it is tracked for
-cleanup with the rest of the dormant jump/palette surface (issue #5). It must not
-be expanded, and new runtime-action work must not reach for tmux.
+`tmux list-panes -a` READ-ONLY to resolve panes for legacy focus discovery. That
+is read-only discovery, not runtime control. It must not be expanded, and new
+runtime-action work must not reach for tmux.
 
 ## Dependencies
 
 The NOC-side consumption depends on amq-squad publishing the runtime-action and
-capability metadata: amq-squad #61, #62, #47, plus the follow-up JSON contract
-polish tracked in amq-squad #79. NOC issues #6 (runtime actions), #7 (published
-action consumption), and #5 (dormant control/diagnostics cleanup, including the
-legacy tmux jump path and inline helper follow-up)
-track the NOC side.
+capability metadata: amq-squad #61, #62, #47, and the JSON contract polish from
+amq-squad #79 / v1.5.2. NOC issues #6 (runtime actions), #7 (member action
+consumption), #15 (session action catalog consumption), and #5 (dormant
+control/diagnostics cleanup) track the NOC side.
 
 ## Determinism
 

@@ -1,23 +1,22 @@
 # amq-noc Release Plan
 
-## Active Release Handoff: amq-noc 0.6.0 integrated NOC polish
+## Released: amq-noc 0.6.0 integrated NOC polish
 
 Updated: 2026-06-09.
 
 Current release state:
 
-- `amq-noc v0.5.0` is shipped and is the latest GitHub release; this tree is the
-  `v0.6.0` release candidate.
+- `amq-noc v0.6.0` is shipped and is the latest GitHub release.
 - `amq-squad v1.5.4` is shipped and contains the fork-free liveness fix needed
   by the NOC board/status consistency checks.
-- The release candidate consumes the `amq-squad v1.5.2+` top-level session
+- `amq-noc v0.6.0` consumes the `amq-squad v1.5.2+` top-level session
   `data.actions[]` catalog in CLI `--actions`, JSON snapshots, and the TUI
   `C copy-cmd` picker.
 
-0.6.0 scope is now the integrated "make the NOC feel right" release. It should
-close every currently open amq-noc issue:
+0.6.0 was the integrated "make the NOC feel right" release and closed the scoped
+amq-noc issues:
 
-- [#15](https://github.com/omriariav/amq-noc/issues/15): consume
+- [#15](https://github.com/omriariav/amq-noc/issues/15): consumed
   `amq-squad v1.5.2+` session-scope `data.actions[]`.
   - Prefer published session actions over generated session controls.
   - Surface explicit `status`, `resume_preview`, `resume_current_window`,
@@ -26,7 +25,7 @@ close every currently open amq-noc issue:
     redundant or unsafe.
   - Preserve fallback behavior for older `amq-squad v1.5.0/v1.5.1`
     `records[].actions[]` contracts and for partial/missing runtime metadata.
-- [#16](https://github.com/omriariav/amq-noc/issues/16): reserve `blocked` for
+- [#16](https://github.com/omriariav/amq-noc/issues/16): reserved `blocked` for
   hard stops and render normal coordination dependencies as `waiting`.
   - Primary tree/header/JSON states should use `waiting` for awaiting QA,
     review, peer reply, revalidation, merge, or release artifact states.
@@ -35,7 +34,7 @@ close every currently open amq-noc issue:
     unrecoverable preflight failure.
   - Older blocked evidence must remain visible in detail/history without
     dominating a newer clear/waiting signal.
-- [#14](https://github.com/omriariav/amq-noc/issues/14): clear `needs-you`
+- [#14](https://github.com/omriariav/amq-noc/issues/14): cleared `needs-you`
   after the operator approves, denies, or replies on the same gate thread, and
   make direct message / pane prompt results explicit when they do not clear a
   gate.
@@ -43,7 +42,7 @@ close every currently open amq-noc issue:
     later operator answer/action.
   - Confirm the TUI refresh, JSON snapshot, and action result overlays all agree
     without requiring a manual agent-side Enter or separate inbox interaction.
-- [#5](https://github.com/omriariav/amq-noc/issues/5): close the deferred TUI
+- [#5](https://github.com/omriariav/amq-noc/issues/5): closed the deferred TUI
   controls and diagnostics cleanup from the 0.2.x line.
   - Remove or fully wire dormant controls; advertised keys, footer help, and
     handled actions must stay in sync.
@@ -106,22 +105,22 @@ gh issue view 14 --repo omriariav/amq-noc --comments
 gh issue view 5 --repo omriariav/amq-noc --comments
 ```
 
-Release closeout checklist:
+Release closeout checklist completed for v0.6.0:
 
-- Re-run the full gates after commit:
+- Re-ran the full gates after commit:
   `git diff --check`, `go vet ./...`, `go test ./...`, `make ci`.
-- Smoke the RC against this workstream:
+- Smoked the RC against this workstream:
   `amq-noc --actions --root /Users/omri.a/Code/amq-noc/.agent-mail --filter amq-noc-0-1-0 --scope session`.
-- Confirm published session `status` includes `--json` and the published resume
+- Confirmed published session `status` includes `--json` and the published resume
   variants map to the exact `amq-squad resume --session ...` commands.
-- Confirm the status pulse can show `waiting` without inflating `blocked` for an
+- Confirmed the status pulse can show `waiting` without inflating `blocked` for an
   awaiting QA/review/peer dependency.
-- Confirm a handled operator approval/reply/message clears `needs-you` on the
-  next refresh.
-- Expect no `focus`/`send`/`attach_control` rows unless amq-squad publishes them
+- Confirmed handled operator approve/reply/deny answers clear `needs-you` on the
+  next refresh; direct message and pane prompt results are labeled as non-clearing.
+- Confirmed no `focus`/`send`/`attach_control` rows unless amq-squad publishes them
   with `available:true`; this should be shown as unavailable runtime capability,
   not a NOC failure.
-- Close #5, #14, #15, and #16 on release.
+- Closed #5, #14, #15, and #16 on release.
 
 ## amq-noc 0.2.2 Goal
 

@@ -104,11 +104,11 @@
     </ul>
     <p>JSON snapshots use the same primary vocabulary as the TUI. In <code>v0.2.1</code>, <code>state</code> and <code>reason_code</code> values for live/no-wait rows changed from <code>running</code> to <code>online</code>; filters still accept <code>running</code> as an alias for <code>online</code>.</p>
     <p>The <code>agents_alive</code> count is the visible-online count: it includes fresh-presence agents (dead-mailbox-live, reachable without a verified pid) and matches what the TUI renders as online. Non-human waits stay gated to operationally live agents, so fresh presence alone never promotes a wait.</p>
-    <p><code>v0.4.1</code> adds runtime-action helper commands, <code>C copy-cmd</code> clipboard copy, tmux recovery helpers for current-window and new-session launches, row-sensitive delete behavior, JSON/TUI status alignment for fresh-presence agents, and clipboard paste support in filter and action input prompts.</p>
+    <p><code>v0.5.0</code> consumes published <code>amq-squad v1.5</code> runtime actions in CLI action JSON and the <code>C copy-cmd</code> picker, while preserving deterministic fallback commands for older or partial contracts.</p>
 
     <h2>Install</h2>
-    <pre><code>go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.4.1</code></pre>
-    <p>Requires Go 1.25+, <code>amq</code>, <code>amq-squad</code> v1.4.1 or newer, and <code>tmux</code>.</p>
+    <pre><code>go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.5.0</code></pre>
+    <p>Requires Go 1.25+, <code>amq</code>, <code>amq-squad</code> v1.5.0 or newer for published runtime actions (older builds keep fallback commands), and <code>tmux</code>.</p>
 
     <h2>Quick Start</h2>
     <pre><code>amq-noc --root ~/Code
@@ -129,8 +129,8 @@ amq-noc --actions --root ~/Code --filter needs-you</code></pre>
     <p>Contributor guidance for TUI keys, help, and footer tests lives in <a href="docs/tui-keymap.md">docs/tui-keymap.md</a>.</p>
 
     <h2>Runtime Actions</h2>
-    <p><code>amq-squad</code> owns runtime orchestration: start, stop, resume, focus, open, prompt delivery, and the tmux mechanics behind them. <code>amq-noc</code> consumes capability metadata and, in <code>v0.4</code>, generates labeled action commands deterministically. It renders them as operator UI, lets you pick and copy the exact command with <code>C</code>, and falls back gracefully when runtime support is absent.</p>
-    <p>The NOC never drives the runtime itself. Consuming a published action catalog from <code>amq-squad</code> is future work tracked outside this release.</p>
+    <p><code>amq-squad</code> owns runtime orchestration: start, stop, resume, focus, open, prompt delivery, and the tmux mechanics behind them. <code>amq-noc</code> consumes published <code>amq-squad v1.5</code> action metadata when available, renders it as operator UI, lets you pick and copy the exact command with <code>C</code>, and falls back to deterministic NOC-generated commands when runtime support is absent or partial.</p>
+    <p>The NOC never drives the runtime itself.</p>
 
     <h2>Operator Gates</h2>
     <p><code>needs-you</code> is deterministic. NOC does not infer human action from broad prose in agent-to-agent status messages. A team needs the human only when an agent sends a question, review request, or decision request to the configured operator handle.</p>

@@ -1,5 +1,85 @@
 # amq-noc Release Plan
 
+## Active Release Handoff: amq-squad 1.5 runtime actions
+
+Updated: 2026-06-09.
+
+Current release state:
+
+- `amq-noc v0.4.1` is shipped and installed on PATH.
+- `amq-squad v1.5.0` is available and installed locally.
+- [#7](https://github.com/omriariav/amq-noc/issues/7): implemented in the
+  current PR. CLI `--actions`, `--json`, and `--run-action` now fold available
+  published `amq-squad status --session --json` runtime actions into the NOC
+  action model:
+  - session `status` and `resume` prefer published commands while preserving
+    stable action IDs;
+  - agent `focus` and `send` are added when `available:true`;
+  - `send --body-file -` remains display/copy only and errors under real
+    `--run-action`, while `--dry-run` remains inspectable;
+  - older, missing, or partial runtime contracts keep deterministic fallback
+    actions.
+- [#5](https://github.com/omriariav/amq-noc/issues/5): remains open as the
+  deferred TUI controls/diagnostics cleanup tracker. CTO decision: do not block
+  #7 on the inline right-pane helper list. The `C copy-cmd` picker and CLI
+  action JSON consume published runtime metadata in this slice; the inline
+  `kickRecoverLines` helper list remains fallback-only and should be folded, if
+  still desired, under #5.
+
+Current squad/workstream:
+
+- Project: `/Users/omri.a/Code/amq-noc`
+- Session/workstream: `amq-noc-0-1-0`
+- AMQ root:
+  `/Users/omri.a/Code/amq-noc/.agent-mail/amq-noc-0-1-0`
+- `amq-squad status --session amq-noc-0-1-0 --json` is the runtime-action
+  contract smoke target. This paused workstream may show stale/degraded launch
+  records until the agents are relaunched in tmux; that is expected and means
+  `focus`/`send` runtime actions stay `available:false`.
+
+Pause command:
+
+```sh
+amq-squad stop --project /Users/omri.a/Code/amq-noc --all --session amq-noc-0-1-0
+```
+
+Resume commands:
+
+```sh
+cd /Users/omri.a/Code/amq-noc
+
+amq-squad status --project /Users/omri.a/Code/amq-noc --session amq-noc-0-1-0
+amq-squad resume --project /Users/omri.a/Code/amq-noc --session amq-noc-0-1-0
+
+# Open panes when ready to resume live work:
+amq-squad resume --project /Users/omri.a/Code/amq-noc --exec --target current-window --session amq-noc-0-1-0
+amq-squad resume --project /Users/omri.a/Code/amq-noc --exec --target new-session --terminal-session amq-squad-amq-noc-amq-noc-0-1-0 --session amq-noc-0-1-0
+
+# Drain current workstream inboxes:
+amq drain --root /Users/omri.a/Code/amq-noc/.agent-mail/amq-noc-0-1-0 --me cto --include-body
+amq drain --root /Users/omri.a/Code/amq-noc/.agent-mail/amq-noc-0-1-0 --me fullstack --include-body
+
+# Check the NOC integration target and release comments:
+gh issue view 7 --repo omriariav/amq-noc --comments
+```
+
+Release closeout checklist:
+
+- Re-run the full gates after commit:
+  `git diff --check`, `go vet ./...`, `go test ./...`, `make ci`.
+- Smoke the RC against this workstream:
+  `amq-noc --actions --root /Users/omri.a/Code/amq-noc/.agent-mail --filter amq-noc-0-1-0 --scope session`.
+- Confirm published session `status` includes `--json` and published `resume`
+  uses the `amq-squad resume --session ... --exec` command.
+- Expect no `focus`/`send` rows in this stale workstream until amq-squad reports
+  live panes with `available:true`.
+- Close #7 on release. Keep #5 open unless the release also includes the
+  deferred inline right-pane helper cleanup.
+- Upstream amq-squad JSON polish is tracked separately in
+  <https://github.com/omriariav/amq-squad/issues/79>; do not block this NOC PR
+  on it because NOC keys off `records[].actions[]` presence and retains
+  fallback behavior.
+
 ## amq-noc 0.2.2 Goal
 
 Ship the post-0.2.1 TUI operator polish patch.

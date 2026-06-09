@@ -330,6 +330,7 @@ Examples:
 		StdoutIsTTY:      outputIsTTY(),
 		RunActionCommand: nocActionRunnerOverride,
 		RunNOC:           console.RunNOC,
+		RuntimeFetch:     defaultRuntimeActionFetch,
 	})
 }
 
@@ -381,6 +382,10 @@ type nocExecution struct {
 	// RunNOC runs the NOC surface. Injected so tests assert the assembled config
 	// without launching a real program; production passes console.RunNOC.
 	RunNOC func(console.NOCConfig) error
+	// RuntimeFetch resolves amq-squad's published runtime actions for a session so
+	// --actions/--json prefer them over fallback templates. Production injects
+	// defaultRuntimeActionFetch; a nil fetch disables the fold (pure fallback).
+	RuntimeFetch runtimeActionFetch
 }
 
 // executeNOC resolves the roots and the TTY gating, then hands an assembled
@@ -408,6 +413,7 @@ func executeNOC(s nocExecution) error {
 		ms := noc.Collect(roots, s.Depth, state.DefaultProbe, thresholds)
 		ms = filterNOCSnapshot(ms, s.Filter, s.HideStale)
 		env := nocSnapshotEnvelope(ms, s.Filter, s.HideStale)
+		applyRuntimeActions(&env, s.RuntimeFetch)
 		env.Actions = filterNOCActions(env.Actions, nocActionSelector{
 			Names:        s.ActionFilter,
 			ActionIDs:    s.ActionIDFilter,
@@ -428,7 +434,9 @@ func executeNOC(s nocExecution) error {
 	if s.JSON {
 		ms := noc.Collect(roots, s.Depth, state.DefaultProbe, thresholds)
 		ms = filterNOCSnapshot(ms, s.Filter, s.HideStale)
-		return writeJSONEnvelope(s.Out, "noc_snapshot", nocSnapshotEnvelope(ms, s.Filter, s.HideStale))
+		env := nocSnapshotEnvelope(ms, s.Filter, s.HideStale)
+		applyRuntimeActions(&env, s.RuntimeFetch)
+		return writeJSONEnvelope(s.Out, "noc_snapshot", env)
 	}
 
 	cfg := console.NOCConfig{
@@ -869,6 +877,7 @@ func executeNOCRunAction(s nocExecution, roots []string, thresholds state.Thresh
 	ms := noc.Collect(roots, s.Depth, state.DefaultProbe, thresholds)
 	ms = filterNOCSnapshot(ms, s.Filter, s.HideStale)
 	env := nocSnapshotEnvelope(ms, s.Filter, s.HideStale)
+	applyRuntimeActions(&env, s.RuntimeFetch)
 	selector := strings.TrimSpace(s.RunActionID)
 	action, err := resolveNOCRunAction(env.Actions, selector)
 	if err != nil {
@@ -2074,6 +2083,9 @@ func runNOCActionCommand(s nocExecution, action nocActionJSONData, command strin
 	if s.DryRun {
 		fmt.Fprintln(out, "Dry run: no command executed.")
 		return nil
+	}
+	if nocActionReadsStdinBody(command) {
+		return usageErrorf("NOC action %q delivers a prompt body over stdin (--body-file -); the NOC will not run a stdin-body send. Copy the command and pipe a body explicitly, or use --dry-run to inspect it.", action.ID)
 	}
 	if action.Mutates || action.RequiresConfirmation {
 		if !s.Yes {

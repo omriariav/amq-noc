@@ -1,18 +1,16 @@
 # Runtime actions: the consume/orchestrate boundary
 
-amq-noc is a read-only operator console. For v0.4 it gains support for amq-squad
-*runtime actions* (start / stop / resume / focus / open / prompt-delivery), but it
-does not perform the runtime mechanics itself. There is a hard architectural line:
+amq-noc is a read-only operator console. It supports amq-squad *runtime actions*
+(start / stop / resume / focus / open / prompt-delivery), but it does not
+perform the runtime mechanics itself. There is a hard architectural line:
 
 - **amq-squad owns runtime orchestration.** Starting, stopping, resuming,
   focusing, opening, and delivering prompts to a session or agent, including all
   tmux/window/process mechanics, is amq-squad's job.
-- **amq-noc consumes, renders, and selects.** The NOC consumes the capability
-  *metadata* amq-squad publishes and, in v0.4, GENERATES the labeled action commands
-  itself, deterministically (delegating their EXECUTION to amq-squad). It renders
-  them as operator UI, lets the operator pick and copy the exact command, and
-  degrades to a fallback when runtime support is absent. Consuming a published
-  action catalog from amq-squad is the evolution tracked by amq-squad #61/#62/#47.
+- **amq-noc consumes, renders, and selects.** The NOC consumes published
+  `amq-squad v1.5` action metadata when available, renders it as operator UI,
+  lets the operator pick and copy the exact command, and degrades to
+  deterministic fallback commands when runtime support is absent or partial.
 
 The NOC never drives the runtime. It surfaces what amq-squad offers and hands the
 operator a command; amq-squad (or the operator running that command) does the work.
@@ -20,15 +18,18 @@ operator a command; amq-squad (or the operator running that command) does the wo
 ## What the NOC consumes vs generates
 
 - **Capabilities** (`team.Capabilities`, surfaced on `noc.ProjectSnapshot`): the
-  machine-readable flags a project advertises, e.g. operator gates today and the
-  runtime-action capability set as amq-squad publishes it. The NOC consumes these.
-- **Command templates**: in v0.4 the NOC GENERATES the labeled action commands
-  itself, deterministically, from the read-only session/coordination snapshot:
-  `amq` fallbacks (drain, send) and `amq-squad` delegations (resume here / open
-  new session / agent resume) whose EXECUTION amq-squad owns. It does not run
-  them. Consuming a published action-metadata catalog from amq-squad (so the
-  templates come from amq-squad rather than NOC-side generation) is the
-  evolution tracked by amq-squad #61/#62/#47; until then the NOC generates them.
+  machine-readable flags a project advertises, e.g. operator gates and runtime
+  action support. The NOC consumes these when present but also accepts v1.5.0
+  `records[].actions[]` without requiring a capability flag.
+- **Published action metadata**: in v0.5 the NOC consumes available
+  `amq-squad status --session --json` actions. Session `status` and `resume`
+  replace fallback commands while preserving stable action IDs; agent `focus`
+  and `send` are added when `available:true`.
+- **Command templates**: when published action metadata is absent or partial,
+  the NOC still generates deterministic fallback commands from the read-only
+  session/coordination snapshot: `amq` fallbacks (drain, send) and
+  `amq-squad` delegations (resume here / open new session / agent resume) whose
+  execution amq-squad owns.
 
 Either way the boundary holds: the NOC produces a command that DELEGATES to
 amq-squad (or amq) and never executes the runtime mechanics. It derives every
@@ -38,10 +39,13 @@ prose, and does not synthesize an action amq-squad cannot perform.
 ## What the NOC renders
 
 - The right-pane command helper for the selected row, wrapped to the pane width.
+  This inline helper remains deterministic fallback in v0.5 and is tracked for
+  possible published-action folding under #5.
 - The `C` copy-cmd picker: a numbered list of the exact commands for the
-  selection, copied verbatim to the clipboard via the injectable clipboard seam
-  (pbcopy in production). The operator runs the copied command; the NOC does not
-  execute the runtime action itself.
+  selection, including published runtime actions when available, copied verbatim
+  to the clipboard via the injectable clipboard seam (pbcopy in production).
+  The operator runs the copied command; the NOC does not execute the runtime
+  action itself.
 - Context-sensitive footer actions: only the actions whose guards would actually
   proceed on the selected row (see `docs/tui-keymap.md`).
 
@@ -76,8 +80,10 @@ be expanded, and new runtime-action work must not reach for tmux.
 ## Dependencies
 
 The NOC-side consumption depends on amq-squad publishing the runtime-action and
-capability metadata: amq-squad #61, #62, #47. NOC issues #6 (runtime actions) and
-#5 (dormant control/diagnostics cleanup, including the legacy tmux jump path)
+capability metadata: amq-squad #61, #62, #47, plus the follow-up JSON contract
+polish tracked in amq-squad #79. NOC issues #6 (runtime actions), #7 (published
+action consumption), and #5 (dormant control/diagnostics cleanup, including the
+legacy tmux jump path and inline helper follow-up)
 track the NOC side.
 
 ## Determinism

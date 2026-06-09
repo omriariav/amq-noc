@@ -73,7 +73,7 @@ operationally live agents, so fresh presence alone never promotes a wait.
 - AMQ inbox, DLQ, receipts, and ops commands
 - preview-first and confirm-gated controls that execute through `amq-squad`
 - structural operator gates through a virtual operator mailbox, usually `user`
-- support for `amq-squad v1.4.1` operator metadata and custom operator handles
+- support for `amq-squad` operator metadata and published v1.5 runtime actions
 - truthful TUI help/footer generated from the handled keymap
 - context-sensitive footer actions that only advertise controls valid for the
   selected row
@@ -84,20 +84,23 @@ operationally live agents, so fresh presence alone never promotes a wait.
 - row-sensitive delete behavior for team profiles, named sessions, and root AMQ
   mailbox rows
 - runtime-action helper commands for project, session, and agent rows
+- published `amq-squad v1.5` runtime-action consumption in CLI action JSON and
+  the `C copy-cmd` picker, with fallback generation for older contracts
 - JSON/TUI status alignment for fresh-presence `dead-mailbox-live` agents
 - clipboard paste support in filter and action input prompts
 
 ## Install
 
 ```sh
-go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.4.1
+go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.5.0
 ```
 
 Requirements:
 
 - Go 1.25+
 - `amq`
-- `amq-squad` v1.4.1 or newer
+- `amq-squad` v1.5.0 or newer for published runtime actions; older builds keep
+  deterministic fallback commands
 - `tmux`
 
 ## Quick Start
@@ -188,12 +191,11 @@ For more detail, see [`docs/operator-gate.md`](docs/operator-gate.md).
 ## Runtime actions
 
 amq-squad owns runtime orchestration (start / stop / resume / focus / open /
-prompt-delivery and the tmux mechanics behind them). amq-noc consumes the
-capability metadata amq-squad publishes and, in `v0.4`, generates the labeled action
-commands itself, deterministically; it renders them as operator UI, lets you pick
-and copy the exact command (`C`), and falls back gracefully when runtime support is
-absent. The NOC never drives the runtime itself. Consuming a published action
-catalog from amq-squad is the future tracked by amq-squad #61/#62/#47.
+prompt-delivery and the tmux mechanics behind them). amq-noc consumes published
+`amq-squad v1.5` action metadata when available, renders it as operator UI,
+lets you pick and copy the exact command (`C`), and falls back to deterministic
+NOC-generated commands when runtime support is absent or partial. The NOC never
+drives the runtime itself.
 
 For the consume/orchestrate boundary and fallback behavior, see
 [`docs/runtime-actions.md`](docs/runtime-actions.md).
@@ -233,11 +235,13 @@ amq-noc --filter project:amq-noc \
 - legacy teams with a runnable member named `user` do not get an implicit
   operator gate, avoiding false `needs-you`
 
-Minimum supported companion version:
+Recommended companion version for published runtime actions:
 
 ```sh
-go install github.com/omriariav/amq-squad/cmd/amq-squad@v1.4.1
+go install github.com/omriariav/amq-squad/cmd/amq-squad@v1.5.0
 ```
+
+Older `amq-squad` builds keep deterministic fallback action commands.
 
 Recommended health check:
 

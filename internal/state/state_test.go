@@ -250,15 +250,17 @@ func TestClassifyDeadMailboxLive(t *testing.T) {
 	}
 }
 
-func TestClassifyDeadMailboxLiveNonActiveStatus(t *testing.T) {
+func TestClassifyStaleOfflinePresenceAfterCleanStop(t *testing.T) {
 	base := t.TempDir()
 	proj := t.TempDir()
 	agentDir := seedAgent(t, base, "s", "cto", launch.Record{
 		Binary: "codex", Handle: "cto", Session: "s", AgentPID: 1234,
 	})
-	// Mailbox touched recently but status is "offline": still a live mailbox
-	// behind a dead process — the inverse lie (running-looking writes, status
-	// says offline). Must surface as dead-mailbox-live, not dead.
+	// A clean stop's final act is writing presence {status:"offline",
+	// last_seen:now}. With the recorded PID verified dead that fresh write is a
+	// terminal signal, not a zombie heartbeat: the agent must NOT read as
+	// dead-mailbox-live (visible-online) for the 90s freshness window. This is
+	// the NOC-side mirror of amq-squad#109.
 	seedPresence(t, agentDir, "cto", "offline", testNow.Add(-5*time.Second))
 	probe := fakeProbe(map[int]bool{1234: false}, map[int]bool{1234: false}, nil)
 
@@ -267,8 +269,37 @@ func TestClassifyDeadMailboxLiveNonActiveStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := findAgent(t, snap, "cto")
+	if a.Liveness == LivenessDeadMailboxLive {
+		t.Fatal("fresh offline presence after a clean stop must not read dead-mailbox-live")
+	}
+	if a.Liveness != LivenessStale {
+		t.Fatalf("Liveness = %q, want stale (offline presence, dead recorded PID)", a.Liveness)
+	}
+	if a.Presence != "offline" {
+		t.Fatalf("raw Presence should still be reported as %q, got %q", "offline", a.Presence)
+	}
+}
+
+func TestClassifyDeadMailboxLiveIdleStatus(t *testing.T) {
+	base := t.TempDir()
+	proj := t.TempDir()
+	agentDir := seedAgent(t, base, "s", "cto", launch.Record{
+		Binary: "codex", Handle: "cto", Session: "s", AgentPID: 1234,
+	})
+	// Mailbox touched recently with a non-active, non-offline status ("idle")
+	// behind a dead process: something unexplained is still writing. This stays
+	// the distinct dead-mailbox-live signal; only a fresh "offline" write (the
+	// clean-stop terminal state) is exempt.
+	seedPresence(t, agentDir, "cto", "idle", testNow.Add(-5*time.Second))
+	probe := fakeProbe(map[int]bool{1234: false}, map[int]bool{1234: false}, nil)
+
+	snap, err := Build(proj, base, probe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := findAgent(t, snap, "cto")
 	if a.Liveness != LivenessDeadMailboxLive {
-		t.Fatalf("Liveness = %q, want dead-mailbox-live (fresh mailbox, dead pid)", a.Liveness)
+		t.Fatalf("Liveness = %q, want dead-mailbox-live (fresh idle mailbox, dead pid)", a.Liveness)
 	}
 }
 

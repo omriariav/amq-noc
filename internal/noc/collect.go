@@ -29,6 +29,18 @@ type ProjectSnapshot struct {
 	Candidate      bool           // true when this is an unconfigured team-home candidate
 	Snap           state.Snapshot // per-project discovery + coordination snapshot
 	Warning        string         // non-empty when collection failed for this project
+	// ConfiguredWorkstreams maps each team profile to the distinct member
+	// workstream hints in its team config (sorted, deduplicated, blank hints
+	// dropped; the deprecated team-level workstream shim counts only when no
+	// member carries a hint). One element means the profile pins a single
+	// configured workstream that launch flows should lead with; more than one
+	// means members disagree and the operator must choose explicitly (#22).
+	ConfiguredWorkstreams map[string][]string
+	// SessionBriefGoals maps a session/workstream name to the first paragraph
+	// of its brief's Goal section (.amq-squad/briefs/<session>.md), so the
+	// right pane can show what a workstream is FOR without leaving the NOC.
+	// Sessions without a readable brief are absent.
+	SessionBriefGoals map[string]string
 }
 
 // OperatorConfig is the NOC-facing copy of schema-3 team operator metadata. The
@@ -124,6 +136,7 @@ func Collect(roots []string, depth int, probe state.Probe, th state.Thresholds) 
 			SessionNames:   listAMQSessionNames(dir),
 		}
 		ps.Operator, ps.Capabilities = readProjectOperatorMetadata(dir, ps.Profiles)
+		ps.ConfiguredWorkstreams = readConfiguredWorkstreams(dir, ps.Profiles)
 		ps.Candidate = !ps.TeamConfigured && !ps.SessionStore
 		projectThresholds := th
 		if handle := ps.OperatorGateHandle(); handle != "" {
@@ -138,6 +151,8 @@ func Collect(roots []string, depth int, probe state.Probe, th state.Thresholds) 
 			ps.Warning = buildErr.Error()
 		} else {
 			ps.Snap = snap
+			applyOrchestrationMetadata(dir, &ps)
+			ps.SessionBriefGoals = readSessionBriefGoals(dir, ps.Snap)
 			ms.Rollup.Add(snap.Rollup)
 			if hasRunningAgent(snap) {
 				ms.LiveProjects++
@@ -229,6 +244,167 @@ func teamOperatorMetadata(t team.Team) (OperatorConfig, Capabilities) {
 		Handle:   handle,
 		Runnable: false,
 	}, caps
+}
+
+// readConfiguredWorkstreams collects, per team profile, the distinct member
+// workstream hints from its team config. The session name IS the AMQ
+// workstream (mailboxes + brief + history), so launch flows lead with the
+// configured name instead of free-asking the operator for one (#22). The
+// deprecated team-level workstream shim is honored only when no member
+// carries a hint, matching amq-squad's own resolution precedence.
+func readConfiguredWorkstreams(projectDir string, profiles []string) map[string][]string {
+	out := map[string][]string{}
+	for _, profile := range profiles {
+		t, err := team.ReadProfile(projectDir, profile)
+		if err != nil {
+			continue
+		}
+		seen := map[string]bool{}
+		names := []string{}
+		for _, m := range t.Members {
+			s := strings.TrimSpace(m.Session)
+			if s == "" || seen[s] {
+				continue
+			}
+			seen[s] = true
+			names = append(names, s)
+		}
+		if len(names) == 0 {
+			if s := strings.TrimSpace(t.Workstream); s != "" {
+				names = append(names, s)
+			}
+		}
+		if len(names) == 0 {
+			continue
+		}
+		sort.Strings(names)
+		out[profile] = names
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// applyOrchestrationMetadata enriches each session with its owning profile's
+// lead-agent orchestration contract (team.json orchestrated/lead, amq-squad
+// v1.7): Session.Orchestrated/LeadRole/LeadHandle plus Agent.IsLead on the
+// lead member's row. The effective profile is the unique launch-record team
+// profile across the session's agents; sessions whose agents disagree are
+// left unenriched rather than guessed.
+func applyOrchestrationMetadata(projectDir string, ps *ProjectSnapshot) {
+	for si := range ps.Snap.Sessions {
+		sess := &ps.Snap.Sessions[si]
+		profile := effectiveSessionProfile(*sess)
+		if profile == "" {
+			continue
+		}
+		t, err := team.ReadProfile(projectDir, profile)
+		if err != nil || !t.Orchestrated {
+			continue
+		}
+		leadHandle := t.LeadHandle()
+		if leadHandle == "" {
+			continue
+		}
+		sess.Orchestrated = true
+		sess.LeadRole = t.Lead
+		sess.LeadHandle = leadHandle
+		for ai := range sess.Agents {
+			ag := &sess.Agents[ai]
+			if strings.EqualFold(ag.Handle, leadHandle) ||
+				(strings.TrimSpace(ag.Role) != "" && strings.EqualFold(ag.Role, t.Lead)) {
+				ag.IsLead = true
+			}
+		}
+	}
+}
+
+// effectiveSessionProfile resolves which team profile a session was launched
+// from: the unique non-empty launch-record TeamProfile across its agents,
+// defaulting to the default profile when no record carries one. Ambiguous
+// sessions (agents from different profiles) return "" so callers skip
+// enrichment instead of guessing.
+func effectiveSessionProfile(sess state.Session) string {
+	resolved := ""
+	for _, ag := range sess.Agents {
+		profile := strings.TrimSpace(ag.TeamProfile)
+		if profile == "" {
+			profile = team.DefaultProfile
+		}
+		if resolved == "" {
+			resolved = profile
+			continue
+		}
+		if resolved != profile {
+			return ""
+		}
+	}
+	if resolved == "" {
+		return team.DefaultProfile
+	}
+	return resolved
+}
+
+// readSessionBriefGoals extracts the first paragraph under the "## Goal"
+// heading of each session's brief (.amq-squad/briefs/<session>.md). Sessions
+// without a readable brief or Goal section are absent from the map.
+func readSessionBriefGoals(projectDir string, snap state.Snapshot) map[string]string {
+	out := map[string]string{}
+	for _, sess := range snap.Sessions {
+		name := strings.TrimSpace(sess.Name)
+		if name == "" {
+			continue
+		}
+		goal := readBriefGoal(filepath.Join(projectDir, SquadDirName, "briefs", name+".md"))
+		if goal != "" {
+			out[name] = goal
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// readBriefGoal returns the first paragraph under "## Goal" (case-insensitive),
+// joined to one line and capped for row rendering. Empty when the file or the
+// section is missing.
+func readBriefGoal(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	const goalCap = 240
+	lines := strings.Split(string(data), "\n")
+	inGoal := false
+	var goal []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") {
+			if inGoal {
+				break
+			}
+			heading := strings.ToLower(strings.TrimSpace(strings.TrimLeft(trimmed, "#")))
+			inGoal = heading == "goal"
+			continue
+		}
+		if !inGoal {
+			continue
+		}
+		if trimmed == "" {
+			if len(goal) > 0 {
+				break
+			}
+			continue
+		}
+		goal = append(goal, trimmed)
+	}
+	joined := strings.Join(goal, " ")
+	if len(joined) > goalCap {
+		joined = joined[:goalCap-3] + "..."
+	}
+	return joined
 }
 
 func listAMQSessionNames(projectDir string) []string {

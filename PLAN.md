@@ -1,5 +1,152 @@
 # amq-noc Release Plan
 
+## Proposed: orchestrator-client track (0.7.x - 0.9.x)
+
+Updated: 2026-06-10. Status: 0.7.0 implemented on `feat/v0.7.0` (fixes +
+cleanup + read layer below; all gates green), pending operator review,
+commit, and release. 0.8.x / 0.9.x remain proposals.
+
+Goal: make amq-noc the human's client for orchestrated amq-squad teams. The
+operator creates orchestrated squads through amq-squad (`new team
+--orchestrated --lead ROLE`, the amq-team-setup wizard, the
+amq-squad-orchestrator lead skill); the NOC is where the human supervises and
+drives them: see which leads need attention, read child reports, answer gates,
+send directives to the lead, and run lifecycle, all from one screen.
+
+Producer-side contracts this consumes (shipped in amq-squad v1.6.0/v1.7.0):
+
+- `team.json` schema 3 `orchestrated: true` + `lead: <role>` (exactly one
+  lead, a member role, never the operator/NOC).
+- The `[AGENT-EVENT]`-over-AMQ reporting protocol: children push real AMQ
+  messages to the lead (`status` for progress/done, `question` for blocked,
+  `review_request` for ready) on `p2p/<lead>__<child>` threads; human gates
+  stay on `gate/<topic>` to the operator mailbox.
+- Per-session briefs at `.amq-squad/briefs/<session>.md` (wizard-normalized
+  Goal / Scope / Acceptance).
+
+Naming rule: the squad concept is "lead" / "orchestrated" in NOC code and UX.
+The existing `orchestrator:` filter key and `Message.Orchestrator` field are
+AMQ message metadata for external orchestrators (Symphony/Kanban) and stay
+unchanged; do not conflate the two.
+
+### 0.7.0 - the NOC sees orchestrated squads (fixes + cleanup + read layer)
+
+Fix first (live correctness bugs from field testing; the workstream-resolution
+helper built here is the same effective-profile resolution the read layer
+below needs for lead/orchestrated session rows):
+
+- [#22](https://github.com/omriariav/amq-noc/issues/22): the new-session flow
+  free-asks for a session name (`internal/console/noc_control.go`
+  `beginNewSessionForProject`) with no default and no semantics in the prompt,
+  then launches the squad under the typed name. A configured-but-never-launched
+  team gets silently routed into a brand-new workstream with a stub brief while
+  the reviewed brief sits unused under the configured name.
+- Fix per the issue: derive the workstream from the effective profile (the
+  unique member `session` value in team.json, or `up --dry-run --json`),
+  prefill the prompt instead of free-asking, and preflight-warn on divergence:
+  launching under a different name creates a new workstream with a stub brief.
+  If member sessions disagree, fall back to prompting with that warning.
+- Addendum from #22 testing: the copy-command panel already emits correct
+  project-level actions with no `--session` override (resolution delegated to
+  amq-squad). Fold in the enhancement: display the resolved workstream next
+  to each project-level action so the operator can see where the squad will
+  land before running anything; that information void is what made a
+  free-typed session name feel plausible.
+- Companion truthfulness fix, mirroring
+  [amq-squad#109](https://github.com/omriariav/amq-squad/issues/109): a
+  presence file with `status: "offline"` plus a dead recorded PID should
+  classify as stale/dead in the NOC's own snapshot classifier, not
+  `dead-mailbox-live`. Today a clean `stop` reads as online on the NOC board
+  for the 90s presence-freshness window. Align final semantics with whatever
+  fix amq-squad lands for #109.
+Remove (shrinks the surface the rest lands on):
+
+- Delete the unregistered copied amq-squad lifecycle command files in
+  `internal/cli` (up/down/resume/fork/team*/brief*/roles/workstream/new/rm/
+  agent*/launch*/bootstrap/status*/threads/thread/history/console/preflight/
+  restore and friends). They are dead code: `dispatch()` only routes the NOC
+  surface, and the fork has already drifted behind amq-squad v1.7. Audit
+  first: extract any helpers the NOC path still compiles against, then delete
+  the files and their tests. This closes the standing PLAN.md handoff note.
+- Trim `internal/catalog`, `internal/launch`, `internal/role`, and the copied
+  parts of `internal/team` down to what the NOC path actually uses.
+- Fold in #20 (DRY the duplicated hard-stop recency helpers into state).
+
+Add:
+
+- Parse `orchestrated` + `lead` in `internal/team` (additive; mirror squad
+  validation: lead required iff orchestrated, must name a member role).
+- Thread it through the snapshot: session rows resolve orchestrated/lead from
+  the effective profile (existing profile-resolution logic); agents gain an
+  is-lead flag; the lead role resolves to the member handle for thread
+  matching.
+- TUI: lead badge on the agent row, lead sorts first under an orchestrated
+  session, orchestrated marker on session rows. JSON adds `orchestrated`,
+  `lead`, and per-agent `is_lead` (additive fields only).
+- Orchestration digest in the right pane for orchestrated sessions: per
+  child, the latest report to the lead (kind + subject + age) projected from
+  the threads the NOC already collapses; no new I/O.
+- Brief context in the right pane: Goal/Acceptance lines read from
+  `.amq-squad/briefs/<session>.md`; silent degrade when absent.
+- Lead-aware status hint: lead dead while children live shows a deterministic
+  lead-down reason on the session row. Vocabulary stays
+  needs-you/blocked/waiting/online/stale; no new primary state.
+- Filters: `orchestrated` and `lead:<role>` tokens (CLI + TUI parity).
+
+### 0.8.0 - the NOC drives the lead (write layer)
+
+- Directive flow: first-class "direct the lead" control on orchestrated
+  session/lead rows. Multi-line compose (existing form + paste), preview,
+  confirm; deliver via the published member `send` action when
+  `available:true` (pane delivery; surface the busy-pane refusal cleanly,
+  never auto `--force`), else fall back to a durable AMQ message to the lead
+  handle via the act package. Label which channel was used and that direct
+  messages do not clear gates (existing 0.6.0 labeling).
+- #19: executable `up` through the same preview/confirm/exec seam as
+  down/resume; default exec target `new-session` so the NOC pane is never
+  hijacked (current-window variants stay copy-only in the `C` picker).
+  Parity audit for down/resume exec across project/session scopes.
+- #21: bounded latest-output preview per agent plus approve/deny/message
+  with an AMQ kind selector; kinds sourced from one shared constant list.
+- Run available read-only runtime actions directly: focus / attach_control /
+  status (focus gated on a usable tmux client, else copy).
+
+### 0.9.0 - polish
+
+- Execute #17 (visual redesign) around the now-stable orchestrated IA.
+- Optional needs-you transition alert (terminal bell first; desktop later).
+- Triage #18 backlog against the shipped orchestrator-client loop.
+
+### Upstream asks (amq-squad issues to open; NOC never forks runtime logic)
+
+- Publish `orchestrated`/`lead` in session-scope `status --json` (and the
+  board envelope) so external clients need no team.json file reads. The NOC
+  ships with the local-read path regardless.
+- Board/project-scope `data.actions[]` (already a known deferred gap in the
+  squad roadmap) to remove the NOC's per-session status N+1.
+- Watch the squad #31 lifecycle-verbs epic: keep NOC consumption behind
+  published contracts so a squad reshape does not break this client.
+
+### Decisions to confirm before scoping issues
+
+- Directive AMQ thread convention for the mailbox fallback: proposal
+  `p2p/<sorted lead__user>`; alternative `directive/<topic>`.
+- Lead-down presentation: reason/badge on `waiting` (proposal) vs a new
+  primary state (rejected by default; 0.6.0 settled the vocabulary).
+- Team creation stays out of the NOC: the wizard owns goal->brief->team; the
+  NOC offers the wizard invocation as copy text only. Confirm.
+
+### Compatibility and tests
+
+- Older squads (pre-v1.7 team.json, no orchestration fields) render exactly
+  as today; orchestrated teams observed by older amq-squad binaries degrade
+  to flat rendering plus whatever actions are published.
+- Contract tests per repo convention: keymap/footer truth for new lead-scoped
+  keys; additive JSON schema tests; directive preview/confirm seam tests
+  (recorded sender, no real bus); digest projection goldens from seeded
+  mailboxes; busy-refusal surfaced; gate-clear regression on a lead-raised
+  gate; lead-down liveness regression.
+
 ## Released: amq-noc 0.6.0 integrated NOC polish
 
 Updated: 2026-06-09.

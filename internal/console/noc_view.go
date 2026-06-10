@@ -1069,9 +1069,10 @@ func kickRecoverActions(ps noc.ProjectSnapshot, sessionName, amqRoot string) []n
 			commandAction("status", "amq-squad status --project "+dir+profile, "show this team-home's session board"),
 		}
 		if profileName != "PROFILE" {
+			wsNote := resolvedWorkstreamNote(ps, profileName)
 			actions = append(actions,
-				commandAction("resume preview", "amq-squad resume --project "+dir+profile, "print the project recovery plan"),
-				commandAction("up", "amq-squad up --project "+dir+profile, "start the configured team profile"),
+				commandAction("resume preview", "amq-squad resume --project "+dir+profile, "print the project recovery plan"+wsNote),
+				commandAction("up", "amq-squad up --project "+dir+profile, "start the configured team profile"+wsNote),
 			)
 		}
 		return actions
@@ -1108,6 +1109,22 @@ func kickRecoverActions(ps noc.ProjectSnapshot, sessionName, amqRoot string) []n
 
 func commandAction(label, command, description string) nocCommandAction {
 	return nocCommandAction{Label: label, Command: command, Description: description}
+}
+
+// resolvedWorkstreamNote annotates a project-level launch action with the AMQ
+// workstream amq-squad will resolve for it, so the operator can see where the
+// squad will land before running anything (amq-noc#22). Display-only: the C
+// picker copies the command, never the description.
+func resolvedWorkstreamNote(ps noc.ProjectSnapshot, profileName string) string {
+	configured, conflicts, ok := configuredWorkstreamForProfile(ps, profileName)
+	switch {
+	case ok:
+		return "; workstream: " + configured
+	case len(conflicts) > 1:
+		return "; members configure different workstreams: " + strings.Join(conflicts, ", ")
+	default:
+		return ""
+	}
 }
 
 func agentCommandActions(ps noc.ProjectSnapshot, sess state.Session, ag state.Agent) []nocCommandAction {
@@ -1502,6 +1519,7 @@ func (m NOCModel) sessionDetail(n nocNode) string {
 	var b strings.Builder
 	b.WriteString(m.th.paint(m.th.brand, "SESSION  ") + m.th.paint(m.th.brand, n.label) + "\n")
 	b.WriteString(m.th.paint(m.th.dim, n.project.Project) + "\n")
+	b.WriteString(m.orchestrationHeader(n.project, n.session))
 	b.WriteString(m.detailRule() + "\n")
 
 	b.WriteString(m.th.paint(m.th.dim, "now") + "\n")
@@ -1525,6 +1543,10 @@ func (m NOCModel) sessionDetail(n nocNode) string {
 		b.WriteString(m.th.paint(m.th.dim, "  (no current thread signal)") + "\n")
 	}
 	b.WriteString(m.detailRule() + "\n")
+
+	if n.session.Orchestrated {
+		b.WriteString(m.leadReportsSection(n.session))
+	}
 
 	// Thread history is a bounded newest-first preview. The full thread stream is
 	// still available through the existing thread/read controls, but it should

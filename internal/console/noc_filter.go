@@ -11,6 +11,8 @@
 //	project:<p>                     -> project name
 //	session:<s>                     -> session name
 //	label:<l> / orchestrator:<o>    -> AMQ integration metadata
+//	orchestrated                    -> lead-agent orchestrated squads only
+//	lead:<r>                        -> orchestrated lead role/handle
 //	<bare text>                     -> matches project / session / handle / role
 package console
 
@@ -61,12 +63,15 @@ func parseNOCFilter(filter string) []nocFilterClause {
 		case "stale", "stopped":
 			clauses = append(clauses, nocFilterClause{key: "state", val: "stale"})
 			continue
+		case "orchestrated":
+			clauses = append(clauses, nocFilterClause{key: "orchestrated"})
+			continue
 		}
 		if i := strings.IndexByte(tok, ':'); i >= 0 {
 			key := strings.ToLower(tok[:i])
 			val := strings.ToLower(tok[i+1:])
 			switch key {
-			case "agent", "model", "project", "session", "label", "orchestrator":
+			case "agent", "model", "project", "session", "label", "orchestrator", "lead":
 				clauses = append(clauses, nocFilterClause{key: key, val: val})
 				continue
 			}
@@ -157,7 +162,7 @@ func sessionSatisfies(sess state.Session, c nocFilterClause) bool {
 	switch c.key {
 	case "triage":
 		if c.val == "blocked" {
-			return sessionHasHardStop(sess)
+			return state.SessionHasHardStop(sess)
 		}
 		return triageMatchesRollup(c.val, sess.Rollup)
 	case "state":
@@ -167,6 +172,14 @@ func sessionSatisfies(sess state.Session, c nocFilterClause) bool {
 	case "project":
 		// A session does not carry its project name; defer to project scope.
 		return true
+	case "orchestrated":
+		return sess.Orchestrated
+	case "lead":
+		if !sess.Orchestrated {
+			return false
+		}
+		return strings.Contains(strings.ToLower(sess.LeadRole), c.val) ||
+			strings.Contains(strings.ToLower(sess.LeadHandle), c.val)
 	case "label", "orchestrator":
 		for _, th := range sess.Coordination.Threads {
 			if threadSatisfies(th, c) {
@@ -276,6 +289,11 @@ func agentSatisfiesInProjectSession(ps noc.ProjectSnapshot, sess state.Session, 
 			}
 		}
 	}
+	if c.key == "orchestrated" || c.key == "lead" {
+		// Orchestration is session-scope metadata: agents under a matching
+		// session all pass, mirroring the session/project key behavior.
+		return sessionSatisfies(sess, c)
+	}
 	if c.key == "state" {
 		return nocVisibleStateMatches(c.val, agentNodeState(sess, ag))
 	}
@@ -295,7 +313,7 @@ func agentSatisfies(ag state.Agent, c nocFilterClause) bool {
 		return true
 	case "state":
 		return nocVisibleStateMatches(c.val, agentState(ag))
-	case "session", "project":
+	case "session", "project", "orchestrated", "lead":
 		return true
 	default:
 		hay := strings.ToLower(ag.Handle + " " + ag.Role + " " + ag.Engine)

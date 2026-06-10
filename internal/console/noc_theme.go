@@ -362,7 +362,7 @@ func sessionRollupState(sess state.Session) nocState {
 			if att == state.TriageAtRisk && hasNewerClearActivity(sess) {
 				return nocRunning
 			}
-			if att == state.TriageBlocked && !sessionHasHardStop(sess) {
+			if att == state.TriageBlocked && !state.SessionHasHardStop(sess) {
 				return nocWaiting
 			}
 			return triageState(att)
@@ -371,36 +371,9 @@ func sessionRollupState(sess state.Session) nocState {
 	return rollupState(sess.Rollup, hasVisibleOnline, hasAny)
 }
 
-func sessionHasHardStop(sess state.Session) bool {
-	for _, th := range sess.Coordination.Threads {
-		if th.Historical || th.Stale || !state.ThreadHardStop(th) {
-			continue
-		}
-		if th.LastEventAt.IsZero() {
-			return true
-		}
-		if !hardStopSupersededByNewerWait(sess, th) {
-			return true
-		}
-	}
-	return false
-}
-
-func hardStopSupersededByNewerWait(sess state.Session, hard state.ThreadSummary) bool {
-	for _, th := range sess.Coordination.Threads {
-		if th.Historical || th.Stale || th.LastEventAt.IsZero() || !th.LastEventAt.After(hard.LastEventAt) {
-			continue
-		}
-		if state.ThreadPrimaryWait(th) && state.ThreadsShareParticipant(hard, th) {
-			return true
-		}
-	}
-	return false
-}
-
 func projectHasHardStop(ps noc.ProjectSnapshot) bool {
 	for _, sess := range ps.Snap.Sessions {
-		if sessionHasHardStop(sess) {
+		if state.SessionHasHardStop(sess) {
 			return true
 		}
 	}
@@ -410,7 +383,7 @@ func projectHasHardStop(ps noc.ProjectSnapshot) bool {
 func agentHasHardStop(sess state.Session, handle string) bool {
 	handle = strings.TrimSpace(handle)
 	if handle == "" {
-		return sessionHasHardStop(sess)
+		return state.SessionHasHardStop(sess)
 	}
 	var newestHard time.Time
 	var hardWithoutTime bool

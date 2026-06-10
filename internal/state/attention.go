@@ -168,3 +168,30 @@ func threadHasParticipant(th ThreadSummary, handle string) bool {
 	}
 	return false
 }
+
+// SessionLeadDown reports an orchestrated session whose lead agent is not
+// operational while at least one other agent still is: the squad continues
+// but its driver is gone. Deterministic liveness only, never prose inference;
+// false when the session is not orchestrated or carries no lead row at all
+// (an unlaunched lead is a roster question, not a runtime regression).
+func SessionLeadDown(sess Session) bool {
+	if !sess.Orchestrated || strings.TrimSpace(sess.LeadHandle) == "" {
+		return false
+	}
+	leadFound := false
+	leadOperational := false
+	otherOperational := false
+	for _, ag := range sess.Agents {
+		if ag.IsLead || strings.EqualFold(ag.Handle, sess.LeadHandle) {
+			leadFound = true
+			if agentOperational(ag) {
+				leadOperational = true
+			}
+			continue
+		}
+		if agentOperational(ag) {
+			otherOperational = true
+		}
+	}
+	return leadFound && !leadOperational && otherOperational
+}

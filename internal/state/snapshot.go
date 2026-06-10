@@ -192,6 +192,7 @@ func classifyAgent(e launch.Entry, probe Probe) Agent {
 
 	// --- Presence freshness (a recently-touched mailbox heartbeat). ---
 	presenceActiveFresh := false
+	presenceOfflineFresh := false
 	mailboxRecentlyTouched := false
 	if presErr == nil && !pres.LastSeen.IsZero() {
 		recent := probe.Now().Sub(pres.LastSeen) <= PresenceFreshness
@@ -200,6 +201,9 @@ func classifyAgent(e launch.Entry, probe Probe) Agent {
 			mailboxRecentlyTouched = true
 			if strings.EqualFold(pres.Status, "active") {
 				presenceActiveFresh = true
+			}
+			if strings.EqualFold(pres.Status, "offline") {
+				presenceOfflineFresh = true
 			}
 		}
 	}
@@ -225,10 +229,13 @@ func classifyAgent(e launch.Entry, probe Probe) Agent {
 		} else {
 			a.Liveness = LivenessAlive
 		}
-	case mailboxRecentlyTouched && rec.AgentPID > 0:
-		// Mailbox touched recently (presence not "active", e.g. "offline"/"idle")
-		// yet the recorded agent PID is dead: something is still writing while
-		// the agent is gone. Distinct dead-mailbox-live signal.
+	case mailboxRecentlyTouched && rec.AgentPID > 0 && !presenceOfflineFresh:
+		// Mailbox touched recently (presence not "active", e.g. "idle") yet the
+		// recorded agent PID is dead: something is still writing while the agent
+		// is gone. Distinct dead-mailbox-live signal. A fresh "offline" status is
+		// excluded: that write is the expected final act of a clean stop, not a
+		// zombie heartbeat, so it falls through to stale below instead of pinning
+		// the agent visible-online for the freshness window (amq-squad#109).
 		a.Liveness = LivenessDeadMailboxLive
 	case !hasAnyDiskSignal:
 		a.Liveness = LivenessMissing

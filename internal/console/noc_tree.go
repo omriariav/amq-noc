@@ -367,6 +367,11 @@ func sortedAgentsForSession(sess state.Session) []state.Agent {
 		if si != sj {
 			return si < sj
 		}
+		// Within a state tier the orchestrated lead sorts first: it is the
+		// human's point of contact. Attention ordering still wins above.
+		if out[i].IsLead != out[j].IsLead {
+			return out[i].IsLead
+		}
 		return out[i].Handle < out[j].Handle
 	})
 	return out
@@ -423,12 +428,18 @@ func agentRecent(ag state.Agent) string {
 	return strings.Join(parts, " · ")
 }
 
-// agentLabel is the handle, the human-facing identity of an agent row.
+// agentLabel is the handle, the human-facing identity of an agent row. The
+// lead of an orchestrated squad carries an explicit "(lead)" badge: it is the
+// human's single point of contact and must be identifiable at a glance.
 func agentLabel(ag state.Agent) string {
-	if ag.Handle != "" {
-		return ag.Handle
+	label := ag.Handle
+	if label == "" {
+		label = "(agent)"
 	}
-	return "(agent)"
+	if ag.IsLead {
+		label += " (lead)"
+	}
+	return label
 }
 
 // sessionLabel is the NEVER-BLANK display label for a session. The base-root
@@ -436,15 +447,20 @@ func agentLabel(ag state.Agent) string {
 // like a bug, so we substitute an explicit placeholder. "(root)" marks the
 // base-root layout; "(default-session)" is the generic empty-name fallback.
 func sessionLabel(sess state.Session) string {
-	if name := strings.TrimSpace(sess.Name); name != "" {
-		return name
+	name := strings.TrimSpace(sess.Name)
+	if name == "" {
+		// A session anchored directly at the base root (its Root has no extra
+		// path segment under the container) is the base-root layout: call it "(root)".
+		if isBaseRootSession(sess) {
+			name = "(root)"
+		} else {
+			name = "(default-session)"
+		}
 	}
-	// A session anchored directly at the base root (its Root has no extra
-	// path segment under the container) is the base-root layout: call it "(root)".
-	if isBaseRootSession(sess) {
-		return "(root)"
+	if sess.Orchestrated {
+		name += " (orchestrated)"
 	}
-	return "(default-session)"
+	return name
 }
 
 // isBaseRootSession reports whether a session is the base-root (rootless)

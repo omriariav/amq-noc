@@ -593,6 +593,10 @@ type nocSessionJSONData struct {
 	Attention       string              `json:"attention"`
 	AttentionReason string              `json:"attention_reason,omitempty"`
 	UnownedEvidence string              `json:"unowned_evidence,omitempty"`
+	Orchestrated    bool                `json:"orchestrated,omitempty"`
+	Lead            string              `json:"lead,omitempty"`
+	LeadHandle      string              `json:"lead_handle,omitempty"`
+	LeadDown        bool                `json:"lead_down,omitempty"`
 	Rollup          nocRollupData       `json:"rollup"`
 	Threads         []threadRow         `json:"threads,omitempty"`
 	Agents          []nocAgentJSONData  `json:"agents,omitempty"`
@@ -613,6 +617,7 @@ type nocAgentJSONData struct {
 	Conversation    string              `json:"conversation,omitempty"`
 	Source          string              `json:"source,omitempty"`
 	TeamProfile     string              `json:"team_profile"`
+	IsLead          bool                `json:"is_lead,omitempty"`
 	Actions         []nocActionJSONData `json:"actions,omitempty"`
 }
 
@@ -2219,6 +2224,7 @@ func nocSessionEnvelope(ps noc.ProjectSnapshot, sess state.Session) nocSessionJS
 			Conversation:    ag.Conversation,
 			Source:          ag.Source,
 			TeamProfile:     profile,
+			IsLead:          ag.IsLead,
 			ID:              nocAgentJSONID(ps.Dir, sess.Name, ag.Handle),
 			Actions:         nocAgentActions(ps, sess, ag),
 		})
@@ -2242,6 +2248,10 @@ func nocSessionEnvelope(ps noc.ProjectSnapshot, sess state.Session) nocSessionJS
 		Attention:       string(sessionAttention.State),
 		AttentionReason: string(sessionAttention.Reason),
 		UnownedEvidence: liveAttentionString(sess.UnownedAttention),
+		Orchestrated:    sess.Orchestrated,
+		Lead:            sess.LeadRole,
+		LeadHandle:      sess.LeadHandle,
+		LeadDown:        state.SessionLeadDown(sess),
 		Rollup:          nocRollupEnvelope(sess.Rollup),
 		Threads:         threads,
 		Agents:          agents,
@@ -3070,14 +3080,14 @@ func nocSessionJSONState(sess state.Session, liveVisible, total int) string {
 	// to the rollup path and stays online, with the evidence retained in the rollup +
 	// unowned_evidence detail. liveVisible counts visible-online agents (alive or
 	// dead-mailbox-live), so the online determination matches the TUI.
-	if s := nocAttnJSONState(nocSessionGatedAttention(sess), nocSessionHasHardStop(sess)); s != "" {
+	if s := nocAttnJSONState(nocSessionGatedAttention(sess), state.SessionHasHardStop(sess)); s != "" {
 		return s
 	}
 	return nocRollupJSONState(sess.Rollup, liveVisible, total)
 }
 
 func nocSessionJSONReasonCode(sess state.Session, liveVisible, total int) string {
-	if rc := nocAttnReasonCode(nocSessionGatedAttention(sess), nocSessionHasHardStop(sess)); rc != "" {
+	if rc := nocAttnReasonCode(nocSessionGatedAttention(sess), state.SessionHasHardStop(sess)); rc != "" {
 		return rc
 	}
 	return nocRollupReasonCode(sess.Rollup, liveVisible, total, "empty")
@@ -3224,34 +3234,7 @@ func nocProjectOwnedAttn(ps noc.ProjectSnapshot) state.Triage {
 
 func nocProjectHasHardStop(ps noc.ProjectSnapshot) bool {
 	for _, sess := range ps.Snap.Sessions {
-		if nocSessionHasHardStop(sess) {
-			return true
-		}
-	}
-	return false
-}
-
-func nocSessionHasHardStop(sess state.Session) bool {
-	for _, th := range sess.Coordination.Threads {
-		if th.Historical || th.Stale || !state.ThreadHardStop(th) {
-			continue
-		}
-		if th.LastEventAt.IsZero() {
-			return true
-		}
-		if !nocHardStopSupersededByNewerWait(sess, th) {
-			return true
-		}
-	}
-	return false
-}
-
-func nocHardStopSupersededByNewerWait(sess state.Session, hard state.ThreadSummary) bool {
-	for _, th := range sess.Coordination.Threads {
-		if th.Historical || th.Stale || th.LastEventAt.IsZero() || !th.LastEventAt.After(hard.LastEventAt) {
-			continue
-		}
-		if state.ThreadPrimaryWait(th) && state.ThreadsShareParticipant(hard, th) {
+		if state.SessionHasHardStop(sess) {
 			return true
 		}
 	}

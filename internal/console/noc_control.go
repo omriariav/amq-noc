@@ -1209,6 +1209,10 @@ type pendingAction struct {
 	// affected lists the agents the action touches, shown under the preview so
 	// scope is explicit (recipients for an AMQ write, the roster for lifecycle).
 	affected []string
+	// warning is an optional consequence note rendered in the confirm overlay
+	// (e.g. a new-session name diverging from the team's configured workstream).
+	// It never blocks confirmation; it makes the consequence explicit first.
+	warning string
 }
 
 // inputAction is the text editor before a read-only lookup or confirm overlay.
@@ -1231,6 +1235,10 @@ type inputAction struct {
 	read            func(subject, body, extra string) tea.Cmd
 	validateSubject func(string) error
 	validateBody    func(string) error
+	// stagePrefill optionally recomputes the stage-1 body prefill + hint once
+	// the stage-0 choice is captured (e.g. new-session resolving the chosen
+	// profile's configured workstream). Nil keeps the editor's static hint.
+	stagePrefill func(choice string) (body, hint string)
 }
 
 // controlEnabled reports whether the control layer is active. It is always true
@@ -2423,35 +2431,92 @@ func (m *NOCModel) beginNewSessionForProject(project noc.ProjectSnapshot) tea.Cm
 	}
 	stage := 1
 	var validateSubject func(string) error
+	var stagePrefill func(choice string) (string, string)
 	hint := ""
+	body := ""
 	if len(choices) > 0 {
 		stage = 0
 		hint = "profiles: " + strings.Join(choices, ", ")
 		validateSubject = func(raw string) error {
 			return validateNOCProfileChoice(raw, choices)
 		}
+		stagePrefill = func(choice string) (string, string) {
+			return newSessionPrefill(project, choice)
+		}
 	} else {
-		hint = "session name, or: issue-97 seed-from=issue:31"
+		body, hint = newSessionPrefill(project, profile)
 	}
 	m.input = &inputAction{
 		kind:            ctlNewSession,
 		stage:           stage,
+		body:            body,
 		hint:            hint,
 		validateSubject: validateSubject,
+		stagePrefill:    stagePrefill,
 		validateBody: func(name string) error {
 			return validateNOCNewSessionName(name, project)
 		},
 		build: func(profileChoice, session, _ string) pendingAction {
 			launchProfile := profile
+			effectiveProfile := profile
 			if len(choices) > 0 {
 				launchProfile = profileForOp(profileChoice)
+				effectiveProfile = profileChoice
 			}
 			parsedSession, seedFrom, _ := parseNOCNewSessionInput(session)
 			op := newSessionOp{ProjectDir: projectDir, Profile: launchProfile, Session: parsedSession, SeedFrom: seedFrom}
-			return pendingAction{kind: ctlNewSession, preview: op.command(), session: &op, affected: []string{projectDir}}
+			warning := ""
+			if configured, _, okWS := configuredWorkstreamForProfile(project, effectiveProfile); okWS && parsedSession != "" && parsedSession != configured {
+				warning = "team is configured for workstream " + configured + "; launching under " + parsedSession + " creates a NEW workstream with a stub brief"
+			}
+			return pendingAction{kind: ctlNewSession, preview: op.command(), session: &op, affected: []string{projectDir}, warning: warning}
 		},
 	}
 	return nil
+}
+
+// configuredWorkstreamForProfile resolves a launch profile's configured AMQ
+// workstream from the collected team metadata. ok is true only when exactly
+// one distinct member workstream hint is configured. conflicts carries the
+// distinct hints when members disagree (ok=false); both are empty when the
+// profile configures no workstream at all. An empty/op-normalized profile
+// maps to the default profile.
+func configuredWorkstreamForProfile(project noc.ProjectSnapshot, profile string) (name string, conflicts []string, ok bool) {
+	profile = strings.TrimSpace(profile)
+	if profile == "" {
+		profile = team.DefaultProfile
+	}
+	names := project.ConfiguredWorkstreams[profile]
+	switch len(names) {
+	case 0:
+		return "", nil, false
+	case 1:
+		return names[0], nil, true
+	default:
+		return "", names, false
+	}
+}
+
+// newSessionPrefill resolves the new-session editor's body prefill + hint for
+// a launch profile. The session name IS the AMQ workstream (mailboxes + brief
+// + history), so when the team pins one configured workstream that has not
+// been launched yet, the editor leads with it instead of free-asking (#22).
+// An already-existing configured workstream is never prefilled: the name
+// validator rejects it, and the right verb for it is resume, not new-session.
+func newSessionPrefill(project noc.ProjectSnapshot, profile string) (body, hint string) {
+	configured, conflicts, ok := configuredWorkstreamForProfile(project, profile)
+	if !ok {
+		if len(conflicts) > 1 {
+			return "", "members configure different workstreams (" + strings.Join(conflicts, ", ") + "); the name you type is the AMQ workstream (mailboxes + brief)"
+		}
+		return "", "AMQ workstream name (mailboxes + brief), or: issue-97 seed-from=issue:31"
+	}
+	for _, existing := range project.SessionNames {
+		if existing == configured {
+			return "", "configured workstream " + configured + " already exists (select it and press R to resume); a different name creates a NEW workstream with a stub brief"
+		}
+	}
+	return configured, "enter launches the configured workstream " + configured + "; a different name creates a NEW workstream (mailboxes + brief)"
 }
 
 func launchProfileForNewSession(project noc.ProjectSnapshot) (profile string, choices []string, note string, ok bool) {
@@ -3212,6 +3277,9 @@ func (m *NOCModel) handleInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			in.subject = profile
 			in.stage = 1
 			in.hint = "session name, or: issue-97 seed-from=issue:31"
+			if in.stagePrefill != nil {
+				in.body, in.hint = in.stagePrefill(profile)
+			}
 			return m, nil
 		}
 		if lifecycleControlKind(in.kind) && in.stage == 0 {
@@ -3700,6 +3768,10 @@ func (m NOCModel) confirmOverlayView() string {
 	b.WriteString("\n")
 	if len(p.affected) > 0 {
 		b.WriteString(m.th.paint(m.th.dim, "affects: "+strings.Join(p.affected, ", ")))
+		b.WriteString("\n")
+	}
+	if warning := strings.TrimSpace(p.warning); warning != "" {
+		b.WriteString(m.th.paint(m.th.needsYou, "warning: "+warning))
 		b.WriteString("\n")
 	}
 	b.WriteString(m.th.paint(m.th.rule, m.thinRule()))

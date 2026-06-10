@@ -181,6 +181,7 @@ func (a *threadAccumulator) summarize(now time.Time, th Thresholds, agents []Age
 		Participants:  parts,
 		Subject:       a.subject,
 		Kind:          a.lastKind,
+		LastFrom:      a.latest.From,
 		Labels:        labels,
 		Orchestrator:  a.orchestrator,
 		FromProject:   a.fromProject,

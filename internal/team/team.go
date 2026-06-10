@@ -99,8 +99,42 @@ type Team struct {
 	Operator     OperatorConfig      `json:"operator,omitempty"`
 	Capabilities Capabilities        `json:"capabilities,omitempty"`
 	BinaryArgs   map[string][]string `json:"binary_args,omitempty"`
-	Members      []Member            `json:"members"`
-	CreatedAt    time.Time           `json:"created_at"`
+	// Orchestrated marks a lead-agent orchestrated squad (amq-squad v1.7):
+	// one member (Lead) spawns, dispatches, and monitors the others. Lead
+	// names the lead ROLE (a member role, never the operator) and is required
+	// exactly when Orchestrated is set. The NOC consumes these read-only.
+	Orchestrated bool      `json:"orchestrated,omitempty"`
+	Lead         string    `json:"lead,omitempty"`
+	Members      []Member  `json:"members"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// LeadMember returns the member that carries the lead role of an orchestrated
+// team, ok=false when the team is not orchestrated or the lead role names no
+// member (a config the validator rejects, but reads stay defensive).
+func (t Team) LeadMember() (Member, bool) {
+	if !t.Orchestrated || strings.TrimSpace(t.Lead) == "" {
+		return Member{}, false
+	}
+	for _, m := range t.Members {
+		if strings.EqualFold(m.Role, t.Lead) {
+			return m, true
+		}
+	}
+	return Member{}, false
+}
+
+// LeadHandle resolves the AMQ handle of an orchestrated team's lead member
+// (handle defaults to the role). Empty when the team is not orchestrated.
+func (t Team) LeadHandle() string {
+	m, ok := t.LeadMember()
+	if !ok {
+		return ""
+	}
+	if strings.TrimSpace(m.Handle) != "" {
+		return m.Handle
+	}
+	return m.Role
 }
 
 // Path returns the team.json path for the default profile under projectDir.
@@ -293,6 +327,9 @@ func Validate(t Team) error {
 			}
 		}
 	}
+	if err := validateOrchestration(t); err != nil {
+		return err
+	}
 	seenHandles := map[string]bool{}
 	for i, m := range t.Members {
 		prefix := fmt.Sprintf("members[%d]", i)
@@ -314,6 +351,32 @@ func Validate(t Team) error {
 		}
 	}
 	return nil
+}
+
+// validateOrchestration mirrors amq-squad's lead/orchestrated contract: an
+// orchestrated team declares exactly one lead, the lead must be a valid role
+// slug naming an actual member, and a lead without orchestrated is rejected so
+// the half-state cannot persist via hand-edit.
+func validateOrchestration(t Team) error {
+	lead := strings.TrimSpace(t.Lead)
+	if t.Orchestrated && lead == "" {
+		return fmt.Errorf("orchestrated: a lead role is required when orchestrated is true")
+	}
+	if lead == "" {
+		return nil
+	}
+	if !t.Orchestrated {
+		return fmt.Errorf("lead: set orchestrated=true to name a lead")
+	}
+	if err := ValidateRoleID(lead); err != nil {
+		return fmt.Errorf("lead: %w", err)
+	}
+	for _, m := range t.Members {
+		if strings.EqualFold(m.Role, lead) {
+			return nil
+		}
+	}
+	return fmt.Errorf("lead: role %q does not name a team member", lead)
 }
 
 func validateMember(prefix string, m Member) error {

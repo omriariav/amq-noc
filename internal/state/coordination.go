@@ -186,6 +186,7 @@ type ThreadSummary struct {
 	Participants []string // union of from + to, sorted
 	Subject      string   // latest non-empty subject
 	Kind         Kind     // latest recognized kind
+	LastFrom     string   // sender handle of the latest message, when present
 	Labels       []string // union of AMQ labels observed on messages in the thread
 	Orchestrator string   // latest orchestrator metadata, when present
 	FromProject  string   // latest cross-project sender metadata, when present
@@ -614,6 +615,41 @@ func ThreadsShareParticipant(a, b ThreadSummary) bool {
 			if strings.EqualFold(ap, strings.TrimSpace(bp)) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+// SessionHasHardStop reports whether the session carries a CURRENT hard stop:
+// a non-historical, non-stale hard-stop thread not superseded by newer waiting
+// activity from an overlapping participant set. This is the single primary
+// blocked-vs-waiting gate shared by the JSON snapshot and the TUI (#20); the
+// two surfaces previously carried byte-identical private copies.
+func SessionHasHardStop(sess Session) bool {
+	for _, th := range sess.Coordination.Threads {
+		if th.Historical || th.Stale || !ThreadHardStop(th) {
+			continue
+		}
+		if th.LastEventAt.IsZero() {
+			return true
+		}
+		if !HardStopSupersededByNewerWait(sess, th) {
+			return true
+		}
+	}
+	return false
+}
+
+// HardStopSupersededByNewerWait reports whether a newer current waiting thread
+// with at least one shared participant supersedes the given hard-stop thread
+// on primary surfaces. The older hard stop stays visible in detail/history.
+func HardStopSupersededByNewerWait(sess Session, hard ThreadSummary) bool {
+	for _, th := range sess.Coordination.Threads {
+		if th.Historical || th.Stale || th.LastEventAt.IsZero() || !th.LastEventAt.After(hard.LastEventAt) {
+			continue
+		}
+		if ThreadPrimaryWait(th) && ThreadsShareParticipant(hard, th) {
+			return true
 		}
 	}
 	return false

@@ -72,6 +72,11 @@ const (
 	// still writing to the mailbox while the agent process is gone. This MUST
 	// NOT collapse into "stale" or "alive": it is its own signal that the
 	// operator likely has a zombie heartbeat or a detached wake.
+	//
+	// Exception: a fresh presence whose status is "offline" alongside a dead
+	// recorded PID is the expected terminal write of a clean stop, not a zombie
+	// heartbeat, and classifies stale instead (the NOC-side mirror of
+	// amq-squad#109).
 	LivenessDeadMailboxLive Liveness = "dead-mailbox-live"
 )
 
@@ -114,6 +119,10 @@ type Agent struct {
 	// at-risk/clear) over the current thread evidence it owns. It is SEPARATE from
 	// Liveness: a non-operational agent stays clear here. See Attention.
 	Attention Attention
+	// IsLead marks the lead member of an orchestrated squad (amq-squad v1.7
+	// team.json orchestrated/lead). Enrichment field: state.Build leaves it
+	// false; the noc collector resolves it from the effective team profile.
+	IsLead bool
 }
 
 // Session groups the agents discovered under one AMQ session root, plus the
@@ -133,6 +142,15 @@ type Session struct {
 	// Both are derived from thread evidence and are separate from agent liveness.
 	Attention        Attention
 	UnownedAttention Attention
+	// Orchestrated / LeadRole / LeadHandle mirror the owning team profile's
+	// lead-agent orchestration contract (amq-squad v1.7 team.json
+	// orchestrated/lead): one lead member drives the others and is the
+	// human's single point of contact. Enrichment fields: state.Build leaves
+	// them zero; the noc collector resolves them from the effective team
+	// profile of the session's launch records.
+	Orchestrated bool
+	LeadRole     string
+	LeadHandle   string
 }
 
 // Snapshot is the full read-only view of all discovered sessions and agents,

@@ -106,10 +106,11 @@
     <p>JSON snapshots use the same primary vocabulary as the TUI. In <code>v0.2.1</code>, <code>state</code> and <code>reason_code</code> values for live/no-wait rows changed from <code>running</code> to <code>online</code>; filters still accept <code>running</code> as an alias for <code>online</code>.</p>
     <p>The <code>agents_alive</code> count is the visible-online count: it includes fresh-presence agents (dead-mailbox-live, reachable without a verified pid) and matches what the TUI renders as online. Non-human waits stay gated to operationally live agents, so fresh presence alone never promotes a wait.</p>
     <p><code>v0.6.0</code> consumes published <code>amq-squad v1.5</code> runtime actions in CLI action JSON and the <code>C copy-cmd</code> picker, including the v1.5.2+ session action catalog, while preserving deterministic fallback commands for older or partial contracts.</p>
+    <p><code>v0.7.0</code> makes the NOC the human's client for lead-agent orchestrated squads (<code>amq-squad v1.7</code> <code>orchestrated</code>/<code>lead</code> teams): a <code>(lead)</code> badge with lead-first ordering, an <code>(orchestrated)</code> session marker, a per-child lead-exchange digest plus the brief's Goal line in the session pane, a deterministic lead-down warning, additive JSON fields (<code>orchestrated</code>, <code>lead</code>, <code>lead_handle</code>, <code>lead_down</code>, <code>is_lead</code>), and <code>orchestrated</code> / <code>lead:&lt;role&gt;</code> filters. The new-session flow now derives the team's configured workstream instead of free-asking (a divergent name warns that it creates a NEW workstream with a stub brief), the copy panel shows the resolved workstream per launch action, and a cleanly stopped agent no longer reads online for the 90s presence-freshness window.</p>
 
     <h2>Install</h2>
-    <pre><code>go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.6.0</code></pre>
-    <p>Requires Go 1.25+, <code>amq</code>, <code>amq-squad</code> v1.5.2 or newer for the session action catalog (older builds keep fallback commands), and <code>tmux</code>.</p>
+    <pre><code>go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.7.0</code></pre>
+    <p>Requires Go 1.25+, <code>amq</code>, <code>amq-squad</code> v1.5.2 or newer for the session action catalog (older builds keep fallback commands; v1.7.0 recommended for the orchestrated/lead contract), and <code>tmux</code>.</p>
 
     <h2>Quick Start</h2>
     <pre><code>amq-noc --root ~/Code

@@ -94,11 +94,23 @@ operationally live agents, so fresh presence alone never promotes a wait.
   fallback generation for older contracts
 - JSON/TUI status alignment for fresh-presence `dead-mailbox-live` agents
 - clipboard paste support in filter and action input prompts
+- lead-agent orchestration awareness for `amq-squad v1.7` teams: a `(lead)`
+  badge and lead-first ordering, an `(orchestrated)` session marker, a
+  per-child lead-exchange digest, brief Goal context in the session pane, a
+  deterministic lead-down hint, additive JSON fields, and `orchestrated` /
+  `lead:<role>` filters
+- configured-workstream derivation in the new-session flow: the prompt leads
+  with the team's configured workstream, warns when a typed name diverges
+  (a divergent name creates a NEW workstream with a stub brief), and the
+  copy-command panel shows the resolved workstream per launch action
+- offline-presence truth: a cleanly stopped agent (presence `offline` plus a
+  dead recorded PID) classifies stale instead of reading online for the 90s
+  freshness window
 
 ## Install
 
 ```sh
-go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.6.0
+go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.7.0
 ```
 
 Requirements:
@@ -194,6 +206,27 @@ longer addressed to the operator.
 
 For more detail, see [`docs/operator-gate.md`](docs/operator-gate.md).
 
+## Orchestrated squads
+
+`amq-squad v1.7` teams can be lead-agent orchestrated: `team.json` carries
+`orchestrated: true` plus `lead: <role>`, one member drives the others, and
+children push reports to the lead over AMQ (`status`, `question`,
+`review_request` on `p2p/<lead>__<child>` threads). The NOC is the human's
+client for supervising those squads:
+
+- the lead carries a `(lead)` badge and sorts first within its state tier;
+  the session row is marked `(orchestrated)`
+- the session pane leads with the lead's identity and the brief's Goal line
+  (`.amq-squad/briefs/<session>.md`), then a per-child digest of the newest
+  lead exchange
+- a dead lead with live children surfaces an explicit lead-down warning;
+  the five primary states are unchanged
+- `--filter orchestrated` and `--filter lead:<role>` narrow to orchestrated
+  workstreams; JSON snapshots add `orchestrated`, `lead`, `lead_handle`,
+  `lead_down`, and per-agent `is_lead` (all additive)
+
+Teams without the v1.7 fields render exactly as before.
+
 ## Runtime actions
 
 amq-squad owns runtime orchestration (start / stop / resume / focus / open /
@@ -244,10 +277,11 @@ amq-noc --filter project:amq-noc \
 - legacy teams with a runnable member named `user` do not get an implicit
   operator gate, avoiding false `needs-you`
 
-Recommended companion version for published runtime actions:
+Recommended companion version for published runtime actions and the
+orchestrated/lead team contract:
 
 ```sh
-go install github.com/omriariav/amq-squad/cmd/amq-squad@v1.5.4
+go install github.com/omriariav/amq-squad/cmd/amq-squad@v1.7.0
 ```
 
 Older `amq-squad` builds keep deterministic fallback action commands.

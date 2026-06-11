@@ -41,6 +41,22 @@ const (
 	KindQuestion       Kind = "question"
 )
 
+// KnownKinds lists every explicitly recognized message kind, in the order a
+// kind selector should offer them (status first as the default). The single
+// source for UI kind choices so surfaces cannot drift from the kinds the
+// scanner actually recognizes (#21).
+func KnownKinds() []Kind {
+	return []Kind{
+		KindStatus,
+		KindTodo,
+		KindAnswer,
+		KindReviewRequest,
+		KindReviewResponse,
+		KindDecision,
+		KindQuestion,
+	}
+}
+
 // MailboxState is where a message file was found in a maildir. new=unread,
 // cur=read; tmp (in-flight) is deliberately IGNORED by the scanner and never
 // produces a Message.

@@ -36,10 +36,29 @@ func (m NOCModel) orchestrationHeader(ps noc.ProjectSnapshot, sess state.Session
 		}
 	}
 	if goal := strings.TrimSpace(m.sessionBriefGoal(ps, sess)); goal != "" {
-		b.WriteString(m.th.paint(m.th.dim, truncate("goal: "+goal, detailThreadTitleWidth)) + "\n")
+		// The goal is full-sentence context, so it WRAPS to the pane width
+		// (bounded) instead of clipping invisibly at the pane edge like
+		// single-line evidence rows do.
+		width := m.detailTextWidth()
+		lines := wrapPlainText("goal: "+goal, width)
+		if len(lines) > goalPreviewLines {
+			lines = lines[:goalPreviewLines]
+			last := goalPreviewLines - 1
+			lines[last] = truncate(lines[last], width-4) + " ..."
+		}
+		for i, line := range lines {
+			if i > 0 {
+				line = "  " + line
+			}
+			b.WriteString(m.th.paint(m.th.dim, line) + "\n")
+		}
 	}
 	return b.String()
 }
+
+// goalPreviewLines bounds the wrapped brief Goal in the session header; the
+// full brief stays one copy command away (the session brief action).
+const goalPreviewLines = 3
 
 // sessionBriefGoal resolves the collected brief Goal line for a session.
 func (m NOCModel) sessionBriefGoal(ps noc.ProjectSnapshot, sess state.Session) string {

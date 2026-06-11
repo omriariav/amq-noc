@@ -167,8 +167,16 @@ a profile when needed, type a new workstream name, and launch that team in a
 detached tmux session; existing names are rejected in the editor, including
 empty AMQ session directories, so you can resume or restart instead. Press S/R/X
 to stop/resume/restart; mixed-profile sessions ask which profile to operate on.
-Agent rows can be messaged, drained, or sent a prompt (press p to deliver a typed
-prompt to the agent's pane via amq-squad send). Needs-you rows can be approved,
+Press U on a project, session, or agent row to launch that project's configured
+team profile (amq-squad up; no session is pinned, the team config decides the
+workstream; when the workstream already exists the confirm notes that up boots
+fresh agents while R resume restores saved conversations). Press L on an
+orchestrated session or its lead row to send the lead a directive: a live lead
+gets it in its pane (busy-guarded, never forced), a down lead gets a durable
+AMQ inbox message instead. Agent rows can be messaged (with a kind selector),
+drained, or sent a prompt (press p to deliver a typed prompt to the agent's
+pane via amq-squad send); press v for a read-only latest-output preview and o
+to focus the agent's pane after a confirm. Needs-you rows can be approved,
 replied to, or denied. Squad rows can receive broadcasts or lifecycle controls. The live
 footer shows only actions currently valid for the selected row; press ? for the
 full, always-current key map.
@@ -3411,9 +3419,37 @@ func consoleLifecycle(req console.LifecycleRequest) error {
 			return err
 		}
 		return consoleResume(dir, req.Profile, req.Session)
+	case "up":
+		return consoleUp(dir, req.Profile)
 	default:
 		return fmt.Errorf("unknown lifecycle verb %q", req.Verb)
 	}
+}
+
+// consoleUp launches the configured team profile via the installed amq-squad
+// `up` (#19). It pins NO --session: amq-squad derives the workstream from the
+// team config (#22's lesson). The detached new-session target mirrors
+// consoleResume so the launch never writes into the NOC AltScreen; the
+// operator attaches via the published attach_control action when ready.
+func consoleUp(dir, profile string) error {
+	return delegateSquad(dir, consoleUpArgs(dir, profile)...)
+}
+
+// consoleUpArgs builds the `amq-squad up` argv for a confirmed up action. It
+// mirrors lifecycleOp.command()'s lifecycleUp case so the confirmed preview
+// and the executed argv stay in lockstep.
+func consoleUpArgs(dir, profile string) []string {
+	args := []string{"up"}
+	if dir := strings.TrimSpace(dir); dir != "" {
+		args = append(args, "--project", dir)
+	}
+	if profile := strings.TrimSpace(profile); profile != "" && profile != team.DefaultProfile {
+		args = append(args, "--profile", profile)
+	}
+	return append(args,
+		"--target", "new-session",
+		"--terminal-session", nocTerminalSessionName(dir, ""),
+	)
 }
 
 // delegateSquad runs the installed amq-squad CLI for a confirmed squad

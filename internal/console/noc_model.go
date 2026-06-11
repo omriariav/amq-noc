@@ -252,6 +252,12 @@ type NOCModel struct {
 	// exact, runnable control commands amq-squad advertises. Total: a zero
 	// RuntimeStatus on any failure, so the picker degrades to static commands.
 	runtimeFetch func(dir, profile, session string) noc.RuntimeStatus
+	// paneCapture reads the tail of a live tmux pane for the read-only
+	// view-output affordance (#21); defaults to noc.CapturePaneTail. The pane
+	// id always comes from the published runtime contract, never scraping.
+	paneCapture func(paneID string, lines int) ([]string, error)
+	// agentOutput is the v-key output preview for the selected agent row.
+	agentOutput *agentOutputView
 
 	// bell is the injected terminal-bell seam for needs-you alerts. Production
 	// writes "\a" to the tty (wired by RunNOC); tests inject a counter so they can
@@ -322,6 +328,7 @@ func newNOCModel(rebuild NOCRebuildConfig) NOCModel {
 		pidTree:      defaultPidTree,
 		copyText:     defaultClipboardCopy,
 		runtimeFetch: defaultRuntimeFetch,
+		paneCapture:  noc.CapturePaneTail,
 		sendOp:       act.Send,
 	}
 }

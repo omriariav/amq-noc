@@ -627,7 +627,15 @@ func TestControl_MessageConfirmGate(t *testing.T) {
 		selectKind(t, m, nodeAgent, "qa")
 		m, _ = nocPress(m, "m")
 		if m.input == nil {
-			t.Fatal("m on an agent should open the message body editor")
+			t.Fatal("m on an agent should open the message editor")
+		}
+		if m.input.stage != 0 {
+			t.Fatalf("message editor should open on the kind selector (#21), stage=%d", m.input.stage)
+		}
+		// enter keeps the status default kind, then the body stage follows.
+		m, _ = nocPress(m, "enter")
+		if m.input == nil || m.input.stage != 1 {
+			t.Fatal("enter on the kind selector should advance to the body stage")
 		}
 		for _, ch := range "hello qa" {
 			m, _ = nocPress(m, string(ch))
@@ -690,7 +698,8 @@ func TestControl_MessageConfirmGate(t *testing.T) {
 		m.sendOp = func(act.OpMessage) error { called = true; return nil }
 
 		m, _ = nocPress(m, "m")
-		m, _ = nocPress(m, "enter")
+		m, _ = nocPress(m, "enter") // kind selector: keep the status default
+		m, _ = nocPress(m, "enter") // body stage: empty body must be rejected
 		if called {
 			t.Fatal("empty message body must not call the send seam")
 		}

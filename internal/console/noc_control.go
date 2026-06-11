@@ -58,6 +58,7 @@ const (
 	ctlStop
 	ctlResume
 	ctlRestart
+	ctlUp
 	ctlAgentResume
 	ctlArchive
 	ctlRemove
@@ -69,6 +70,7 @@ const (
 	ctlBriefSeed
 	ctlThreadContextAny
 	ctlSendPrompt
+	ctlDirective
 )
 
 func (k controlKind) label() string {
@@ -109,6 +111,8 @@ func (k controlKind) label() string {
 		return "RESUME"
 	case ctlRestart:
 		return "RESTART"
+	case ctlUp:
+		return "UP"
 	case ctlAgentResume:
 		return "AGENT RESUME"
 	case ctlArchive:
@@ -129,6 +133,8 @@ func (k controlKind) label() string {
 		return "BRIEF SEED"
 	case ctlSendPrompt:
 		return "SEND PROMPT"
+	case ctlDirective:
+		return "DIRECT LEAD"
 	default:
 		return "ACTION"
 	}
@@ -143,6 +149,7 @@ const (
 	lifecycleStop    lifecycleVerb = "stop"
 	lifecycleResume  lifecycleVerb = "resume"
 	lifecycleRestart lifecycleVerb = "restart"
+	lifecycleUp      lifecycleVerb = "up"
 )
 
 // lifecycleOp is the exact lifecycle effect a confirmed stop/resume/restart runs. It is
@@ -1078,6 +1085,12 @@ func (op lifecycleOp) command() string {
 		return resume
 	case lifecycleRestart:
 		return stop + " && " + resume
+	case lifecycleUp:
+		// up pins NO --session: amq-squad derives the workstream from the team
+		// config (#22's lesson). Detached new-session target mirrors resume so
+		// the NOC's own pane is never hijacked.
+		return squad + " up" + projectArgs + profileArgs +
+			" --target new-session --terminal-session " + shellToken(nocTerminalSessionName(op.ProjectDir, ""))
 	default:
 		return squad + " " + string(op.Verb) + projectArgs
 	}
@@ -1270,6 +1283,16 @@ func (m *NOCModel) handleControlKey(key string) (tea.Cmd, bool) {
 		return m.beginMessage(), true
 	case "p":
 		return m.beginSendPrompt(), true
+	case "L":
+		return m.beginDirective(), true
+	case "v":
+		return m.beginViewOutput(), true
+	case "o":
+		// Read-only focus on the selected agent's pane (#25): re-wired onto the
+		// existing focus-confirm machinery (runtime-contract pane id first,
+		// scrape fallback, not-in-tmux degrade with the exact command to run).
+		_, cmd := m.jump()
+		return cmd, true
 	case "b":
 		return m.beginBroadcast(), true
 	case "S":
@@ -1278,6 +1301,8 @@ func (m *NOCModel) handleControlKey(key string) (tea.Cmd, bool) {
 		return m.beginLifecycle(ctlResume), true
 	case "X":
 		return m.beginLifecycle(ctlRestart), true
+	case "U":
+		return m.beginUp(), true
 	case "N":
 		return m.beginNewSession(), true
 	case "T":
@@ -2192,9 +2217,11 @@ func (m *NOCModel) beginMessageFor(root, handle, operatorHandle string) tea.Cmd 
 		return nil
 	}
 	m.input = &inputAction{
-		kind:  ctlMessage,
-		stage: 1, // body only
-		build: func(_, body, _ string) pendingAction {
+		kind:            ctlMessage,
+		stage:           0, // kind choice first (#21); enter keeps the status default
+		hint:            "message kind (enter keeps status): " + strings.Join(knownKindNames(), ", "),
+		validateSubject: validateNOCMessageKind,
+		build: func(kind, body, _ string) pendingAction {
 			// A direct message is addressed to exactly the selected agent, not
 			// pinned to a thread (it opens its own). Build the OpMessage
 			// explicitly so the recipient is precisely that one handle, then
@@ -2205,12 +2232,49 @@ func (m *NOCModel) beginMessageFor(root, handle, operatorHandle string) tea.Cmd 
 				To:      handle,
 				Subject: "Message from operator",
 				Body:    body,
-				Kind:    string(state.KindStatus),
+				Kind:    normalizedMessageKind(kind),
 			}
 			return pendingAction{kind: ctlMessage, preview: act.Preview(op), op: op, affected: []string{handle}}
 		},
 	}
 	return nil
+}
+
+// knownKindNames renders state.KnownKinds for hints and validation errors.
+func knownKindNames() []string {
+	kinds := state.KnownKinds()
+	out := make([]string, 0, len(kinds))
+	for _, k := range kinds {
+		out = append(out, string(k))
+	}
+	return out
+}
+
+// validateNOCMessageKind accepts an empty choice (the status default) or any
+// recognized AMQ kind, sourced from state.KnownKinds so the selector cannot
+// drift from what the scanner recognizes. An unknown kind would be rejected
+// by amq itself, so it is caught here before the confirm overlay.
+func validateNOCMessageKind(raw string) error {
+	raw = strings.ToLower(strings.TrimSpace(raw))
+	if raw == "" {
+		return nil
+	}
+	for _, k := range state.KnownKinds() {
+		if raw == string(k) {
+			return nil
+		}
+	}
+	return errString("unknown kind " + raw + "; valid: " + strings.Join(knownKindNames(), ", "))
+}
+
+// normalizedMessageKind maps the captured kind choice to the wire value,
+// defaulting an empty choice to status (the pre-#21 behavior).
+func normalizedMessageKind(raw string) string {
+	raw = strings.ToLower(strings.TrimSpace(raw))
+	if raw == "" {
+		return string(state.KindStatus)
+	}
+	return raw
 }
 
 // beginSendPrompt opens the body editor for a SEND PROMPT to the selected AGENT.
@@ -2265,6 +2329,131 @@ func (m *NOCModel) beginSendPrompt() tea.Cmd {
 		},
 	}
 	return nil
+}
+
+// --- direct the lead -------------------------------------------------------
+
+// beginDirective opens the directive compose for the selected orchestrated
+// squad's lead (#24): the human's core write action as the orchestrator's
+// client. Reachable from the session row or the lead's own agent row. The
+// delivery channel is deterministic: an OPERATIONAL lead gets the directive
+// in its pane (amq-squad send, busy-guarded, never forced); a down lead gets
+// a durable AMQ message to its inbox instead, read on its next drain/wake.
+func (m *NOCModel) beginDirective() tea.Cmd {
+	n, ok := m.selectedNode()
+	if !ok || (n.kind != nodeSession && n.kind != nodeAgent) {
+		m.actNote = "direct-lead applies to an orchestrated session or its lead agent row"
+		return nil
+	}
+	if !n.session.Orchestrated {
+		m.actNote = "direct-lead applies to an orchestrated squad (team.json orchestrated/lead); this session has no lead"
+		return nil
+	}
+	if n.kind == nodeAgent && !n.agent.IsLead {
+		m.actNote = "direct-lead targets the lead (" + n.session.LeadHandle + "); select the lead row or the session"
+		return nil
+	}
+	return m.beginDirectiveForSession(n.project, n.session)
+}
+
+func (m *NOCModel) beginDirectiveForSession(project noc.ProjectSnapshot, sess state.Session) tea.Cmd {
+	leadHandle := strings.TrimSpace(sess.LeadHandle)
+	if leadHandle == "" {
+		m.actNote = "direct-lead: session has no lead handle"
+		return nil
+	}
+	leadRole := strings.TrimSpace(sess.LeadRole)
+	if leadRole == "" {
+		leadRole = leadHandle
+	}
+	var leadAg state.Agent
+	leadFound := false
+	for _, ag := range sess.Agents {
+		if ag.IsLead || strings.EqualFold(ag.Handle, leadHandle) {
+			leadAg = ag
+			leadFound = true
+			break
+		}
+	}
+	nonEmptyBody := func(body string) error {
+		if strings.TrimSpace(body) == "" {
+			return errString("body cannot be empty")
+		}
+		return nil
+	}
+
+	if leadFound && agentOperational(leadAg) {
+		projectDir := strings.TrimSpace(project.Dir)
+		session := strings.TrimSpace(sess.Name)
+		profile := sessionCommandProfile(project, sess.Name)
+		if profile == "PROFILE" {
+			profile = ""
+		}
+		m.input = &inputAction{
+			kind:  ctlDirective,
+			stage: 1,
+			hint:  "directive to lead " + leadHandle + " via its pane (a busy pane refuses; never forced)",
+			build: func(_, body, _ string) pendingAction {
+				op := sendPromptOp{ProjectDir: projectDir, Profile: profile, Session: session, Role: leadRole, Body: body}
+				return pendingAction{kind: ctlDirective, preview: op.command(), sendPrompt: &op, affected: []string{leadHandle}}
+			},
+			validateBody: nonEmptyBody,
+		}
+		return nil
+	}
+
+	root := strings.TrimSpace(sess.Root)
+	if root == "" {
+		m.actNote = "direct-lead: session has no AMQ root"
+		return nil
+	}
+	operatorHandle := operatorHandleOrDefault(project.OperatorGateHandle())
+	m.input = &inputAction{
+		kind:  ctlDirective,
+		stage: 1,
+		hint:  "lead " + leadHandle + " pane is down; the directive goes to its AMQ inbox (read on next drain/wake)",
+		build: func(_, body, _ string) pendingAction {
+			op := act.OpMessage{
+				Root:    root,
+				Me:      operatorHandle,
+				To:      leadHandle,
+				Subject: directiveSubject(body),
+				Body:    body,
+				Thread:  directiveThread(leadHandle, operatorHandle),
+				Kind:    "todo",
+			}
+			return pendingAction{kind: ctlDirective, preview: act.Preview(op), op: op, affected: []string{leadHandle}}
+		},
+		validateBody: nonEmptyBody,
+	}
+	return nil
+}
+
+// directiveThread is the deterministic thread for operator-to-lead directives:
+// p2p/<a>__<b> with sorted handles, matching the squad p2p convention so the
+// directive lands in the same conversation surface the lead already drains.
+func directiveThread(leadHandle, operatorHandle string) string {
+	a, b := leadHandle, operatorHandle
+	if strings.Compare(strings.ToLower(a), strings.ToLower(b)) > 0 {
+		a, b = b, a
+	}
+	return "p2p/" + a + "__" + b
+}
+
+// directiveSubject derives the AMQ subject from the directive's first line,
+// capped for list rendering. The DIRECTIVE prefix keeps operator directives
+// structurally recognizable in drains and thread lists.
+func directiveSubject(body string) string {
+	first := body
+	if i := strings.IndexByte(first, '\n'); i >= 0 {
+		first = first[:i]
+	}
+	first = strings.TrimSpace(first)
+	const subjectCap = 72
+	if len(first) > subjectCap {
+		first = first[:subjectCap-3] + "..."
+	}
+	return "DIRECTIVE: " + first
 }
 
 func (m *NOCModel) beginMessageWaitFor(root, handle string) tea.Cmd {
@@ -2407,6 +2596,72 @@ func (m *NOCModel) beginLifecycleFor(projectDir, session string, handles []strin
 	return nil
 }
 
+// --- up (launch the configured team) --------------------------------------
+
+// beginUp opens the confirm overlay for launching the selected project's
+// configured team profile via `amq-squad up` (#19). It deliberately pins NO
+// --session: amq-squad derives the workstream from the team config (#22's
+// lesson), and the right-pane launch actions already display the resolved
+// workstream. The exec target is the same detached new-session convention as
+// the resume exec path, so the NOC's own pane is never hijacked; the exact
+// command (target included) is previewed before confirm.
+func (m *NOCModel) beginUp() tea.Cmd {
+	project, ok := m.selectedProjectSnapshot()
+	if !ok {
+		m.actNote = "up applies to a project, session, or agent row; select a squad first"
+		return nil
+	}
+	return m.beginUpForProject(project)
+}
+
+func (m *NOCModel) beginUpForProject(project noc.ProjectSnapshot) tea.Cmd {
+	projectDir := strings.TrimSpace(project.Dir)
+	if projectDir == "" {
+		m.actNote = "up: selected project has no directory"
+		return nil
+	}
+	profile, choices, note, ok := launchProfileForNewSession(project)
+	if !ok {
+		m.actNote = note
+		return nil
+	}
+	buildPending := func(rawProfile, opProfile string) pendingAction {
+		op := lifecycleOp{Verb: lifecycleUp, ProjectDir: projectDir, Profile: opProfile}
+		warning := ""
+		configured, conflicts, okWS := configuredWorkstreamForProfile(project, rawProfile)
+		switch {
+		case !okWS && len(conflicts) > 1:
+			warning = "members configure different workstreams (" + strings.Join(conflicts, ", ") + "); amq-squad may require an explicit session"
+		case okWS && sessionNameExists(project, configured):
+			// up boots fresh agents (bootstrap re-reads the brief + AMQ
+			// history); resume reattaches the saved conversations. Make the
+			// difference visible where the choice is made, not in docs.
+			warning = "workstream " + configured + " already exists; up boots FRESH agents into it (R resume on the session restores saved conversations instead)"
+		}
+		return pendingAction{kind: ctlUp, preview: op.command(), life: &op, affected: []string{projectDir}, warning: warning}
+	}
+	if len(choices) > 0 {
+		m.input = &inputAction{
+			kind:  ctlUp,
+			stage: 0,
+			hint:  "profiles: " + strings.Join(choices, ", "),
+			validateSubject: func(raw string) error {
+				return validateNOCProfileChoice(raw, choices)
+			},
+			build: func(profileChoice, _, _ string) pendingAction {
+				return buildPending(profileChoice, profileForOp(profileChoice))
+			},
+		}
+		return nil
+	}
+	raw := team.DefaultProfile
+	if profiles := projectLaunchProfiles(project); len(profiles) == 1 {
+		raw = profiles[0]
+	}
+	m.pending = ptrPending(buildPending(raw, profile))
+	return nil
+}
+
 // --- new session ---------------------------------------------------------
 
 func (m *NOCModel) beginNewSession() tea.Cmd {
@@ -2495,6 +2750,17 @@ func configuredWorkstreamForProfile(project noc.ProjectSnapshot, profile string)
 	default:
 		return "", names, false
 	}
+}
+
+// sessionNameExists reports whether name is an existing AMQ workstream of the
+// project (session store directories or collected sessions).
+func sessionNameExists(project noc.ProjectSnapshot, name string) bool {
+	for _, existing := range project.SessionNames {
+		if existing == name {
+			return true
+		}
+	}
+	return false
 }
 
 // newSessionPrefill resolves the new-session editor's body prefill + hint for
@@ -3163,7 +3429,7 @@ func (m *NOCModel) runPending(p *pendingAction) bool {
 		return true
 	case p.sendPrompt != nil:
 		if m.sendPrompt == nil {
-			m.actNote = "send prompt unavailable in this context (no send prompt backend)"
+			m.actNote = strings.ToLower(p.kind.label()) + " unavailable in this context (no send prompt backend)"
 			return false
 		}
 		if err := m.sendPrompt(*p.sendPrompt); err != nil {
@@ -3171,13 +3437,13 @@ func (m *NOCModel) runPending(p *pendingAction) bool {
 			// non-zero with a "busy" message). Surface that as an actionable note
 			// rather than a raw subprocess error so the operator knows to retry.
 			if isAgentBusyError(err) {
-				m.actNote = "send prompt: agent busy (mid-turn); retry when idle"
+				m.actNote = strings.ToLower(p.kind.label()) + ": agent busy (mid-turn); retry when idle"
 				return false
 			}
-			m.actNote = "send prompt failed: " + err.Error()
+			m.actNote = strings.ToLower(p.kind.label()) + " failed: " + err.Error()
 			return false
 		}
-		m.actNote = "SEND PROMPT sent (pane-only; does not clear needs-you): " + p.preview
+		m.actNote = p.kind.label() + " sent (pane-only; does not clear needs-you): " + p.preview
 		return true
 	case p.session != nil:
 		if m.newSession == nil {
@@ -3200,6 +3466,20 @@ func (m *NOCModel) runPending(p *pendingAction) bool {
 			return false
 		}
 		m.actNote = p.kind.label() + " sent: " + p.preview
+		if v := p.life.Verb; v == lifecycleResume || v == lifecycleRestart || v == lifecycleUp {
+			// These verbs (re)create a DETACHED tmux session. The NOC cannot
+			// attach it safely itself (attach takes over the terminal, and
+			// switch-client under iTerm2 -CC explodes layouts - the SwitchTo
+			// lesson), so it puts the exact attach command one paste away.
+			attach := "tmux -CC attach -t " + nocTerminalSessionName(p.life.ProjectDir, p.life.Session)
+			suffix := ""
+			if m.copyText != nil {
+				if err := m.copyText(attach); err == nil {
+					suffix = " (copied to clipboard)"
+				}
+			}
+			m.actNote = p.kind.label() + " sent; attach when ready: " + attach + suffix
+		}
 		return true
 	default:
 		if m.sendOp == nil {
@@ -3221,6 +3501,8 @@ func sentAMQActionNote(kind controlKind, preview string) string {
 		return kind.label() + " sent (gate answer; refresh should clear needs-you): " + preview
 	case ctlMessage:
 		return kind.label() + " sent (direct AMQ message; use reply/approve/deny to clear needs-you): " + preview
+	case ctlDirective:
+		return kind.label() + " sent (AMQ inbox; the lead reads it on its next drain/wake; does not clear gates): " + preview
 	default:
 		return kind.label() + " sent: " + preview
 	}
@@ -3247,6 +3529,21 @@ func (m *NOCModel) handleInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			in.subject = subject
 			// Captured subject; advance to body.
 			in.stage = 1
+			return m, nil
+		}
+		if in.kind == ctlMessage && in.stage == 0 {
+			kindChoice := strings.TrimSpace(in.subject)
+			validate := validateNOCMessageKind
+			if in.validateSubject != nil {
+				validate = in.validateSubject
+			}
+			if err := validate(kindChoice); err != nil {
+				m.actNote = "message: " + err.Error()
+				return m, nil
+			}
+			in.subject = kindChoice
+			in.stage = 1
+			in.hint = "message body"
 			return m, nil
 		}
 		if in.kind == ctlNewTeam && in.stage == 0 {
@@ -3510,15 +3807,15 @@ func (m *NOCModel) handleInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func inputEditingSubject(in *inputAction) bool {
-	return in != nil && in.stage == 0 && (in.kind == ctlBroadcast || in.kind == ctlMessageWait || in.kind == ctlNewSession || in.kind == ctlNewTeam || in.kind == ctlSyncPointers || in.kind == ctlDeleteTeam || lifecycleControlKind(in.kind))
+	return in != nil && in.stage == 0 && (in.kind == ctlBroadcast || in.kind == ctlMessage || in.kind == ctlMessageWait || in.kind == ctlNewSession || in.kind == ctlNewTeam || in.kind == ctlSyncPointers || in.kind == ctlDeleteTeam || lifecycleControlKind(in.kind))
 }
 
 func inputBodyAcceptsMultiline(kind controlKind) bool {
-	return kind == ctlReply || kind == ctlMessage || kind == ctlMessageWait || kind == ctlBroadcast || kind == ctlDeny || kind == ctlSendPrompt
+	return kind == ctlReply || kind == ctlMessage || kind == ctlMessageWait || kind == ctlBroadcast || kind == ctlDeny || kind == ctlSendPrompt || kind == ctlDirective
 }
 
 func lifecycleControlKind(kind controlKind) bool {
-	return kind == ctlStop || kind == ctlResume || kind == ctlRestart
+	return kind == ctlStop || kind == ctlResume || kind == ctlRestart || kind == ctlUp
 }
 
 // ptrPending boxes a pendingAction value (the input builder returns a value).

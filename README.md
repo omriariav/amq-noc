@@ -106,11 +106,25 @@ operationally live agents, so fresh presence alone never promotes a wait.
 - offline-presence truth: a cleanly stopped agent (presence `offline` plus a
   dead recorded PID) classifies stale instead of reading online for the 90s
   freshness window
+- executable lifecycle from the NOC: `U up` joins `S stop` / `R resume` /
+  `X restart` through the preview + confirm + exec seam; up pins no session
+  (amq-squad derives the workstream from the team config), and a successful
+  resume/restart/up copies the exact `tmux -CC attach` command to the
+  clipboard so the new session is one paste away
+- `L direct-lead`: the directive flow for orchestrated squads, delivered to
+  the lead's pane when it is live (busy-guarded, never forced) or to its AMQ
+  inbox when it is down, with the channel labeled either way
+- message kind selector sourced from the recognized AMQ kinds (status, todo,
+  answer, review_request, review_response, decision, question)
+- `v output`: read-only latest-output preview per agent (live pane tail via
+  the published pane id, else the agent's newest AMQ message)
+- `o focus`: read-only pane focus through the published runtime contract,
+  confirm-gated, with a copyable fallback outside tmux
 
 ## Install
 
 ```sh
-go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.7.0
+go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.8.0
 ```
 
 Requirements:
@@ -224,6 +238,14 @@ client for supervising those squads:
 - `--filter orchestrated` and `--filter lead:<role>` narrow to orchestrated
   workstreams; JSON snapshots add `orchestrated`, `lead`, `lead_handle`,
   `lead_down`, and per-agent `is_lead` (all additive)
+
+Directing the lead is first-class: `L` on an orchestrated session (or the
+lead's row) opens a multi-line directive compose with preview + confirm. A
+live lead receives it in its pane through amq-squad's busy-guarded `send`
+(the NOC never passes `--force`); a down lead receives a durable AMQ message
+on the `p2p/<lead>__<operator>` thread instead, read on its next drain or
+wake. Directives never clear operator gates, and the result note names the
+channel that delivered.
 
 Teams without the v1.7 fields render exactly as before.
 

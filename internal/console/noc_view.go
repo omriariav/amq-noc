@@ -1731,6 +1731,8 @@ func (m NOCModel) agentDetail(n nocNode) string {
 		}
 	}
 
+	b.WriteString(m.agentOutputSection(n.id))
+
 	// Recent threads relevant to this agent: those it participates in.
 	b.WriteString(m.th.paint(m.th.dim, "recent threads") + "\n")
 	shown := 0

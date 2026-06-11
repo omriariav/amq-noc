@@ -2,10 +2,10 @@
 
 ## Orchestrator-client track (0.7.x - 0.9.x)
 
-Updated: 2026-06-10. Status: **0.7.0 shipped** (PR #23, tag `v0.7.0`,
-GitHub release published, `make release-smoke VERSION=v0.7.0` green,
-local install refreshed). #20 and #22 closed on merge. The 0.7.0 section
-below is the as-shipped record; 0.8.x / 0.9.x remain proposals.
+Updated: 2026-06-11. Status: **0.7.0 shipped** (PR #23, tag `v0.7.0`); #20
+and #22 closed on merge. **0.8.0 implemented** on `feat/v0.8.0` (issues #19,
+#21, #24, #25; all gates green), pending operator review, commit, and
+release. 0.9.x remains a proposal.
 
 Goal: make amq-noc the human's client for orchestrated amq-squad teams. The
 operator creates orchestrated squads through amq-squad (`new team

@@ -2,11 +2,14 @@
 
 ## Orchestrator-client track (0.7.x - 0.9.x)
 
-Updated: 2026-06-11. Status: **0.7.0 shipped** (PR #23, tag `v0.7.0`; #20,
-#22 closed) and **0.8.0 shipped** (PR #26, tag `v0.8.0`, release-smoke
-green, local install refreshed; #19, #21, #24, #25 closed on merge). The
-lead-side directive norm is tracked upstream in amq-squad#117 (with #118,
-#119 as the rest of the squad v1.8 wishlist). 0.9.x remains a proposal.
+Updated: 2026-06-11. Status: the track is **shipped through 0.9.0**:
+0.7.0 (PR #23; #20, #22), 0.8.0 (PR #26; #19, #21, #24, #25), and 0.9.0
+(PR #30, tag `v0.9.0`, release-smoke green, local install refreshed; #17,
+#27, #28, #29 closed - #29 was found and fixed during the 0.9.0 live
+dogfood). Remaining taste-level redesign polish is recorded on #17's
+closing comment and tracked under #18. Upstream wishlist still open:
+amq-squad #118, #119, #125 (the v1.9.0 release shipped #117's inbound
+half).
 
 Goal: make amq-noc the human's client for orchestrated amq-squad teams. The
 operator creates orchestrated squads through amq-squad (`new team

@@ -114,6 +114,7 @@ func runNOCWithVersion(args []string, version string) error {
 	hideStale := fs.Bool("hide-stale", false, "hide stopped/archived (stale) squads - focus on what is alive")
 	showStale := fs.Bool("show-stale", false, "with the live TUI: start with stopped/archived (stale) squads visible")
 	noBell := fs.Bool("no-bell", false, "mute needs-you alerts: no terminal bell + no banner when a session first needs you (default: alerts ON)")
+	notify := fs.Bool("notify", false, "also post a desktop notification when a session first needs you (macOS; independent of --no-bell; default OFF)")
 	jsonOut := fs.Bool("json", false, "emit a schema-versioned noc_snapshot envelope and exit")
 	actionsOut := fs.Bool("actions", false, "emit the flat NOC action queue and exit (human table by default; with --json emits noc_actions)")
 	actionFilter := fs.String("action", "", "with --actions: only include action names matching this comma-separated list")
@@ -173,7 +174,12 @@ workstream; when the workstream already exists the confirm notes that up boots
 fresh agents while R resume restores saved conversations). Press L on an
 orchestrated session or its lead row to send the lead a directive: a live lead
 gets it in its pane (busy-guarded, never forced), a down lead gets a durable
-AMQ inbox message instead. Agent rows can be messaged (with a kind selector),
+AMQ inbox message instead. Press m on an orchestrated session or its lead row
+to open CONVERSATION MODE: the operator-lead transcript (directives, acks, and
+lead-raised gates with full bodies) plus an inline staged-confirm composer -
+enter stages the message naming kind/thread/channel, enter again sends, esc
+steps back; an open lead gate is answered in place and clears like
+approve/reply/deny. Agent rows can be messaged (with a kind selector),
 drained, or sent a prompt (press p to deliver a typed prompt to the agent's
 pane via amq-squad send); press v for a read-only latest-output preview and o
 to focus the agent's pane after a confirm. Needs-you rows can be approved,
@@ -321,6 +327,7 @@ Examples:
 		Tree:             *tree || *all,
 		HideStale:        startHideStale,
 		NoBell:           *noBell,
+		Notify:           *notify,
 		JSON:             *jsonOut,
 		Actions:          *actionsOut,
 		ActionFilter:     *actionFilter,
@@ -369,6 +376,7 @@ type nocExecution struct {
 	Tree           bool
 	HideStale      bool
 	NoBell         bool
+	Notify         bool
 	JSON           bool
 	Actions        bool
 	ActionFilter   string
@@ -457,6 +465,7 @@ func executeNOC(s nocExecution) error {
 		Tree:          s.Tree,
 		HideStale:     s.HideStale,
 		NoBell:        s.NoBell,
+		Notify:        s.Notify,
 		Out:           s.Out,
 		InitialFilter: strings.TrimSpace(s.Filter),
 	}

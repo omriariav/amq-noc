@@ -427,7 +427,12 @@ func computeTriage(a *threadAccumulator, status ThreadStatus, fresh Freshness, n
 					}
 				}
 			}
-			if a.blockActive && a.blockOwner == op {
+			// An operator-owned block is needs-you only while the operator has
+			// not spoken last. Once the operator's reply is the thread's newest
+			// event the ball is with the agent, even when the reply carries no
+			// affirmative clear word (a DENIED: / "not yet" answer leaves the
+			// block as BLOCKED-tier evidence, not human-pending) (#29).
+			if a.blockActive && a.blockOwner == op && a.latest.From != op {
 				return TriageNeedsYou, nonOperatorHandle(a.blockSender, op)
 			}
 		}

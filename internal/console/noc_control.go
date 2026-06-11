@@ -2197,8 +2197,18 @@ func (m *NOCModel) beginReplyFor(root, session string, th state.ThreadSummary, o
 // the action previews a direct message addressed to that single agent.
 func (m *NOCModel) beginMessage() tea.Cmd {
 	n, ok := m.selectedNode()
-	if !ok || n.kind != nodeAgent {
+	if !ok || (n.kind != nodeAgent && n.kind != nodeSession) {
 		m.actNote = "message applies to an agent row - select an agent first"
+		return nil
+	}
+	// Messaging the orchestrator IS the conversation (#27): m on an
+	// orchestrated session or its lead row opens conversation mode. Worker
+	// rows keep the one-shot kind-aware composer.
+	if n.session.Orchestrated && (n.kind == nodeSession || n.agent.IsLead) {
+		return m.openConversation(n.project, n.session)
+	}
+	if n.kind != nodeAgent {
+		m.actNote = "message applies to an agent row; on an orchestrated session m opens the lead conversation"
 		return nil
 	}
 	return m.beginMessageFor(n.session.Root, n.agent.Handle, m.selectedOperatorHandle())

@@ -106,7 +106,20 @@ type needsYouAlert struct {
 // READ-ONLY: the only effects are the injected bell seam + the model's banner
 // string; nothing here touches a squad.
 func (m *NOCModel) fireNeedsYouAlerts(alerts []needsYouAlert) bool {
-	if len(alerts) == 0 || m.alertsMuted {
+	if len(alerts) == 0 {
+		return false
+	}
+	// Desktop notification (#28): opt-in and INDEPENDENT of the bell mute -
+	// the NOC's terminal is usually buried exactly when this matters. Fires
+	// once per refresh that carried a transition, like the bell.
+	if m.notify != nil {
+		body := alerts[0].project + "/" + alerts[0].session + " needs you"
+		if len(alerts) > 1 {
+			body += " (+" + itoaPalette(len(alerts)-1) + " more)"
+		}
+		m.notify("amq-noc", body)
+	}
+	if m.alertsMuted {
 		return false
 	}
 	// Banner: lead with the first transitioned session; note the count if more.

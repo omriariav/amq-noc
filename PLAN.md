@@ -113,11 +113,49 @@ Add:
 - Run available read-only runtime actions directly: focus / attach_control /
   status (focus gated on a usable tmux client, else copy).
 
-### 0.9.0 - polish
+### 0.9.0 - the conversation (implemented 2026-06-11, pending release)
 
-- Execute #17 (visual redesign) around the now-stable orchestrated IA.
-- Optional needs-you transition alert (terminal bell first; desktop later).
-- Triage #18 backlog against the shipped orchestrator-client loop.
+Companion: amq-squad v1.9.0 (the DIRECTIVE norm ships there, so leads now
+acknowledge NOC directives on the operator p2p thread - the traffic that
+fills this release's headline view).
+
+Decisions taken (recorded on #27):
+
+- `m` on an orchestrated session or its lead row OPENS CONVERSATION MODE;
+  `m` on worker rows keeps the one-shot kind-aware composer. `L` stays the
+  quick fire-and-forget directive.
+- Transcript scope is participant-filtered, not thread-filtered: every
+  message between the operator and the lead, wherever it lives (the
+  `p2p/<lead>__<operator>` thread plus lead-raised `gate/<topic>` asks),
+  interleaved chronologically with thread badges. Child/peer traffic is
+  out: it is the operator's conversation with the orchestrator, nothing
+  more.
+- Sends use an INLINE STAGED CONFIRM: enter stages the message as a visible
+  about-to-send line (kind + thread + channel shown), enter again sends,
+  esc edits. Two-step and truthful, no modal; this is the documented
+  conversation-mode form of preview-first, not a relaxation.
+- #17 stays incremental around the conversation view: no full IA rework.
+
+Slices:
+
+- A (#27 read half): conversation view skeleton - transcript via the
+  read-only thread-context path (full bodies; ThreadSummary only carries
+  the latest), bounded scrollback, refresh on tick/g, esc back to board.
+- B (#27 write half): the inline composer - staged confirm, kind-aware
+  defaults (`answer` when replying to an open gate, `todo`/DIRECTIVE
+  otherwise), channel logic reused from the directive flow (pane when the
+  lead is operational, busy-guard surfaced; durable AMQ otherwise), gate
+  answers clear needs-you with existing semantics.
+- C (#17 incremental): visual hierarchy/density pass, clearer state
+  glyphs and colors (blocked vs waiting vs lead-down without alarming
+  normal waits), orchestration emphasis, narrow/wide terminal validation,
+  before/after captures per #17's acceptance.
+- D: desktop notification opt-in for needs-you 0->N transitions (macOS
+  notifier seam; terminal bell stays the default).
+- E (stretch, consume-when-landed): squad #118 (drop the team.json file
+  coupling) and #119 (drop the per-session status N+1); outbound channel
+  symmetry follow-up filed upstream.
+- F: docs, gates, RC dogfood against pm-copilot, operator-gated release.
 
 ### Upstream asks (amq-squad issues to open; NOC never forks runtime logic)
 

@@ -113,7 +113,7 @@ Add:
 - Run available read-only runtime actions directly: focus / attach_control /
   status (focus gated on a usable tmux client, else copy).
 
-### 0.9.0 - the conversation (implemented 2026-06-11, pending release)
+### 0.9.0 - the conversation (shipped 2026-06-11)
 
 Companion: amq-squad v1.9.0 (the DIRECTIVE norm ships there, so leads now
 acknowledge NOC directives on the operator p2p thread - the traffic that

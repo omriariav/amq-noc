@@ -12,8 +12,10 @@ It defines:
 
 - navigation keys: read-only movement and expand/collapse
 - view keys: filter, hide stale, flow, refresh, help, quit/back
-- action keys: preview-first controls such as approve, reply, deny, message,
-  broadcast, lifecycle, new-team, and new-session
+- action keys: preview-first controls such as approve, reply, deny, message
+  (with a kind selector), broadcast, lifecycle (stop/resume/restart/up),
+  direct-lead, new-team, and new-session, plus the read-only view-output and
+  pane-focus affordances
 
 The help overlay and footer render from that manifest. Do not add a live TUI key
 by editing help or footer strings directly.
@@ -28,10 +30,12 @@ The footer has two rows:
 Action availability is stateful. For example:
 
 - approve/reply/deny require an active `needs-you` thread
-- lifecycle and broadcast require a resolvable squad
+- lifecycle and broadcast require a resolvable squad; up requires a
+  configured team profile and resolves the project from any row in it
+- direct-lead requires an orchestrated session (or its lead agent row)
 - delete requires a configured team profile
 - new-session requires a launchable profile
-- message/drain require an agent row
+- message/drain/view-output/focus require an agent row
 
 If an invalid action key is pressed anyway, the handler should set a short
 `actNote` explaining why it cannot run.

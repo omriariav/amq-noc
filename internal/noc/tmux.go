@@ -568,3 +568,33 @@ func paneTarget(t TmuxTarget) string {
 	}
 	return targetSpec(t)
 }
+
+// CapturePaneTail reads the last n lines of a live tmux pane via
+// `tmux capture-pane -p` - READ-ONLY diagnostic output for the NOC's
+// view-output affordance (#21). The pane id comes from amq-squad's published
+// runtime contract, never from scraping; this helper only reads screen text
+// and never sends keys, so the consume/orchestrate boundary holds.
+func CapturePaneTail(paneID string, n int) ([]string, error) {
+	paneID = strings.TrimSpace(paneID)
+	if paneID == "" {
+		return nil, fmt.Errorf("pane id cannot be empty")
+	}
+	out, err := captureExec("tmux", "capture-pane", "-p", "-J", "-t", paneID)
+	if err != nil {
+		return nil, fmt.Errorf("tmux capture-pane %s: %w", paneID, err)
+	}
+	lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	if n > 0 && len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return lines, nil
+}
+
+// captureExec is the injectable subprocess seam for CapturePaneTail, mirroring
+// switchExec so tests never shell a real tmux.
+var captureExec = func(name string, args ...string) ([]byte, error) {
+	return exec.Command(name, args...).Output()
+}

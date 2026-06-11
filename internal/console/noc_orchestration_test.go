@@ -106,6 +106,54 @@ func TestSessionDetailRendersOrchestration(t *testing.T) {
 	}
 }
 
+func TestGoalWrapsToPaneWidthAndCaps(t *testing.T) {
+	m := newNOCModel(NOCRebuildConfig{})
+	m.width = 120 // narrow board: right pane text width well under 160
+	sess := orchestratedTestSession()
+	longGoal := strings.Repeat("Always-on PM OS co-pilot squad for Omri. ", 12)
+	ps := noc.ProjectSnapshot{
+		Project:           "os-omri-pm",
+		Dir:               "/tmp/os-omri-pm",
+		SessionBriefGoals: map[string]string{"pm-copilot": strings.TrimSpace(longGoal)},
+	}
+	header := m.orchestrationHeader(ps, sess)
+	width := m.detailTextWidth()
+	goalLines := 0
+	for _, line := range strings.Split(header, "\n") {
+		if !strings.Contains(line, "goal: ") && !strings.HasPrefix(strings.TrimSpace(line), "Always-on") && !strings.Contains(line, "co-pilot") {
+			continue
+		}
+		goalLines++
+		if visibleWidth(line) > width+2 {
+			t.Fatalf("goal line exceeds pane width %d: %q", width, line)
+		}
+	}
+	if goalLines < 2 {
+		t.Fatalf("long goal should wrap to multiple lines, got %d in:\n%s", goalLines, header)
+	}
+	if goalLines > goalPreviewLines {
+		t.Fatalf("goal lines = %d, want capped at %d", goalLines, goalPreviewLines)
+	}
+	if !strings.Contains(header, "...") {
+		t.Fatalf("over-long goal should end with an ellipsis marker:\n%s", header)
+	}
+}
+
+func TestGoalShortStaysOneLine(t *testing.T) {
+	m := newNOCModel(NOCRebuildConfig{})
+	sess := orchestratedTestSession()
+	ps := noc.ProjectSnapshot{
+		SessionBriefGoals: map[string]string{"pm-copilot": "Ship the thing."},
+	}
+	header := m.orchestrationHeader(ps, sess)
+	if !strings.Contains(header, "goal: Ship the thing.") {
+		t.Fatalf("short goal should render whole:\n%s", header)
+	}
+	if strings.Contains(header, "...") {
+		t.Fatalf("short goal must not carry an ellipsis:\n%s", header)
+	}
+}
+
 func TestSessionDetailRendersLeadDownWarning(t *testing.T) {
 	m := newNOCModel(NOCRebuildConfig{})
 	sess := orchestratedTestSession()

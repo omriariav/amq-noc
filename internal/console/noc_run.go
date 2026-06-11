@@ -36,6 +36,10 @@ type NOCConfig struct {
 	// banner) — the --no-bell flag. Default false: alerts are ON. The interactive
 	// 'A' key toggles the same mute at runtime.
 	NoBell bool
+	// Notify opts into a DESKTOP notification on the same needs-you 0->N
+	// transition the bell fires on (#28) - the --notify flag. Independent of
+	// NoBell: a muted bell does not mute the notifier. Default false.
+	Notify bool
 	// Lifecycle is the cli-injected stop/resume/restart seam. cli owns the
 	// lifecycle verbs; passing a closure here lets the live NOC
 	// drive them WITHOUT a console import cycle. nil means lifecycle actions
@@ -1263,6 +1267,12 @@ func runNOCLive(cfg NOCConfig) error {
 	// the same mute. Read-only: the bell never touches squad state.
 	m.alertsMuted = cfg.NoBell
 	m.bell = func() { _, _ = tty.WriteString("\a") }
+	// Desktop notifier (#28): opt-in, fires on the same 0->N transition as the
+	// bell but independently of the mute (the NOC's terminal is usually buried
+	// exactly when the notification matters). Best effort via osascript.
+	if cfg.Notify {
+		m.notify = noc.DesktopNotify
+	}
 	// Seed an initial snapshot synchronously so the first frame is populated.
 	m.ms = noc.Collect(rebuild.Roots, rebuild.Depth, rebuild.Probe, rebuild.Thresholds)
 	m.ready = true

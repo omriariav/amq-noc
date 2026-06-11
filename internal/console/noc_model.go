@@ -258,7 +258,16 @@ type NOCModel struct {
 	paneCapture func(paneID string, lines int) ([]string, error)
 	// agentOutput is the v-key output preview for the selected agent row.
 	agentOutput *agentOutputView
+	// transcript reads the operator-lead conversation (#27); defaults to
+	// state.ConversationTranscript. Read-only filesystem scan.
+	transcript func(sessionRoot, a, b string, limit int) []state.Message
+	// conversation is the active conversation-mode state (nil = board).
+	conversation *conversationView
 
+	// notify is the opt-in desktop-notification seam (#28): fired on the same
+	// needs-you 0->N transition as the bell, independently of the bell mute.
+	// nil (the default) means notifications are off.
+	notify func(title, body string)
 	// bell is the injected terminal-bell seam for needs-you alerts. Production
 	// writes "\a" to the tty (wired by RunNOC); tests inject a counter so they can
 	// assert the bell fired exactly once on a 0→N transition without a real tty. A
@@ -329,6 +338,7 @@ func newNOCModel(rebuild NOCRebuildConfig) NOCModel {
 		copyText:     defaultClipboardCopy,
 		runtimeFetch: defaultRuntimeFetch,
 		paneCapture:  noc.CapturePaneTail,
+		transcript:   state.ConversationTranscript,
 		sendOp:       act.Send,
 	}
 }

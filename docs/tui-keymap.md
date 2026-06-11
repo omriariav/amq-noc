@@ -17,6 +17,12 @@ It defines:
   direct-lead, new-team, and new-session, plus the read-only view-output and
   pane-focus affordances
 
+Conversation mode (m on an orchestrated session or its lead row) is a
+takeover view that owns its own keys while open, like the overlay editors:
+typing feeds its composer, enter stages then sends (the inline staged
+confirm), esc steps back, pgup/pgdn scroll, ctrl+r refreshes. Its keys are
+listed in its own footer line, not in the manifest.
+
 The help overlay and footer render from that manifest. Do not add a live TUI key
 by editing help or footer strings directly.
 

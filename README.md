@@ -120,11 +120,22 @@ operationally live agents, so fresh presence alone never promotes a wait.
   the published pane id, else the agent's newest AMQ message)
 - `o focus`: read-only pane focus through the published runtime contract,
   confirm-gated, with a copyable fallback outside tmux
+- conversation mode: `m` on an orchestrated session or its lead row opens
+  the operator-lead dialogue - a participant-filtered transcript (the p2p
+  thread plus lead-raised gates, full bodies) with an inline staged-confirm
+  composer; open gates are answered in place with the existing clearing
+  semantics
+- `--notify`: opt-in macOS desktop notification on the same needs-you 0->N
+  transition as the terminal bell, independent of `--no-bell`
+- narrow-terminal truthfulness: footer legends wrap to the terminal width,
+  the header pulse drops zero-count segments instead of overflowing, and a
+  `lead-down` count joins the pulse when an orchestrated lead dies while
+  its children continue
 
 ## Install
 
 ```sh
-go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.8.0
+go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.9.0
 ```
 
 Requirements:
@@ -239,13 +250,23 @@ client for supervising those squads:
   workstreams; JSON snapshots add `orchestrated`, `lead`, `lead_handle`,
   `lead_down`, and per-agent `is_lead` (all additive)
 
-Directing the lead is first-class: `L` on an orchestrated session (or the
-lead's row) opens a multi-line directive compose with preview + confirm. A
-live lead receives it in its pane through amq-squad's busy-guarded `send`
-(the NOC never passes `--force`); a down lead receives a durable AMQ message
-on the `p2p/<lead>__<operator>` thread instead, read on its next drain or
-wake. Directives never clear operator gates, and the result note names the
-channel that delivered.
+Talking with the lead is first-class. `m` on the orchestrated session (or
+the lead's row) opens CONVERSATION MODE: the full operator-lead dialogue -
+directives, acknowledgments, and lead-raised gates, interleaved with full
+bodies - plus an inline composer. Enter stages the message with its kind,
+thread, and delivery channel named; enter again sends; esc steps back. An
+open gate is bannered and your next message answers it on the gate thread,
+clearing needs-you exactly like approve/reply/deny. The staged confirm is
+conversation mode's form of preview-first, not a relaxation.
+
+`L` stays the quick fire-and-forget directive: multi-line compose, preview,
+confirm. Both surfaces share the channel logic - a live lead receives the
+message in its pane through amq-squad's busy-guarded `send` (the NOC never
+passes `--force`); a down lead receives a durable AMQ message on the
+`p2p/<lead>__<operator>` thread instead, read on its next drain or wake.
+Directives never clear operator gates, and result notes name the channel
+that delivered. With `amq-squad v1.9.0+` the lead acknowledges directives
+on the same thread, so the conversation fills from both directions.
 
 Teams without the v1.7 fields render exactly as before.
 
@@ -299,11 +320,12 @@ amq-noc --filter project:amq-noc \
 - legacy teams with a runnable member named `user` do not get an implicit
   operator gate, avoiding false `needs-you`
 
-Recommended companion version for published runtime actions and the
-orchestrated/lead team contract:
+Recommended companion version for published runtime actions, the
+orchestrated/lead team contract, and the operator DIRECTIVE norm (leads
+acknowledge NOC directives on the conversation thread):
 
 ```sh
-go install github.com/omriariav/amq-squad/cmd/amq-squad@v1.7.0
+go install github.com/omriariav/amq-squad/cmd/amq-squad@v1.9.0
 ```
 
 Older `amq-squad` builds keep deterministic fallback action commands.

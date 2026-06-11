@@ -159,6 +159,11 @@ func (m *NOCModel) View() string {
 	if m.palette != nil {
 		return m.overlayFrame(m.paletteOverlayView())
 	}
+	// Conversation mode (#27) replaces the board wholesale: the operator is
+	// talking with one lead, so the tree/detail split yields to the dialogue.
+	if m.conversation != nil {
+		return m.conversationFrame()
+	}
 	return m.liveView()
 }
 
@@ -576,6 +581,14 @@ func (m NOCModel) headerView() string {
 // pulseLine is the operator-scan headline. It keeps the primary model compact:
 // squads, online, needs-you, blocked, waiting, stale. Gated/at-risk remain
 // collapsed into waiting; declared blocks stay visible as hard stops.
+// pulseSeg pairs a pulse segment's painted form with its plain width and
+// whether a tight terminal may drop it (zero counts carry no information).
+type pulseSeg struct {
+	painted   string
+	plain     string
+	droppable bool
+}
+
 func (m NOCModel) pulseLine() string {
 	projects := m.scopedProjects()
 	tally := childTallyProjects(projects)
@@ -584,40 +597,98 @@ func (m NOCModel) pulseLine() string {
 	dim := func(s string) string { return m.th.paint(m.th.dim, s) }
 	sep := dim(" " + m.dot() + " ")
 
-	segs := []string{
-		dim(nocCount(squads, "squad", "squads")),
-		dim(strconv.Itoa(tally.Running) + " online"),
+	var segs []pulseSeg
+	add := func(painted, plain string, droppable bool) {
+		segs = append(segs, pulseSeg{painted: painted, plain: plain, droppable: droppable})
 	}
+
+	add(dim(nocCount(squads, "squad", "squads")), nocCount(squads, "squad", "squads"), false)
+	add(dim(strconv.Itoa(tally.Running)+" online"), strconv.Itoa(tally.Running)+" online", false)
 
 	// needs-you: the single eye-grab for current operator action. Count visible
 	// squad rows whose primary state is needs-you, not raw thread buckets.
 	nyText := strconv.Itoa(tally.NeedsYou) + " needs-you"
 	if tally.NeedsYou > 0 {
-		segs = append(segs, m.th.paint(m.th.needsYou, nocStateGlyph(nocNeedsYou, m.colorMode)+" "+nyText))
+		glyph := nocStateGlyph(nocNeedsYou, m.colorMode) + " "
+		add(m.th.paint(m.th.needsYou, glyph+nyText), glyph+nyText, false)
 	} else {
-		segs = append(segs, dim(nyText))
+		add(dim(nyText), nyText, true)
 	}
 
 	if tally.Blocked > 0 {
-		segs = append(segs, m.th.paint(m.th.blocked, nocStateGlyph(nocBlocked, m.colorMode)+" "+strconv.Itoa(tally.Blocked)+" blocked"))
+		glyph := nocStateGlyph(nocBlocked, m.colorMode) + " "
+		text := glyph + strconv.Itoa(tally.Blocked) + " blocked"
+		add(m.th.paint(m.th.blocked, text), text, false)
 	} else {
-		segs = append(segs, dim("0 blocked"))
+		add(dim("0 blocked"), "0 blocked", true)
 	}
 
 	// waiting/stale follow the visible project rows as well, so the pulse answers
 	// "which squads are in each state?" and reconciles with the left tree.
 	if tally.Waiting > 0 {
-		segs = append(segs, m.th.paint(m.th.atRisk, strconv.Itoa(tally.Waiting)+" waiting"))
+		text := strconv.Itoa(tally.Waiting) + " waiting"
+		add(m.th.paint(m.th.atRisk, text), text, false)
 	} else {
-		segs = append(segs, dim("0 waiting"))
+		add(dim("0 waiting"), "0 waiting", true)
 	}
 
 	if tally.Stale > 0 {
-		segs = append(segs, dim(strconv.Itoa(tally.Stale)+" stale"))
+		text := strconv.Itoa(tally.Stale) + " stale"
+		add(dim(text), text, false)
 	}
 
-	segs = append(segs, dim(m.clock()))
-	return strings.Join(segs, sep)
+	// lead-down (#17): an orchestrated squad whose lead died while children
+	// continue. Surfaced in the full-width pulse because narrow left-pane rows
+	// truncate before any session tail can show it. Quiet when zero.
+	if down := m.leadDownCount(projects); down > 0 {
+		text := strconv.Itoa(down) + " lead-down"
+		add(m.th.paint(m.th.nocStateStyle(nocAtRisk), text), text, false)
+	}
+
+	add(dim(m.clock()), m.clock(), false)
+
+	// Narrow terminals (#17): when the full pulse would overflow, drop the
+	// dim zero-count segments - they carry no information; every non-zero
+	// state and the clock always stay.
+	const sepW = 3
+	width := func(keepDroppable bool) int {
+		w := 0
+		n := 0
+		for _, s := range segs {
+			if s.droppable && !keepDroppable {
+				continue
+			}
+			if n > 0 {
+				w += sepW
+			}
+			w += visibleWidth(s.plain)
+			n++
+		}
+		return w
+	}
+	keepZeros := m.width <= 0 || width(true) <= m.width
+	var out []string
+	for _, s := range segs {
+		if s.droppable && !keepZeros {
+			continue
+		}
+		out = append(out, s.painted)
+	}
+	return strings.Join(out, sep)
+}
+
+// leadDownCount counts visible sessions whose orchestrated lead is down while
+// other agents continue (state.SessionLeadDown).
+func (m NOCModel) leadDownCount(projects []noc.ProjectSnapshot) int {
+	n := 0
+	for _, ps := range projects {
+		for _, sess := range ps.Snap.Sessions {
+			if state.SessionLeadDown(sess) {
+				n++
+			}
+		}
+	}
+	return n
 }
 
 // lastActivityLine is the top-level "last activity across all squads" summary,
@@ -1813,8 +1884,13 @@ func (m NOCModel) footerView() string {
 	if len(notes) > 0 {
 		b.WriteString(strings.Join(notes, m.th.paint(m.th.dim, "  "+m.dot()+"  ")) + "\n")
 	}
-	b.WriteString(m.th.paint(m.th.dim, keys))
-	b.WriteString("\n")
+	// Footer legends WRAP to the terminal width (#17 narrow-terminal pass): a
+	// single overlong legend line would hard-wrap mid-token and shred the
+	// frame on an 80-column terminal.
+	for _, line := range m.wrapFooterLine(keys) {
+		b.WriteString(m.th.paint(m.th.dim, line))
+		b.WriteString("\n")
+	}
 	// The control-key legend is a second footer row, CONTEXT-SENSITIVE (#4.2): it
 	// shows only the mutating actions valid for the SELECTED row's kind, so the
 	// operator is not taught keys that do nothing here. The full key map is one
@@ -1824,8 +1900,23 @@ func (m NOCModel) footerView() string {
 	if control == "" {
 		control = "no actions for this row (select a squad with work; ? for all keys)"
 	}
-	b.WriteString(m.th.paint(m.th.dim, control))
+	lines := m.wrapFooterLine(control)
+	for i, line := range lines {
+		b.WriteString(m.th.paint(m.th.dim, line))
+		if i < len(lines)-1 {
+			b.WriteString("\n")
+		}
+	}
 	return b.String()
+}
+
+// wrapFooterLine wraps a plain (unpainted) footer legend to the terminal
+// width. Zero/unknown width keeps the single line.
+func (m NOCModel) wrapFooterLine(s string) []string {
+	if m.width <= 0 || visibleWidth(s) <= m.width {
+		return []string{s}
+	}
+	return wrapPlainText(s, m.width)
 }
 
 // controlFooterLegendForSelection renders the control footer legend filtered to

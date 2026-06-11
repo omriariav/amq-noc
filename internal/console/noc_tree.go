@@ -230,6 +230,7 @@ func buildNOCTree(ms noc.MultiSnapshot, ts nocTreeState, filter string, hideStal
 					state:    sessionRollupState(sess),
 					rollup:   sess.Rollup,
 					child:    childTallyAgents(sess, visAgents),
+					recent:   sessionRecent(sess),
 					expanded: sExpanded,
 					hasKids:  len(visAgents) > 0,
 					last:     si == len(visSessions)-1,
@@ -415,6 +416,17 @@ func topThread(sess state.Session) (state.ThreadSummary, bool) {
 		return state.ThreadSummary{}, false
 	}
 	return ts[0], true
+}
+
+// sessionRecent is the session row's dim tail. The quiet tree carries no
+// thread subjects; the only tail is an operational alarm the operator should
+// not have to drill for: an orchestrated squad whose lead is down while
+// children continue (#17 increment - the board says it, not just the detail).
+func sessionRecent(sess state.Session) string {
+	if state.SessionLeadDown(sess) {
+		return "lead down"
+	}
+	return ""
 }
 
 func agentRecent(ag state.Agent) string {

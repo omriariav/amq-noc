@@ -53,6 +53,9 @@ func (m *NOCModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshGuidance()
 		m.clampCursor()
 		m.preserveSelection()
+		// An open conversation re-projects against every fresh snapshot so the
+		// transcript, gate state, and lead liveness stay current.
+		m.refreshConversation()
 		return m, nil
 
 	case commandCopyMsg:
@@ -99,6 +102,12 @@ func (m *NOCModel) refreshGuidance() {
 // context/inbox/DLQ/read, and jump/focus surfaces were removed from the primary
 // 0.1.0 keymap; their plumbing remains dormant for a later pass.
 func (m *NOCModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Conversation mode (#27) is a full takeover view: while it is open it
+	// owns every key (typing feeds its composer, esc steps back/exits). No
+	// overlay can be open at the same time by construction.
+	if m.conversation != nil {
+		return m.handleConversationKey(msg)
+	}
 	// Control overlays take the key first so a mutating action is always two-step
 	// and self-contained: while the confirm overlay is open ONLY y/esc/other are
 	// meaningful (handleConfirmKey gates the single seam call); while the body

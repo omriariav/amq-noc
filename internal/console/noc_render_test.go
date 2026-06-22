@@ -1146,6 +1146,49 @@ func TestNOCSessionDetail_NeedsYouContextCTAAndCommands(t *testing.T) {
 	}
 }
 
+func TestSessionDetailRendersAttentionQueueBeforeThreadMonitoring(t *testing.T) {
+	m := newNOCModel(NOCRebuildConfig{})
+	m.colorMode = ColorNone
+	m.th = newNOCTheme(ColorNone)
+	m.width = 120
+	sess := state.Session{
+		Name: "issue-96",
+		Coordination: state.Coordination{
+			AttentionQueue: []state.AttentionQueueItem{{
+				Kind:        state.AttentionStaleDirective,
+				WhoActs:     "cto",
+				Thread:      "p2p/cto__user",
+				Why:         "directive overlaps open operator gate",
+				BodyPreview: "Ship now.",
+				NextAction:  "thread_context",
+				Conflict:    true,
+			}},
+			Threads: []state.ThreadSummary{{
+				ID:         "p2p/cto__user",
+				Subject:    "DIRECTIVE: ship now",
+				Status:     state.ThreadOpen,
+				Triage:     state.TriageClear,
+				LastFrom:   "user",
+				LatestBody: "Ship now.",
+			}},
+		},
+	}
+	out := m.sessionDetail(nocNode{
+		kind:    nodeSession,
+		label:   "issue-96",
+		project: noc.ProjectSnapshot{Project: "api"},
+		session: sess,
+	})
+	for _, want := range []string{"attention queue", "DIRECTIVE", "p2p/cto__user", "CONFLICT", "next: thread_context", "Ship now."} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("session detail missing %q:\n%s", want, out)
+		}
+	}
+	if ai, ni := strings.Index(out, "attention queue"), strings.Index(out, "now"); ai < 0 || ni < 0 || ai > ni {
+		t.Fatalf("attention queue should render before now/thread monitoring:\n%s", out)
+	}
+}
+
 func TestNOCAgentNodeStateReflectsCurrentAttention(t *testing.T) {
 	sess := state.Session{
 		Name: "main",

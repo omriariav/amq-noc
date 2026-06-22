@@ -222,6 +222,19 @@ type ThreadSummary struct {
 	// for needs-you ownership; do NOT infer the asker from the sorted Participants
 	// union, which cannot identify the sender.
 	NeedsYouOwner string
+	// Gate marks a stable gate/<topic> thread that is currently open and needs
+	// the operator. GateAnswered marks a gate thread that has a same-thread
+	// operator response, so surfaces can show the gate as answered rather than
+	// silently losing the gate evidence.
+	Gate         bool
+	GateAnswered bool
+	// Directive marks an operator-to-lead DIRECTIVE: todo thread. DirectiveAcked
+	// records a later same-thread lead status/answer. DirectiveConflict flags
+	// that a related open operator gate exists after the directive; NOC surfaces
+	// this as a named condition instead of resolving either side.
+	Directive         bool
+	DirectiveAcked    bool
+	DirectiveConflict bool
 }
 
 // Edge is a directed from->to message count across a session.

@@ -450,6 +450,8 @@ func executeNOC(s nocExecution) error {
 	if s.JSON {
 		ms := noc.Collect(roots, s.Depth, state.DefaultProbe, thresholds)
 		ms = filterNOCSnapshot(ms, s.Filter, s.HideStale)
+		noc.EnrichHealth(&ms, nil)
+		noc.EnrichCorrelations(&ms, nil)
 		env := nocSnapshotEnvelope(ms, s.Filter, s.HideStale)
 		applyRuntimeActions(&env, s.RuntimeFetch)
 		return writeJSONEnvelope(s.Out, "noc_snapshot", env)
@@ -573,6 +575,7 @@ type nocProjectJSONData struct {
 	Profiles       []string                `json:"profiles,omitempty"`
 	Operator       nocOperatorJSONData     `json:"operator"`
 	Capabilities   nocCapabilitiesJSONData `json:"capabilities"`
+	Health         *noc.ProjectHealth      `json:"health,omitempty"`
 	Candidate      bool                    `json:"candidate"`
 	SessionStore   bool                    `json:"session_store"`
 	SessionNames   []string                `json:"session_names,omitempty"`
@@ -598,26 +601,49 @@ type nocCapabilitiesJSONData struct {
 }
 
 type nocSessionJSONData struct {
-	ID              string              `json:"id"`
-	Name            string              `json:"name"`
-	Root            string              `json:"root"`
-	State           string              `json:"state"`
-	ReasonCode      string              `json:"reason_code,omitempty"`
-	AgentsTotal     int                 `json:"agents_total"`
-	AgentsAlive     int                 `json:"agents_alive"`
-	ThreadCount     int                 `json:"thread_count"`
-	ThreadsReturned int                 `json:"threads_returned,omitempty"`
-	Attention       string              `json:"attention"`
-	AttentionReason string              `json:"attention_reason,omitempty"`
-	UnownedEvidence string              `json:"unowned_evidence,omitempty"`
-	Orchestrated    bool                `json:"orchestrated,omitempty"`
-	Lead            string              `json:"lead,omitempty"`
-	LeadHandle      string              `json:"lead_handle,omitempty"`
-	LeadDown        bool                `json:"lead_down,omitempty"`
-	Rollup          nocRollupData       `json:"rollup"`
-	Threads         []threadRow         `json:"threads,omitempty"`
-	Agents          []nocAgentJSONData  `json:"agents,omitempty"`
-	Actions         []nocActionJSONData `json:"actions,omitempty"`
+	ID              string                  `json:"id"`
+	Name            string                  `json:"name"`
+	Root            string                  `json:"root"`
+	State           string                  `json:"state"`
+	ReasonCode      string                  `json:"reason_code,omitempty"`
+	AgentsTotal     int                     `json:"agents_total"`
+	AgentsAlive     int                     `json:"agents_alive"`
+	ThreadCount     int                     `json:"thread_count"`
+	ThreadsReturned int                     `json:"threads_returned,omitempty"`
+	Attention       string                  `json:"attention"`
+	AttentionReason string                  `json:"attention_reason,omitempty"`
+	UnownedEvidence string                  `json:"unowned_evidence,omitempty"`
+	Orchestrated    bool                    `json:"orchestrated,omitempty"`
+	Lead            string                  `json:"lead,omitempty"`
+	LeadHandle      string                  `json:"lead_handle,omitempty"`
+	LeadDown        bool                    `json:"lead_down,omitempty"`
+	Health          *noc.SessionHealth      `json:"health,omitempty"`
+	Correlation     *noc.SessionCorrelation `json:"correlation,omitempty"`
+	Rollup          nocRollupData           `json:"rollup"`
+	AttentionQueue  []nocAttentionItem      `json:"attention_queue,omitempty"`
+	Threads         []threadRow             `json:"threads,omitempty"`
+	Agents          []nocAgentJSONData      `json:"agents,omitempty"`
+	Actions         []nocActionJSONData     `json:"actions,omitempty"`
+}
+
+type nocAttentionItem struct {
+	Kind         string     `json:"kind"`
+	Urgency      int        `json:"urgency"`
+	WhoActs      string     `json:"who_acts,omitempty"`
+	Thread       string     `json:"thread,omitempty"`
+	Since        *time.Time `json:"since,omitempty"`
+	AgeSource    string     `json:"age_source,omitempty"`
+	Why          string     `json:"why,omitempty"`
+	Requester    string     `json:"requester,omitempty"`
+	Recipient    string     `json:"recipient,omitempty"`
+	Session      string     `json:"session,omitempty"`
+	Profile      string     `json:"profile,omitempty"`
+	BodyPreview  string     `json:"body_preview,omitempty"`
+	NextAction   string     `json:"next_action,omitempty"`
+	ActionID     string     `json:"action_id,omitempty"`
+	Answered     bool       `json:"answered,omitempty"`
+	Acknowledged bool       `json:"acknowledged,omitempty"`
+	Conflict     bool       `json:"conflict,omitempty"`
 }
 
 type nocAgentJSONData struct {
@@ -708,6 +734,12 @@ func scopedNOCProject(ps noc.ProjectSnapshot, filter string) (noc.ProjectSnapsho
 	scoped := ps
 	scoped.Snap.Sessions = nil
 	scoped.Snap.Rollup = state.TriageRollup{}
+	if ps.SessionHealth != nil {
+		scoped.SessionHealth = map[string]noc.SessionHealth{}
+	}
+	if ps.SessionCorrelations != nil {
+		scoped.SessionCorrelations = map[string]noc.SessionCorrelation{}
+	}
 	for _, sess := range ps.Snap.Sessions {
 		if !console.SessionMatchesNOCProjectFilter(ps, sess, filter) {
 			continue
@@ -721,6 +753,16 @@ func scopedNOCProject(ps noc.ProjectSnapshot, filter string) (noc.ProjectSnapsho
 		}
 		scoped.Snap.Sessions = append(scoped.Snap.Sessions, scopedSession)
 		scoped.Snap.Rollup.Add(scopedSession.Rollup)
+		if ps.SessionHealth != nil {
+			if h, ok := ps.SessionHealth[sess.Name]; ok {
+				scoped.SessionHealth[sess.Name] = h
+			}
+		}
+		if ps.SessionCorrelations != nil {
+			if c, ok := ps.SessionCorrelations[sess.Name]; ok {
+				scoped.SessionCorrelations[sess.Name] = c
+			}
+		}
 	}
 	return scoped, true
 }
@@ -2188,6 +2230,7 @@ func nocProjectEnvelope(ps noc.ProjectSnapshot) nocProjectJSONData {
 			OperatorGates:  ps.Capabilities.OperatorGates,
 			RuntimeActions: ps.Capabilities.RuntimeActions,
 		},
+		Health:       nocProjectHealthPtr(ps.Health),
 		Candidate:    ps.Candidate,
 		SessionStore: ps.SessionStore,
 		SessionNames: append([]string(nil), ps.SessionNames...),
@@ -2210,6 +2253,35 @@ func nocProjectBaseRoot(ps noc.ProjectSnapshot) string {
 		return filepath.Join(ps.Dir, noc.AgentMailDirName)
 	}
 	return ""
+}
+
+func nocProjectHealthPtr(h noc.ProjectHealth) *noc.ProjectHealth {
+	if strings.TrimSpace(h.Status) == "" && len(h.Toolchain) == 0 && strings.TrimSpace(h.Doctor.Status) == "" {
+		return nil
+	}
+	return &h
+}
+
+func nocSessionHealthPtr(ps noc.ProjectSnapshot, session string) *noc.SessionHealth {
+	if ps.SessionHealth == nil {
+		return nil
+	}
+	h, ok := ps.SessionHealth[session]
+	if !ok {
+		return nil
+	}
+	return &h
+}
+
+func nocSessionCorrelationPtr(ps noc.ProjectSnapshot, session string) *noc.SessionCorrelation {
+	if ps.SessionCorrelations == nil {
+		return nil
+	}
+	c, ok := ps.SessionCorrelations[session]
+	if !ok {
+		return nil
+	}
+	return &c
 }
 
 func nocSessionEnvelope(ps noc.ProjectSnapshot, sess state.Session) nocSessionJSONData {
@@ -2252,7 +2324,9 @@ func nocSessionEnvelope(ps noc.ProjectSnapshot, sess state.Session) nocSessionJS
 		threads = threads[:defaultThreadsLimit]
 	}
 	sessionAttention := nocSessionPrimaryAttentionDetail(sess)
-	return nocSessionJSONData{
+	actions := nocSessionActions(ps, sess, sessionID, liveOperational, len(agents))
+	correlation := nocSessionCorrelationPtr(ps, sess.Name)
+	row := nocSessionJSONData{
 		ID:              sessionID,
 		Name:            sess.Name,
 		Root:            sess.Root,
@@ -2269,10 +2343,140 @@ func nocSessionEnvelope(ps noc.ProjectSnapshot, sess state.Session) nocSessionJS
 		Lead:            sess.LeadRole,
 		LeadHandle:      sess.LeadHandle,
 		LeadDown:        state.SessionLeadDown(sess),
+		Health:          nocSessionHealthPtr(ps, sess.Name),
+		Correlation:     correlation,
 		Rollup:          nocRollupEnvelope(sess.Rollup),
 		Threads:         threads,
 		Agents:          agents,
-		Actions:         nocSessionActions(ps, sess, sessionID, liveOperational, len(agents)),
+		Actions:         actions,
+	}
+	row.AttentionQueue = nocAttentionQueueEnvelope(sess, row, correlation)
+	return row
+}
+
+func nocAttentionQueueEnvelope(sess state.Session, row nocSessionJSONData, correlation *noc.SessionCorrelation) []nocAttentionItem {
+	if len(sess.Coordination.AttentionQueue) == 0 {
+		return nil
+	}
+	out := make([]nocAttentionItem, 0, len(sess.Coordination.AttentionQueue))
+	for _, item := range sess.Coordination.AttentionQueue {
+		if item.Kind == state.AttentionStaleWorker && runtimeWorkerLive(correlation, item.WhoActs) {
+			continue
+		}
+		nextAction, actionID := nocAttentionNextAction(item, row)
+		out = append(out, nocAttentionItem{
+			Kind:         item.Kind,
+			Urgency:      item.Urgency,
+			WhoActs:      item.WhoActs,
+			Thread:       item.Thread,
+			Since:        jsonTimePtr(item.Since),
+			AgeSource:    string(item.AgeSource),
+			Why:          item.Why,
+			Requester:    item.Requester,
+			Recipient:    item.Recipient,
+			Session:      item.Session,
+			Profile:      item.Profile,
+			BodyPreview:  item.BodyPreview,
+			NextAction:   nextAction,
+			ActionID:     actionID,
+			Answered:     item.Answered,
+			Acknowledged: item.Acknowledged,
+			Conflict:     item.Conflict,
+		})
+	}
+	return out
+}
+
+func runtimeWorkerLive(correlation *noc.SessionCorrelation, handle string) bool {
+	if correlation == nil {
+		return false
+	}
+	handle = strings.TrimSpace(handle)
+	if handle == "" {
+		return false
+	}
+	for _, row := range correlation.Runtime.Rows {
+		if row.Handle == handle && row.PaneAlive {
+			return true
+		}
+	}
+	return false
+}
+
+func nocAttentionNextAction(item state.AttentionQueueItem, row nocSessionJSONData) (string, string) {
+	action := strings.TrimSpace(item.NextAction)
+	if action == "" {
+		return "", ""
+	}
+	if id := nocAttentionSessionActionID(row.Actions, action); id != "" {
+		return action, id
+	}
+	if id := nocAttentionAgentActionID(row.Agents, item.WhoActs, action); id != "" {
+		return action, id
+	}
+	if strings.TrimSpace(row.ID) != "" && nocAttentionAllowsFallbackAction(action) {
+		return action, row.ID + "|action|" + action
+	}
+	return "", ""
+}
+
+func nocAttentionAllowsFallbackAction(action string) bool {
+	switch action {
+	case "reply", "approve", "deny":
+		return true
+	default:
+		return false
+	}
+}
+
+func nocAttentionSessionActionID(actions []nocActionJSONData, name string) string {
+	for _, action := range actions {
+		if action.Name == name {
+			return action.ID
+		}
+	}
+	return ""
+}
+
+func nocAttentionAgentActionID(agents []nocAgentJSONData, handle, name string) string {
+	handle = strings.TrimSpace(handle)
+	if handle == "" {
+		return ""
+	}
+	for _, ag := range agents {
+		if ag.Handle != handle {
+			continue
+		}
+		for _, action := range ag.Actions {
+			if action.Name == name {
+				return action.ID
+			}
+		}
+	}
+	return ""
+}
+
+func reconcileAttentionQueueActions(sess *nocSessionJSONData) {
+	if sess == nil {
+		return
+	}
+	for i := range sess.AttentionQueue {
+		item := &sess.AttentionQueue[i]
+		name := strings.TrimSpace(item.NextAction)
+		if name == "" {
+			item.ActionID = ""
+			continue
+		}
+		if id := nocAttentionSessionActionID(sess.Actions, name); id != "" {
+			item.ActionID = id
+			continue
+		}
+		if id := nocAttentionAgentActionID(sess.Agents, item.WhoActs, name); id != "" {
+			item.ActionID = id
+			continue
+		}
+		item.NextAction = ""
+		item.ActionID = ""
 	}
 }
 

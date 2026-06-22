@@ -33,6 +33,9 @@ type RuntimeAction struct {
 type RuntimeMember struct {
 	Role       string
 	Handle     string
+	Status     string
+	IsLead     bool
+	External   bool
 	Session    string // tmux session hosting the pane (#{session_name})
 	WindowID   string // tmux window id (@N)
 	WindowName string // tmux window name (#{window_name})
@@ -134,9 +137,12 @@ type squadStatusEnvelope struct {
 		} `json:"capabilities"`
 		Actions []runtimeActionEnvelope `json:"actions"`
 		Records []struct {
-			Role   string `json:"role"`
-			Handle string `json:"handle"`
-			Tmux   *struct {
+			Role     string `json:"role"`
+			Handle   string `json:"handle"`
+			Status   string `json:"status"`
+			IsLead   bool   `json:"is_lead"`
+			External bool   `json:"external"`
+			Tmux     *struct {
 				Session    string `json:"session"`
 				WindowID   string `json:"window_id"`
 				WindowName string `json:"window_name"`
@@ -195,7 +201,7 @@ func parseRuntimeStatus(out []byte) RuntimeStatus {
 		}
 	}
 	for _, r := range env.Data.Records {
-		m := RuntimeMember{Role: r.Role, Handle: r.Handle}
+		m := RuntimeMember{Role: r.Role, Handle: r.Handle, Status: r.Status, IsLead: r.IsLead, External: r.External}
 		if r.Tmux != nil {
 			m.Session = r.Tmux.Session
 			m.WindowID = r.Tmux.WindowID

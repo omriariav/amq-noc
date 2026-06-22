@@ -10,11 +10,13 @@ import (
 // threads, edges, timeline, triage rollup, and any scan warnings. It is built
 // purely from scanned mailbox messages plus the injected clock + thresholds.
 type Coordination struct {
-	Threads  []ThreadSummary
-	Edges    []Edge
-	Timeline []TimelineEvent
-	Rollup   TriageRollup
-	Warnings []Warning
+	Threads        []ThreadSummary
+	Messages       []Message
+	Edges          []Edge
+	Timeline       []TimelineEvent
+	AttentionQueue []AttentionQueueItem
+	Rollup         TriageRollup
+	Warnings       []Warning
 }
 
 // collapseInput is the raw material for building a session's coordination view:
@@ -43,11 +45,13 @@ func buildCoordination(in collapseInput, now time.Time, th Thresholds) Coordinat
 	}
 
 	return Coordination{
-		Threads:  threads,
-		Edges:    edges,
-		Timeline: timeline,
-		Rollup:   rollup,
-		Warnings: in.warnings,
+		Threads:        threads,
+		Messages:       append([]Message(nil), in.messages...),
+		Edges:          edges,
+		Timeline:       timeline,
+		AttentionQueue: buildAttentionQueue(threads, in.agents, th, ""),
+		Rollup:         rollup,
+		Warnings:       in.warnings,
 	}
 }
 
@@ -74,6 +78,7 @@ type threadAccumulator struct {
 	blockActive bool
 	blockOwner  string // primary recipient of the active block (who it is addressed to)
 	blockSender string // sender that DECLARED the active block (who is waiting)
+	messages    []Message
 }
 
 // collapseThreads groups messages by canonical thread id and derives a summary
@@ -109,6 +114,7 @@ func collapseThreads(msgs []Message, now time.Time, th Thresholds, agents []Agen
 
 func (a *threadAccumulator) observe(m Message) {
 	a.count++
+	a.messages = append(a.messages, m)
 	if m.From != "" {
 		a.participants[m.From] = true
 	}
@@ -174,30 +180,110 @@ func (a *threadAccumulator) summarize(now time.Time, th Thresholds, agents []Age
 	stale := isStale(a.lastEventAt, now, th.StaleAfter, triage)
 	reason := classifyAttnReason(a, triage)
 	historical := isHistoricalNeedsYou(triage, fresh, agents, th.OperatorHandle)
+	gate := summarizeGate(a, triage, th.OperatorHandle)
+	directive := summarizeDirective(a, th.OperatorHandle)
 
 	return ThreadSummary{
-		ID:            a.id,
-		LatestID:      a.latest.ID,
-		Participants:  parts,
-		Subject:       a.subject,
-		Kind:          a.lastKind,
-		LastFrom:      a.latest.From,
-		Labels:        labels,
-		Orchestrator:  a.orchestrator,
-		FromProject:   a.fromProject,
-		ReplyProject:  a.replyProject,
-		Status:        status,
-		LastEventAt:   a.lastEventAt,
-		MessageCount:  a.count,
-		UnreadBy:      unread,
-		Triage:        triage,
-		Freshness:     fresh,
-		Stale:         stale,
-		Historical:    historical,
-		AttnReason:    reason,
-		NeedsYouOwner: needsYouOwner,
-		LatestBody:    a.latest.Body,
+		ID:                a.id,
+		LatestID:          a.latest.ID,
+		Participants:      parts,
+		Subject:           a.subject,
+		Kind:              a.lastKind,
+		LastFrom:          a.latest.From,
+		Labels:            labels,
+		Orchestrator:      a.orchestrator,
+		FromProject:       a.fromProject,
+		ReplyProject:      a.replyProject,
+		Status:            status,
+		LastEventAt:       a.lastEventAt,
+		MessageCount:      a.count,
+		UnreadBy:          unread,
+		Triage:            triage,
+		Freshness:         fresh,
+		Stale:             stale,
+		Historical:        historical,
+		AttnReason:        reason,
+		NeedsYouOwner:     needsYouOwner,
+		LatestBody:        a.latest.Body,
+		Gate:              gate.Open,
+		GateAnswered:      gate.Answered,
+		Directive:         directive.Active,
+		DirectiveAcked:    directive.Acknowledged,
+		DirectiveConflict: directive.Conflict,
 	}
+}
+
+type gateSummary struct {
+	Open     bool
+	Answered bool
+}
+
+func summarizeGate(a *threadAccumulator, triage Triage, operatorHandle string) gateSummary {
+	if !strings.HasPrefix(a.id, "gate/") {
+		return gateSummary{}
+	}
+	if triage == TriageNeedsYou {
+		return gateSummary{Open: true}
+	}
+	for _, m := range sortedThreadMessages(a.messages) {
+		if operatorHandle != "" && m.From == operatorHandle {
+			return gateSummary{Answered: true}
+		}
+	}
+	return gateSummary{}
+}
+
+type directiveSummary struct {
+	Active       bool
+	Acknowledged bool
+	Conflict     bool
+}
+
+func summarizeDirective(a *threadAccumulator, operatorHandle string) directiveSummary {
+	var latestDirective Message
+	for _, m := range sortedThreadMessages(a.messages) {
+		if isOperatorDirective(m, operatorHandle) {
+			latestDirective = m
+		}
+	}
+	if latestDirective.ID == "" {
+		return directiveSummary{}
+	}
+	out := directiveSummary{Active: true}
+	for _, m := range sortedThreadMessages(a.messages) {
+		if !m.Created.After(latestDirective.Created) || m.From == operatorHandle {
+			continue
+		}
+		switch m.Kind {
+		case KindStatus, KindAnswer:
+			out.Acknowledged = true
+		}
+	}
+	for _, m := range sortedThreadMessages(a.messages) {
+		if strings.HasPrefix(m.Thread, "gate/") && m.Created.After(latestDirective.Created) {
+			out.Conflict = true
+			break
+		}
+	}
+	return out
+}
+
+func isOperatorDirective(m Message, operatorHandle string) bool {
+	return operatorHandle != "" &&
+		m.From == operatorHandle &&
+		m.Kind == KindTodo &&
+		strings.HasPrefix(strings.ToLower(strings.TrimSpace(m.Subject)), "directive:")
+}
+
+func sortedThreadMessages(msgs []Message) []Message {
+	out := append([]Message(nil), msgs...)
+	sort.SliceStable(out, func(i, j int) bool {
+		if !out[i].Created.Equal(out[j].Created) {
+			return out[i].Created.Before(out[j].Created)
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out
 }
 
 func isHistoricalNeedsYou(triage Triage, fresh Freshness, agents []Agent, operatorHandle string) bool {

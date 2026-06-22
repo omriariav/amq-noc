@@ -1584,6 +1584,65 @@ func (m NOCModel) flowStatusTag(e state.FlowEdge, label string) string {
 	return m.th.paint(m.th.atRisk, tag)
 }
 
+func (m NOCModel) attentionQueueSection(sess state.Session) string {
+	if len(sess.Coordination.AttentionQueue) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(m.th.paint(m.th.dim, "attention queue") + "\n")
+	const maxItems = 5
+	items := sess.Coordination.AttentionQueue
+	if len(items) > maxItems {
+		items = items[:maxItems]
+	}
+	for _, item := range items {
+		label, style := m.attentionQueueChrome(item)
+		line := padRight(label, 16)
+		if actor := strings.TrimSpace(item.WhoActs); actor != "" {
+			line += actor
+		} else {
+			line += "session"
+		}
+		if item.Thread != "" {
+			line += " " + m.dot() + " " + truncate(item.Thread, 34)
+		}
+		if item.Why != "" {
+			line += " " + m.dot() + " " + truncate(item.Why, 42)
+		}
+		if item.NextAction != "" {
+			line += " " + m.dot() + " next: " + item.NextAction
+		}
+		if item.Conflict {
+			line += " " + m.dot() + " CONFLICT"
+		}
+		b.WriteString("  " + m.th.paint(style, line) + "\n")
+		if item.BodyPreview != "" {
+			b.WriteString(m.th.paint(m.th.dim, "    "+truncate(item.BodyPreview, m.detailTextWidth()-4)) + "\n")
+		}
+	}
+	if len(sess.Coordination.AttentionQueue) > len(items) {
+		b.WriteString(m.th.paint(m.th.dim, "  +"+strconv.Itoa(len(sess.Coordination.AttentionQueue)-len(items))+" more attention items") + "\n")
+	}
+	return b.String()
+}
+
+func (m NOCModel) attentionQueueChrome(item state.AttentionQueueItem) (string, lipgloss.Style) {
+	switch item.Kind {
+	case state.AttentionNeedsYouGate:
+		return "NEEDS-YOU", m.th.needsYou
+	case state.AttentionStaleDirective:
+		return "DIRECTIVE", m.th.atRisk
+	case state.AttentionReviewReady:
+		return "REVIEW", m.th.review
+	case state.AttentionStaleWorker:
+		return "WORKER", m.th.dim
+	case state.AttentionProgress:
+		return "PROGRESS", m.th.dim
+	default:
+		return "WAITING", m.th.blocked
+	}
+}
+
 // sessionDetail leads with current control state, then shows a bounded thread
 // preview, the agents table, and the optional recent actions timeline.
 func (m NOCModel) sessionDetail(n nocNode) string {
@@ -1592,6 +1651,11 @@ func (m NOCModel) sessionDetail(n nocNode) string {
 	b.WriteString(m.th.paint(m.th.dim, n.project.Project) + "\n")
 	b.WriteString(m.orchestrationHeader(n.project, n.session))
 	b.WriteString(m.detailRule() + "\n")
+
+	if queue := m.attentionQueueSection(n.session); queue != "" {
+		b.WriteString(queue)
+		b.WriteString(m.detailRule() + "\n")
+	}
 
 	b.WriteString(m.th.paint(m.th.dim, "now") + "\n")
 	nowThreads := currentControlThreads(n.session)

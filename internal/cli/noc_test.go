@@ -939,6 +939,96 @@ func TestNOCProjectEnvelopeIncludesRuntimeActionCapability(t *testing.T) {
 	}
 }
 
+func TestNOCProjectEnvelopeIncludesHealth(t *testing.T) {
+	project := nocProjectEnvelope(noc.ProjectSnapshot{
+		Project: "api",
+		Dir:     "/root/api",
+		Health: noc.ProjectHealth{
+			Status: "ok",
+			Toolchain: []noc.CapabilityCheck{{
+				Name:    "amq",
+				Status:  "ok",
+				Version: "0.38.0",
+			}},
+		},
+		SessionHealth: map[string]noc.SessionHealth{
+			"issue-96": {
+				Status: "warn",
+				Presence: noc.PresenceHealth{
+					Status:        "ok",
+					HumanOperator: true,
+					HumanHandle:   "user",
+					Agents:        2,
+				},
+			},
+		},
+		Snap: state.Snapshot{Sessions: []state.Session{{
+			Name: "issue-96",
+			Root: "/root/api/.agent-mail/issue-96",
+		}}},
+	})
+	if project.Health == nil || project.Health.Status != "ok" || len(project.Health.Toolchain) != 1 {
+		t.Fatalf("project health = %+v", project.Health)
+	}
+	if len(project.Sessions) != 1 || project.Sessions[0].Health == nil {
+		t.Fatalf("session health missing: %+v", project.Sessions)
+	}
+	if h := project.Sessions[0].Health.Presence; !h.HumanOperator || h.HumanHandle != "user" || h.Agents != 2 {
+		t.Fatalf("presence health = %+v", project.Sessions[0].Health.Presence)
+	}
+}
+
+func TestScopedNOCProjectScopesSessionHealth(t *testing.T) {
+	ps := noc.ProjectSnapshot{
+		Project: "api",
+		Dir:     "/root/api",
+		SessionHealth: map[string]noc.SessionHealth{
+			"issue-96": {Status: "ok"},
+			"other":    {Status: "error"},
+		},
+		Snap: state.Snapshot{Sessions: []state.Session{
+			{Name: "issue-96"},
+			{Name: "other"},
+		}},
+	}
+	scoped, ok := scopedNOCProject(ps, "session:issue-96")
+	if !ok {
+		t.Fatal("expected project to match filter")
+	}
+	if len(scoped.Snap.Sessions) != 1 || scoped.Snap.Sessions[0].Name != "issue-96" {
+		t.Fatalf("sessions = %+v", scoped.Snap.Sessions)
+	}
+	if len(scoped.SessionHealth) != 1 || scoped.SessionHealth["issue-96"].Status != "ok" {
+		t.Fatalf("session health leaked or missing: %+v", scoped.SessionHealth)
+	}
+}
+
+func TestNOCProjectEnvelopeIncludesCorrelation(t *testing.T) {
+	project := nocProjectEnvelope(noc.ProjectSnapshot{
+		Project: "api",
+		Dir:     "/root/api",
+		SessionCorrelations: map[string]noc.SessionCorrelation{
+			"issue-96": {
+				Status: "warn",
+				Tasks: noc.TaskStoreSnapshot{
+					Status: "ok",
+					Tasks:  []noc.TaskItem{{ID: "t4", Status: "in_progress", AssignedTo: "backend-dev"}},
+				},
+				WorkerReports: []noc.WorkerReport{{Type: "progress", From: "backend-dev", Thread: "p2p/cto__backend-dev"}},
+				Mismatches:    []noc.CorrelationSignal{{Name: "pending_task_has_worker_report", Status: "warn", TaskID: "t4"}},
+			},
+		},
+		Snap: state.Snapshot{Sessions: []state.Session{{Name: "issue-96"}}},
+	})
+	if len(project.Sessions) != 1 || project.Sessions[0].Correlation == nil {
+		t.Fatalf("correlation missing: %+v", project.Sessions)
+	}
+	c := project.Sessions[0].Correlation
+	if c.Status != "warn" || len(c.Tasks.Tasks) != 1 || len(c.WorkerReports) != 1 || len(c.Mismatches) != 1 {
+		t.Fatalf("correlation = %+v", c)
+	}
+}
+
 func TestNOCSessionEnvelopeIncludesThreadIntegrationMetadata(t *testing.T) {
 	row := nocSessionEnvelope(noc.ProjectSnapshot{Dir: "/root/api"}, state.Session{
 		Name: "issue-96",
@@ -4261,6 +4351,149 @@ func TestNOCProjectJSONNewerClearActivityBeatsOldAtRisk(t *testing.T) {
 	}
 	if len(project.Sessions) != 1 || project.Sessions[0].State != "online" {
 		t.Fatalf("session state = %#v, want one online child", project.Sessions)
+	}
+}
+
+func TestNOCJSONSessionAttentionQueue(t *testing.T) {
+	since := time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC)
+	project := nocProjectEnvelope(noc.ProjectSnapshot{
+		Project: "api",
+		Dir:     "/root/api",
+		Operator: noc.OperatorConfig{
+			Enabled: true,
+			Handle:  "user",
+		},
+		Snap: state.Snapshot{
+			Sessions: []state.Session{{
+				Name:   "issue-96",
+				Root:   "/root/api/.agent-mail/issue-96",
+				Agents: []state.Agent{{Handle: "cto", Role: "cto", Engine: "codex", Liveness: state.LivenessAlive}},
+				Rollup: state.TriageRollup{NeedsYou: 1},
+				Coordination: state.Coordination{
+					Threads: []state.ThreadSummary{{
+						ID:            "gate/release",
+						LatestID:      "g1",
+						Participants:  []string{"cto", "user"},
+						Subject:       "APPROVAL: release?",
+						Kind:          state.KindQuestion,
+						Status:        state.ThreadAwaitingReply,
+						Triage:        state.TriageNeedsYou,
+						AttnReason:    state.AttnApprove,
+						NeedsYouOwner: "cto",
+						LastFrom:      "cto",
+						LatestBody:    "Approve release?",
+					}},
+					AttentionQueue: []state.AttentionQueueItem{{
+						Kind:        state.AttentionNeedsYouGate,
+						Urgency:     0,
+						WhoActs:     "user",
+						Thread:      "gate/release",
+						Since:       since,
+						AgeSource:   state.SourceEmbedded,
+						Why:         "operator gate: approve",
+						Requester:   "cto",
+						Recipient:   "user",
+						Session:     "issue-96",
+						Profile:     "default",
+						BodyPreview: "Approve release?",
+						NextAction:  "reply",
+					}},
+				},
+			}},
+			Rollup: state.TriageRollup{NeedsYou: 1},
+		},
+	})
+	if len(project.Sessions) != 1 {
+		t.Fatalf("sessions = %d, want 1", len(project.Sessions))
+	}
+	queue := project.Sessions[0].AttentionQueue
+	if len(queue) != 1 {
+		t.Fatalf("attention_queue = %+v, want one item", queue)
+	}
+	item := queue[0]
+	if item.Kind != state.AttentionNeedsYouGate || item.WhoActs != "user" || item.Thread != "gate/release" {
+		t.Fatalf("queue item mismatch: %+v", item)
+	}
+	if item.ActionID != "session|/root/api|issue-96|action|reply" || item.NextAction != "reply" {
+		t.Fatalf("next action mismatch: %+v", item)
+	}
+}
+
+func TestNOCJSONAttentionQueueSuppressesRuntimeLiveStaleWorker(t *testing.T) {
+	project := nocProjectEnvelope(noc.ProjectSnapshot{
+		Project: "api",
+		Dir:     "/root/api",
+		SessionCorrelations: map[string]noc.SessionCorrelation{
+			"issue-96": {
+				Runtime: noc.RuntimeBoard{Rows: []noc.RuntimeWorkerState{{
+					Handle:    "backend-dev",
+					PaneAlive: true,
+				}}},
+			},
+		},
+		Snap: state.Snapshot{Sessions: []state.Session{{
+			Name:   "issue-96",
+			Agents: []state.Agent{{Handle: "backend-dev", Role: "backend-dev", Liveness: state.LivenessStale}},
+			Coordination: state.Coordination{AttentionQueue: []state.AttentionQueueItem{{
+				Kind:       state.AttentionStaleWorker,
+				WhoActs:    "backend-dev",
+				NextAction: "agent_resume",
+			}}},
+		}}},
+	})
+	queue := project.Sessions[0].AttentionQueue
+	if len(queue) != 0 {
+		t.Fatalf("runtime live worker must not be reported stale: %+v", queue)
+	}
+}
+
+func TestNOCJSONAttentionQueueAgentResumeUsesAgentActionID(t *testing.T) {
+	project := nocProjectEnvelope(noc.ProjectSnapshot{
+		Project: "api",
+		Dir:     "/root/api",
+		Snap: state.Snapshot{Sessions: []state.Session{{
+			Name:   "issue-96",
+			Agents: []state.Agent{{Handle: "backend-dev", Role: "backend-dev", Liveness: state.LivenessStale}},
+			Coordination: state.Coordination{AttentionQueue: []state.AttentionQueueItem{{
+				Kind:       state.AttentionStaleWorker,
+				WhoActs:    "backend-dev",
+				NextAction: "agent_resume",
+			}}},
+		}}},
+	})
+	queue := project.Sessions[0].AttentionQueue
+	if len(queue) != 1 {
+		t.Fatalf("attention_queue = %+v, want one stale worker", queue)
+	}
+	want := "agent|/root/api|issue-96|backend-dev|action|agent_resume"
+	if queue[0].ActionID != want || queue[0].NextAction != "agent_resume" {
+		t.Fatalf("agent_resume should map to agent action id %q, got %+v", want, queue[0])
+	}
+	if strings.HasPrefix(queue[0].ActionID, "session|") {
+		t.Fatalf("agent_resume must not be exposed as a session action id: %+v", queue[0])
+	}
+}
+
+func TestNOCJSONAttentionQueueOmitsMissingActionID(t *testing.T) {
+	project := nocProjectEnvelope(noc.ProjectSnapshot{
+		Project: "api",
+		Dir:     "/root/api",
+		Snap: state.Snapshot{Sessions: []state.Session{{
+			Name: "issue-96",
+			Coordination: state.Coordination{AttentionQueue: []state.AttentionQueueItem{{
+				Kind:       state.AttentionStaleDirective,
+				WhoActs:    "missing-lead",
+				Thread:     "p2p/missing-lead__user",
+				NextAction: "does_not_exist",
+			}}},
+		}}},
+	})
+	queue := project.Sessions[0].AttentionQueue
+	if len(queue) != 1 {
+		t.Fatalf("attention_queue = %+v, want one item", queue)
+	}
+	if queue[0].NextAction != "" || queue[0].ActionID != "" {
+		t.Fatalf("missing action must be omitted, got %+v", queue[0])
 	}
 }
 

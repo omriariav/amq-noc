@@ -56,6 +56,7 @@ func applyRuntimeActions(env *nocSnapshotEnvelopeData, fetch runtimeActionFetch)
 				continue
 			}
 			foldRuntimeActionsIntoSession(sess, rs)
+			reconcileAttentionQueueActions(sess)
 		}
 	}
 	env.Actions = nocFlatActions(env.Projects)

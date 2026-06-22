@@ -14,7 +14,8 @@ const sampleStatusJSON = `{"schema_version":1,"kind":"status","data":{
     {"kind":"stop","label":"stop the session","scope":"session","command":"amq-squad stop --session s --all","mutates":true,"needs_confirmation":true,"available":false,"reason":"already stopped"}
   ],
   "records":[
-    {"role":"cto","handle":"cto","tmux":{"session":"main","window_id":"@3","window_name":"squad","pane_id":"%1","pane_alive":true},
+    {"role":"cto","handle":"cto","status":"live","is_lead":true,"external":true,
+     "tmux":{"session":"main","window_id":"@3","window_name":"squad","pane_id":"%1","pane_alive":true},
      "actions":[
        {"kind":"focus","command":"amq-squad focus --session s --role cto","available":true},
        {"kind":"send","command":"amq-squad send --session s --role cto --body-file -","available":true},
@@ -70,6 +71,9 @@ func TestFetchRuntimeStatusParsesContract(t *testing.T) {
 	}
 	if cto.Session != "main" || cto.WindowID != "@3" || cto.WindowName != "squad" {
 		t.Errorf("cto tmux session/window not parsed: %+v", cto)
+	}
+	if cto.Status != "live" || !cto.IsLead || !cto.External {
+		t.Errorf("cto external lead metadata not parsed: %+v", cto)
 	}
 	if !cto.Actions[0].Available || cto.Actions[0].Kind != "focus" {
 		t.Errorf("cto focus action wrong: %+v", cto.Actions[0])

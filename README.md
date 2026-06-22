@@ -125,6 +125,14 @@ operationally live agents, so fresh presence alone never promotes a wait.
   thread plus lead-raised gates, full bodies) with an inline staged-confirm
   composer; open gates are answered in place with the existing clearing
   semantics
+- AMQ-first operator attention queue for amq-squad teams: operator gates,
+  stale directives, worker blockers, review handoffs, failed tasks, stale
+  workers, and normal progress are grouped with thread context, age, actor,
+  and safe copyable AMQ/amq-squad actions
+- read-only AMQ/amq-squad health and correlation surfaces: capability floors,
+  `amq doctor --ops`, receipts where available, `amq-squad status --json`,
+  task-store state, worker reports, and merge/release evidence are exposed
+  without making the NOC the protocol source of truth
 - `--notify`: opt-in macOS desktop notification on the same needs-you 0->N
   transition as the terminal bell, independent of `--no-bell`
 - narrow-terminal truthfulness: footer legends wrap to the terminal width,
@@ -135,15 +143,16 @@ operationally live agents, so fresh presence alone never promotes a wait.
 ## Install
 
 ```sh
-go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.9.0
+go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.10.0
 ```
 
 Requirements:
 
 - Go 1.25+
-- `amq`
-- `amq-squad` v1.5.2 or newer for the session action catalog; older builds keep
-  deterministic fallback commands
+- `amq` v0.37.1 or newer; v0.38.0 is preferred for the reserved human operator
+  and exported environment contracts
+- `amq-squad` v2.5.0 or newer for external lead runtime status and the
+  AMQ-first team protocol
 - `tmux`
 
 ## Quick Start

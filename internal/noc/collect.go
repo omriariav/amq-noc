@@ -24,6 +24,7 @@ type ProjectSnapshot struct {
 	Profiles       []string       // valid team profiles, with "default" first when present
 	Operator       OperatorConfig // virtual human mailbox metadata, when supported
 	Capabilities   Capabilities   // machine-readable project capabilities
+	Health         ProjectHealth  // read-only local AMQ/amq-squad capability snapshot
 	SessionStore   bool           // true when .agent-mail exists
 	SessionNames   []string       // existing AMQ session directories under .agent-mail
 	Candidate      bool           // true when this is an unconfigured team-home candidate
@@ -41,6 +42,15 @@ type ProjectSnapshot struct {
 	// right pane can show what a workstream is FOR without leaving the NOC.
 	// Sessions without a readable brief are absent.
 	SessionBriefGoals map[string]string
+	// SessionHealth maps session/workstream names to read-only AMQ environment,
+	// ops, presence, and derived health snapshots. It is populated by callers
+	// that explicitly opt into command-backed health enrichment.
+	SessionHealth map[string]SessionHealth
+	// SessionCorrelations maps session/workstream names to read-only task,
+	// worker-report, runtime/liveness, and release-evidence correlation. It is
+	// populated by callers that explicitly opt into command-backed correlation
+	// enrichment.
+	SessionCorrelations map[string]SessionCorrelation
 }
 
 // OperatorConfig is the NOC-facing copy of schema-3 team operator metadata. The

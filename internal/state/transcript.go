@@ -1,6 +1,7 @@
 package state
 
 import (
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -34,6 +35,54 @@ func ConversationTranscript(sessionRoot, a, b string, limit int) []Message {
 			if !messageBetween(m, a, b) {
 				continue
 			}
+			key := strings.TrimSpace(m.ID)
+			if key == "" {
+				key = m.From + "|" + m.Thread + "|" + m.Created.Format(time.RFC3339Nano) + "|" + m.Subject
+			}
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, m)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if !out[i].Created.Equal(out[j].Created) {
+			return out[i].Created.Before(out[j].Created)
+		}
+		return out[i].ID < out[j].ID
+	})
+	if limit > 0 && len(out) > limit {
+		out = out[len(out)-limit:]
+	}
+	return out
+}
+
+// SessionMessages scans every agent mailbox under sessionRoot and returns every
+// observed AMQ message, oldest first, deduplicated by message id. It is the
+// read-only full-history companion to ConversationTranscript for consumers that
+// need evidence across a whole workstream rather than only collapsed latest
+// thread summaries.
+func SessionMessages(sessionRoot string, limit int) []Message {
+	sessionRoot = strings.TrimSpace(sessionRoot)
+	if sessionRoot == "" {
+		return nil
+	}
+	agentsDir := filepath.Join(sessionRoot, "agents")
+	entries, err := os.ReadDir(agentsDir)
+	if err != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []Message
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		handle := entry.Name()
+		dir := filepath.Join(agentsDir, handle)
+		msgs, _ := scanMailbox(dir, handle, time.Now)
+		for _, m := range msgs {
 			key := strings.TrimSpace(m.ID)
 			if key == "" {
 				key = m.From + "|" + m.Thread + "|" + m.Created.Format(time.RFC3339Nano) + "|" + m.Subject

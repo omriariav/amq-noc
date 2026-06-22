@@ -1,5 +1,24 @@
 # amq-noc Release Plan
 
+## AMQ-first operator-client track (0.10.x)
+
+Updated: 2026-06-22. Status: 0.10.0 is the AMQ/amq-squad alignment release
+candidate. It adds capability/version health, an operator attention queue,
+runtime/task/evidence correlation, safe copyable operator actions, and the
+0.10 audit record in `docs/0.10-operator-client-audit.md`.
+
+The release consumes AMQ 0.37.1+ (0.38.0 preferred for the reserved `user`
+operator and exported env contracts) and amq-squad 2.5.0+ external lead runtime
+status. The NOC remains optional/read-only for protocol truth: AMQ and
+amq-squad still own durable messages, receipts, tasks, runtime status, and
+merge/release authority.
+
+Scoped 0.10 issues: #31 umbrella, #32 capability discovery/version floors,
+#36 AMQ presence/delivery/wake health, #37 external lead/runtime/liveness,
+#38 gates/directives queue, #39 merge/review/release evidence, #40 task/report
+correlation, #41 safe copyable actions, and #18 workflow backlog where
+applicable. #33 was closed by the audit.
+
 ## Orchestrator-client track (0.7.x - 0.9.x)
 
 Updated: 2026-06-11. Status: the track is **shipped through 0.9.0**:

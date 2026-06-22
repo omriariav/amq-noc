@@ -112,9 +112,11 @@
 
     <p><code>v0.9.0</code> makes talking with the orchestrator a first-class surface: <code>m</code> on an orchestrated session or its lead row opens CONVERSATION MODE - the operator-lead dialogue (directives, acknowledgments, and lead-raised gates, interleaved with full message bodies) with an inline composer whose staged confirm names the kind, thread, and delivery channel before each send; open gates are answered in place with the existing clearing semantics. The release also adds an opt-in <code>--notify</code> desktop notification on needs-you transitions (independent of <code>--no-bell</code>), a <code>lead-down</code> count in the header pulse, and narrow-terminal truthfulness (wrapping footers, a pulse that compacts instead of overflowing). Companion: <code>amq-squad v1.9.0+</code>, whose DIRECTIVE norm has leads acknowledging on the conversation thread.</p>
 
+    <p><code>v0.10.0</code> aligns the NOC with AMQ-first amq-squad teams: the main surface becomes an operator attention queue for gates, stale directives, worker blockers, review handoffs, failed tasks, stale workers, and normal progress, each with thread context, age, actor, and safe copyable AMQ/amq-squad actions. JSON snapshots also expose read-only capability health, <code>amq doctor --ops</code> and receipt status where available, <code>amq-squad status --json</code> runtime/liveness data, task-store correlation, worker report history, and merge/release evidence summaries while keeping AMQ and amq-squad as the source of truth.</p>
+
     <h2>Install</h2>
-    <pre><code>go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.9.0</code></pre>
-    <p>Requires Go 1.25+, <code>amq</code>, <code>amq-squad</code> v1.5.2 or newer for the session action catalog (older builds keep fallback commands; v1.7.0 recommended for the orchestrated/lead contract), and <code>tmux</code>.</p>
+    <pre><code>go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.10.0</code></pre>
+    <p>Requires Go 1.25+, <code>amq</code> v0.37.1 or newer (v0.38.0 preferred for the reserved human operator and exported environment contracts), <code>amq-squad</code> v2.5.0 or newer for external lead runtime status and the AMQ-first team protocol, and <code>tmux</code>.</p>
 
     <h2>Quick Start</h2>
     <pre><code>amq-noc --root ~/Code

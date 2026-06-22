@@ -67,6 +67,7 @@ func BuildWithThresholds(projectRoot, baseRoot string, probe Probe, th Threshold
 		sortAgents(b.agents)
 
 		coord := coordinateSession(b.root, b.agents, now, th)
+		coord.AttentionQueue = buildAttentionQueue(coord.Threads, b.agents, th, name)
 		sessAttention, unowned := attachAttention(b.agents, coord.Threads)
 		sessions = append(sessions, Session{
 			Name:             name,

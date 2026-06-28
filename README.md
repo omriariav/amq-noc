@@ -73,14 +73,13 @@ operationally live agents, so fresh presence alone never promotes a wait.
 
 - multi-project NOC TUI
 - machine-readable snapshots
-- flat action queue
 - AMQ inbox, DLQ, receipts, and ops commands
 - preview-first and confirm-gated controls that execute through `amq-squad`
 - structural operator gates through a virtual operator mailbox, usually `user`
-- support for `amq-squad` operator metadata, published runtime actions, and
+- support for `amq-squad` operator metadata and
   v2.10 namespace/visible-lead status metadata
 - truthful TUI help/footer generated from the handled keymap
-- context-sensitive footer actions that only advertise controls valid for the
+- context-sensitive footer controls that only advertise controls valid for the
   selected row
 - session detail ordering that leads with active `needs-you`, otherwise newest
   current activity
@@ -89,10 +88,8 @@ operationally live agents, so fresh presence alone never promotes a wait.
 - tmux recovery helpers for both current-window and new-session launch targets
 - row-sensitive delete behavior for team profiles, named sessions, and root AMQ
   mailbox rows
-- runtime-action helper commands for project, session, and agent rows
-- published `amq-squad` runtime-action consumption in CLI action JSON and the
-  `C copy-cmd` picker, including the session action catalog, with fallback
-  generation for older contracts
+- published `amq-squad` runtime metadata consumption in the `C copy-cmd`
+  picker, with fallback command generation for older contracts
 - JSON/TUI status alignment for fresh-presence `dead-mailbox-live` agents
 - clipboard paste support in filter and action input prompts
 - lead-agent orchestration awareness for `amq-squad` teams: a `(lead)` badge
@@ -129,7 +126,7 @@ operationally live agents, so fresh presence alone never promotes a wait.
 - AMQ-first operator attention queue for amq-squad teams: operator gates,
   stale directives, worker blockers, review handoffs, failed tasks, stale
   workers, and normal progress are grouped with thread context, age, actor,
-  and safe copyable AMQ/amq-squad actions
+  and safe copyable AMQ/amq-squad commands
 - read-only AMQ/amq-squad health and correlation surfaces: capability floors,
   `amq doctor --ops`, receipts where available, `amq-squad status --json`,
   task-store state, worker reports, and merge/release evidence are exposed
@@ -137,7 +134,10 @@ operationally live agents, so fresh presence alone never promotes a wait.
 - release/task correlation blockers in JSON attention queues: task/report
   mismatches, dependency-gated review tasks, missing PR/head/test/review
   evidence, and missing human-owned merge/release gates are promoted with
-  read-only inspect actions
+  read-only inspect rows
+- v0.12.1 patch: removes the leftover public action queue surface from help,
+  shell completion, docs, and normal JSON snapshots; runtime controls remain
+  available through the live TUI
 - `--notify`: opt-in macOS desktop notification on the same needs-you 0->N
   transition as the terminal bell, independent of `--no-bell`
 - narrow-terminal truthfulness: footer legends wrap to the terminal width,
@@ -148,7 +148,7 @@ operationally live agents, so fresh presence alone never promotes a wait.
 ## Install
 
 ```sh
-go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.12.0
+go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.12.1
 ```
 
 Requirements:
@@ -166,7 +166,6 @@ amq-noc --root ~/Code
 amq-noc --filter needs-you
 amq-noc --once --root ~/Code
 amq-noc --json --root ~/Code | jq .
-amq-noc --actions --root ~/Code --filter needs-you
 ```
 
 Bare `amq-noc` opens the live TUI. `amq-noc noc` is the explicit form of the same
@@ -285,17 +284,17 @@ same thread, so the conversation fills from both directions.
 
 Teams without orchestrated/lead metadata render exactly as before.
 
-## Runtime actions
+## Runtime controls
 
 amq-squad owns runtime orchestration (start / stop / resume / focus / open /
 prompt-delivery and the tmux mechanics behind them). amq-noc consumes published
-`amq-squad status --json` action metadata when available, renders it as
+`amq-squad status --json` runtime metadata when available, renders it as
 operator UI, lets you pick and copy the exact command (`C`), and falls back to
 deterministic NOC-generated commands when runtime support is absent or partial.
 With `amq-squad v2.10.0+`, the same status contract also supplies the
 profile/session namespace, AMQ root, brief path, task path, launch-record path,
 visible lead identity, topology, and `goal_binding` mode. Published-but-
-unavailable actions such as agent `focus`, `send`, or session `attach_control`
+unavailable controls such as agent `focus`, `send`, or session `attach_control`
 are omitted instead of replaced with raw tmux orchestration. The NOC never
 drives the runtime itself.
 
@@ -310,21 +309,9 @@ Use JSON mode for scripts and dashboards:
 amq-noc --root ~/Code --json | jq '.data.rollup'
 ```
 
-Use the flat action queue to inspect controls without entering the TUI:
-
-```sh
-amq-noc --root ~/Code --actions --json | jq '.data.actions[] | {name, command}'
-```
-
-Mutating actions are confirm-gated. Dry-run first:
-
-```sh
-amq-noc --filter project:amq-noc \
-  --run-action new_session \
-  --set session=issue-97 \
-  --dry-run \
-  --json
-```
+JSON snapshots include rollups, the attention queue, and project/session/agent
+metadata for dashboards. Mutating controls stay in the live TUI, where preview
+and confirmation flows protect execution.
 
 ## Team compatibility
 
@@ -333,19 +320,19 @@ amq-noc --filter project:amq-noc \
 - schema 3 teams advertise `operator` and `capabilities.operator_gates`
 - legacy schema 1/2 teams default to a non-runnable `user` operator gate
 - teams can opt out with `--no-operator`
-- custom operator handles are honored in reads and generated AMQ actions
+- custom operator handles are honored in reads and generated AMQ commands
 - legacy teams with a runnable member named `user` do not get an implicit
   operator gate, avoiding false `needs-you`
 
 Recommended companion version for namespace-safe visible-lead remote control,
-published runtime actions, the orchestrated/lead team contract, and the
+published runtime metadata, the orchestrated/lead team contract, and the
 operator DIRECTIVE norm:
 
 ```sh
 go install github.com/omriariav/amq-squad/cmd/amq-squad@v2.10.0
 ```
 
-Older `amq-squad` builds keep deterministic fallback action commands.
+Older `amq-squad` builds keep deterministic fallback copy commands.
 
 Recommended health check:
 

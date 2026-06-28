@@ -111,11 +111,8 @@ var completionTeamRulesSubcommands = []string{
 	"show",
 }
 
-// completionCommonFlags lists every flag registered by the current stdlib
-// CLI surfaces. The list is exhaustive on purpose: shell completion
-// shouldn't omit a flag just because it only appears on one command. Drift
-// guard: `TestCompletionFlagsCoverDispatcher` walks the source tree and
-// fails if a `flag.NewFlagSet` declares a flag missing here.
+// completionCommonFlags lists public flags advertised by shell completion.
+// Legacy compatibility flags can remain registered without being promoted here.
 var completionCommonFlags = []string{
 	// Root flags (also offered as first-word completions when the user
 	// starts typing `-...` before picking a subcommand).
@@ -128,9 +125,6 @@ var completionCommonFlags = []string{
 	"--color",
 	"-y",
 	// Subcommand flags, sorted alphabetically.
-	"--action",
-	"--action-id",
-	"--actions",
 	"--all",
 	"--all-profiles",
 	"--allow-outside",
@@ -140,7 +134,6 @@ var completionCommonFlags = []string{
 	"--binary",
 	"--claude-args",
 	"--codex-args",
-	"--commands",
 	"--conversation",
 	"--conversation-id",
 	"--cwd",
@@ -163,7 +156,6 @@ var completionCommonFlags = []string{
 	"--limit",
 	"--me",
 	"--model",
-	"--mutating",
 	"--no-attach",
 	"--no-bell",
 	"--no-bootstrap",
@@ -179,16 +171,12 @@ var completionCommonFlags = []string{
 	"--role",
 	"--roles",
 	"--root",
-	"--run-action",
 	"--seed-from",
 	"--session",
-	"--set",
 	"--show-stale",
-	"--scope",
 	"--stagger",
 	"--stale-after",
 	"--target",
-	"--target-id",
 	"--team-home",
 	"--team-profile",
 	"--team-workstream",

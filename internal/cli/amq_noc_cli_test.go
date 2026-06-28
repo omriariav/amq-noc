@@ -29,10 +29,15 @@ func TestAmqNOCHelpIsNOCFirst(t *testing.T) {
 		"amq-noc - NOC command center",
 		"amq-noc [noc options]",
 		"amq-noc --root ~/Code",
-		"Confirmed mutating actions remain preview-first",
+		"Mutating TUI controls remain preview-first",
 	} {
 		if !strings.Contains(combined, want) {
 			t.Fatalf("help missing %q:\n%s", want, combined)
+		}
+	}
+	for _, removed := range []string{"--actions", "action queue"} {
+		if strings.Contains(combined, removed) {
+			t.Fatalf("help still exposes removed public actions surface %q:\n%s", removed, combined)
 		}
 	}
 }

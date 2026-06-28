@@ -1,6 +1,6 @@
-# Runtime actions: the consume/orchestrate boundary
+# Runtime controls: the consume/orchestrate boundary
 
-amq-noc is a read-only operator console. It supports amq-squad *runtime actions*
+amq-noc is a read-only operator console. It supports amq-squad *runtime controls*
 (start / stop / resume / focus / open / prompt-delivery), but it does not
 perform the runtime mechanics itself. There is a hard architectural line:
 
@@ -8,7 +8,7 @@ perform the runtime mechanics itself. There is a hard architectural line:
   focusing, opening, and delivering prompts to a session or agent, including all
   tmux/window/process mechanics, is amq-squad's job.
 - **amq-noc consumes, renders, and selects.** The NOC consumes published
-  `amq-squad status --json` action and namespace metadata when available,
+  `amq-squad status --json` control and namespace metadata when available,
   renders it as operator UI, lets the operator pick and copy the exact command,
   and degrades to deterministic fallback commands when runtime support is
   absent or partial.
@@ -20,14 +20,14 @@ operator a command; amq-squad (or the operator running that command) does the wo
 
 - **Capabilities** (`team.Capabilities`, surfaced on `noc.ProjectSnapshot`): the
   machine-readable flags a project advertises, e.g. operator gates and runtime
-  action support. The NOC consumes these when present but also accepts v1.5.0
+  control support. The NOC consumes these when present but also accepts v1.5.0
   `records[].actions[]` without requiring a capability flag.
-- **Published action metadata**: the NOC consumes available
-  `amq-squad status --session --json` actions. With `amq-squad v1.5.2+`,
+- **Published control metadata**: the NOC consumes available
+  `amq-squad status --session --json` controls. With `amq-squad v1.5.2+`,
   top-level `data.actions[]` is the preferred session-row catalog (`status`,
   `resume_preview`, `resume_current_window`, `resume_new_session`, `stop`).
-  These explicit resume variants replace the older generic NOC `resume` action
-  for that session. Published-but-unavailable session actions also suppress the
+  These explicit resume variants replace the older generic NOC `resume` control
+  for that session. Published-but-unavailable session controls also suppress the
   generated fallback for the same control, so NOC does not offer a local command
   that bypasses amq-squad availability.
   With older v1.5 contracts, member-level session `status` and `resume`
@@ -47,25 +47,25 @@ operator a command; amq-squad (or the operator running that command) does the wo
 Either way the boundary holds: the NOC produces a command that DELEGATES to
 amq-squad (or amq) and never executes the runtime mechanics. It derives every
 command from structural inputs (the snapshot plus capability flags), not from
-prose, and does not synthesize an action amq-squad cannot perform.
+prose, and does not synthesize a control amq-squad cannot perform.
 
 ## What the NOC renders
 
 - The `C` copy-cmd picker: the canonical numbered list of exact commands for the
-  selection, including published runtime actions when available, copied verbatim
+  selection, including published runtime controls when available, copied verbatim
   to the clipboard via the injectable clipboard seam (pbcopy in production).
   The operator runs the copied command; the NOC does not execute the runtime
-  action itself.
+  control itself.
 - The right-pane command helper for the selected row, wrapped to the pane width.
   This inline helper stays deterministic and fallback-oriented so the detail pane
-  remains useful before async runtime metadata arrives. Exact runtime-action
+  remains useful before async runtime metadata arrives. Exact runtime-control
   selection belongs in `C copy-cmd`.
-- Context-sensitive footer actions: only the actions whose guards would actually
+- Context-sensitive footer controls: only the controls whose guards would actually
   proceed on the selected row (see `docs/tui-keymap.md`).
 
 ## Fallback mode
 
-When a project or amq-squad build does not advertise runtime-action support
+When a project or amq-squad build does not advertise runtime-control support
 (older amq-squad, missing capability, or metadata absent), the NOC must degrade
 gracefully rather than break:
 
@@ -76,9 +76,9 @@ gracefully rather than break:
   is absent.
 - It offers the commands it can derive deterministically (kick/recover, the
   bundled `new`/`resume`/`archive`/`rm` helpers) for manual copy/run.
-- It does not show runtime-action affordances that the metadata does not back,
+- It does not show runtime-control affordances that the metadata does not back,
   and it does not error or hang waiting on runtime support.
-- Published-but-unavailable runtime actions, including agent `focus`, agent
+- Published-but-unavailable runtime controls, including agent `focus`, agent
   `send`, and session `attach_control`, are omitted rather than replaced with
   raw tmux or pane-delivery commands.
 
@@ -94,15 +94,15 @@ behind them. amq-noc must not add tmux orchestration to drive runtime actions.
 One pre-existing, separate exception: `internal/noc/tmux.go` shells
 `tmux list-panes -a` READ-ONLY to resolve panes for legacy focus discovery. That
 is read-only discovery, not runtime control. It must not be expanded, and new
-runtime-action work must not reach for tmux.
+runtime-control work must not reach for tmux.
 
 ## Dependencies
 
-The NOC-side consumption depends on amq-squad publishing the runtime-action,
+The NOC-side consumption depends on amq-squad publishing the runtime-control,
 capability, and namespace metadata: amq-squad #61, #62, #47, the JSON contract
 polish from amq-squad #79 / v1.5.2, and the v2.9.0 visible-lead/namespace
-status contract. NOC issues #6 (runtime actions), #7 (member action
-consumption), #15 (session action catalog consumption), #5 (dormant
+status contract. NOC issues #6 (runtime controls), #7 (member control
+consumption), #15 (session control catalog consumption), #5 (dormant
 control/diagnostics cleanup), and the v0.11.0 amq-squad 2.9 support work track
 the NOC side.
 

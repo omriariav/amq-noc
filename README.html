@@ -105,43 +105,43 @@
     <p>Older blocked evidence remains visible in thread detail/history, but a newer clear or waiting signal softens the primary row back to <code>online</code> or <code>waiting</code>.</p>
     <p>JSON snapshots use the same primary vocabulary as the TUI. In <code>v0.2.1</code>, <code>state</code> and <code>reason_code</code> values for live/no-wait rows changed from <code>running</code> to <code>online</code>; filters still accept <code>running</code> as an alias for <code>online</code>.</p>
     <p>The <code>agents_alive</code> count is the visible-online count: it includes fresh-presence agents (dead-mailbox-live, reachable without a verified pid) and matches what the TUI renders as online. Non-human waits stay gated to operationally live agents, so fresh presence alone never promotes a wait.</p>
-    <p><code>v0.6.0</code> consumes published <code>amq-squad v1.5</code> runtime actions in CLI action JSON and the <code>C copy-cmd</code> picker, including the v1.5.2+ session action catalog, while preserving deterministic fallback commands for older or partial contracts.</p>
-    <p><code>v0.7.0</code> makes the NOC the human's client for lead-agent orchestrated squads (<code>amq-squad v1.7</code> <code>orchestrated</code>/<code>lead</code> teams): a <code>(lead)</code> badge with lead-first ordering, an <code>(orchestrated)</code> session marker, a per-child lead-exchange digest plus the brief's Goal line in the session pane, a deterministic lead-down warning, additive JSON fields (<code>orchestrated</code>, <code>lead</code>, <code>lead_handle</code>, <code>lead_down</code>, <code>is_lead</code>), and <code>orchestrated</code> / <code>lead:&lt;role&gt;</code> filters. The new-session flow now derives the team's configured workstream instead of free-asking (a divergent name warns that it creates a NEW workstream with a stub brief), the copy panel shows the resolved workstream per launch action, and a cleanly stopped agent no longer reads online for the 90s presence-freshness window.</p>
+    <p><code>v0.6.0</code> consumes published <code>amq-squad v1.5</code> runtime metadata in the <code>C copy-cmd</code> picker, including the v1.5.2+ session command catalog, while preserving deterministic fallback commands for older or partial contracts.</p>
+    <p><code>v0.7.0</code> makes the NOC the human's client for lead-agent orchestrated squads (<code>amq-squad v1.7</code> <code>orchestrated</code>/<code>lead</code> teams): a <code>(lead)</code> badge with lead-first ordering, an <code>(orchestrated)</code> session marker, a per-child lead-exchange digest plus the brief's Goal line in the session pane, a deterministic lead-down warning, additive JSON fields (<code>orchestrated</code>, <code>lead</code>, <code>lead_handle</code>, <code>lead_down</code>, <code>is_lead</code>), and <code>orchestrated</code> / <code>lead:&lt;role&gt;</code> filters. The new-session flow now derives the team's configured workstream instead of free-asking (a divergent name warns that it creates a NEW workstream with a stub brief), the copy panel shows the resolved workstream per launch command, and a cleanly stopped agent no longer reads online for the 90s presence-freshness window.</p>
 
     <p><code>v0.8.0</code> makes the NOC drive the squads it watches: an executable <code>up</code> joins stop/resume/restart through the preview + confirm exec seam (no pinned session: amq-squad derives the workstream), the <code>L direct-lead</code> flow sends a directive to an orchestrated squad's lead (busy-guarded pane delivery when live, durable AMQ inbox message when down, channel labeled either way, never gate-clearing), the message editor gains a kind selector over the recognized AMQ kinds, and two read-only affordances land per agent row: <code>v</code> latest-output preview (live pane tail via the published pane id, else the newest AMQ message) and <code>o</code> confirm-gated pane focus.</p>
 
     <p><code>v0.9.0</code> makes talking with the orchestrator a first-class surface: <code>m</code> on an orchestrated session or its lead row opens CONVERSATION MODE - the operator-lead dialogue (directives, acknowledgments, and lead-raised gates, interleaved with full message bodies) with an inline composer whose staged confirm names the kind, thread, and delivery channel before each send; open gates are answered in place with the existing clearing semantics. The release also adds an opt-in <code>--notify</code> desktop notification on needs-you transitions (independent of <code>--no-bell</code>), a <code>lead-down</code> count in the header pulse, and narrow-terminal truthfulness (wrapping footers, a pulse that compacts instead of overflowing). Companion: <code>amq-squad v1.9.0+</code>, whose DIRECTIVE norm has leads acknowledging on the conversation thread.</p>
 
-    <p><code>v0.10.0</code> aligns the NOC with AMQ-first amq-squad teams: the main surface becomes an operator attention queue for gates, stale directives, worker blockers, review handoffs, failed tasks, stale workers, and normal progress, each with thread context, age, actor, and safe copyable AMQ/amq-squad actions. JSON snapshots also expose read-only capability health, <code>amq doctor --ops</code> and receipt status where available, <code>amq-squad status --json</code> runtime/liveness data, task-store correlation, worker report history, and merge/release evidence summaries while keeping AMQ and amq-squad as the source of truth.</p>
+    <p><code>v0.10.0</code> aligns the NOC with AMQ-first amq-squad teams: the main surface becomes an operator attention queue for gates, stale directives, worker blockers, review handoffs, failed tasks, stale workers, and normal progress, each with thread context, age, actor, and safe copyable AMQ/amq-squad commands. JSON snapshots also expose read-only capability health, <code>amq doctor --ops</code> and receipt status where available, <code>amq-squad status --json</code> runtime/liveness data, task-store correlation, worker report history, and merge/release evidence summaries while keeping AMQ and amq-squad as the source of truth.</p>
 
-    <p><code>v0.11.0</code> adds namespace-safe amq-squad 2.9 visible-lead control: profile/session identity, AMQ root, brief path, task path, launch-record path, topology, runtime status, and <code>goal_binding</code> flow into JSON and the TUI. Session and agent actions carry <code>namespace_id</code>, named-profile commands keep <code>--profile</code>, live-lead directives use amq-squad <code>send</code>, and down-lead directives plus gate answers stay pinned to the selected AMQ root.</p>
+    <p><code>v0.11.0</code> adds namespace-safe amq-squad 2.9 visible-lead control: profile/session identity, AMQ root, brief path, task path, launch-record path, topology, runtime status, and <code>goal_binding</code> flow into JSON and the TUI. Session and agent commands carry <code>namespace_id</code>, named-profile commands keep <code>--profile</code>, live-lead directives use amq-squad <code>send</code>, and down-lead directives plus gate answers stay pinned to the selected AMQ root.</p>
 
     <p><code>v0.12.0</code> promotes release and task-correlation evidence into the JSON attention queue: named-profile task stores are resolved with <code>--profile</code>, dependency-gated review tasks and task/report mismatches become read-only inspect rows, and missing PR URL, reviewed head SHA, local/CI test, review, or human-owned merge/release gate evidence is surfaced as a release blocker rather than hidden in nested detail.</p>
+    <p><code>v0.12.1</code> removes the leftover public action queue surface from help, shell completion, docs, and normal JSON snapshots. Runtime controls remain available through the live TUI.</p>
 
     <h2>Install</h2>
-    <pre><code>go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.12.0</code></pre>
+    <pre><code>go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.12.1</code></pre>
     <p>Requires Go 1.25+, <code>amq</code> v0.38.0 or newer for the reserved human operator and exported environment contracts used by amq-squad v2.10, <code>amq-squad</code> v2.10.0 or newer for namespace-safe visible-lead remote control, and <code>tmux</code>.</p>
 
     <h2>Quick Start</h2>
     <pre><code>amq-noc --root ~/Code
 amq-noc --filter needs-you
 amq-noc --once --root ~/Code
-amq-noc --json --root ~/Code | jq .
-amq-noc --actions --root ~/Code --filter needs-you</code></pre>
+amq-noc --json --root ~/Code | jq .</code></pre>
 
     <h2>TUI Model</h2>
     <p>The left tree is intentionally quiet: project -&gt; session -&gt; agent, one line per row. Thread subjects and historical evidence belong in the right pane, where the selected row can explain <code>now</code>, recent threads, agents, and recovery commands.</p>
     <p>The footer has navigation/view keys that are always available, plus context-sensitive control keys for the selected row. Mutating controls open preview/confirm flows before anything is executed.</p>
     <ul>
-      <li><code>needs-you</code> asks show approve/reply/deny actions.</li>
-      <li>agent rows show message/drain actions.</li>
-      <li>squad rows show lifecycle and broadcast actions.</li>
-      <li>project rows show new-team or new-session actions when available.</li>
+      <li><code>needs-you</code> asks show approve/reply/deny controls.</li>
+      <li>agent rows show message/drain controls.</li>
+      <li>squad rows show lifecycle and broadcast controls.</li>
+      <li>project rows show new-team or new-session controls when available.</li>
     </ul>
     <p>Contributor guidance for TUI keys, help, and footer tests lives in <a href="docs/tui-keymap.md">docs/tui-keymap.md</a>.</p>
 
-    <h2>Runtime Actions</h2>
-    <p><code>amq-squad</code> owns runtime orchestration: start, stop, resume, focus, open, prompt delivery, and the tmux mechanics behind them. <code>amq-noc</code> consumes published <code>amq-squad status --json</code> action metadata when available, renders it as operator UI, lets you pick and copy the exact command with <code>C</code>, and falls back to deterministic NOC-generated commands when runtime support is absent or partial. With <code>amq-squad v2.10.0+</code>, the same status contract also supplies profile/session namespace, AMQ root, brief path, task path, launch-record path, visible lead identity, topology, and <code>goal_binding</code>. Published-but-unavailable actions such as agent <code>focus</code>, <code>send</code>, or session <code>attach_control</code> are omitted instead of replaced with raw tmux orchestration.</p>
+    <h2>Runtime Controls</h2>
+    <p><code>amq-squad</code> owns runtime orchestration: start, stop, resume, focus, open, prompt delivery, and the tmux mechanics behind them. <code>amq-noc</code> consumes published <code>amq-squad status --json</code> runtime metadata when available, renders it as operator UI, lets you pick and copy the exact command with <code>C</code>, and falls back to deterministic NOC-generated commands when runtime support is absent or partial. With <code>amq-squad v2.10.0+</code>, the same status contract also supplies profile/session namespace, AMQ root, brief path, task path, launch-record path, visible lead identity, topology, and <code>goal_binding</code>. Published-but-unavailable controls such as agent <code>focus</code>, <code>send</code>, or session <code>attach_control</code> are omitted instead of replaced with raw tmux orchestration.</p>
     <p>The NOC never drives the runtime itself.</p>
 
     <h2>Operator Gates</h2>
@@ -161,16 +161,15 @@ amq-noc --actions --root ~/Code --filter needs-you</code></pre>
   --body "Approved after RC test."</code></pre>
 
     <h2>Machine-readable Snapshots</h2>
-    <pre><code>amq-noc --root ~/Code --json | jq '.data.rollup'
-amq-noc --root ~/Code --actions --json | jq '.data.actions[] | {name, command}'</code></pre>
-    <p>Mutating actions are confirm-gated and can be rendered with <code>--dry-run</code> before execution.</p>
+    <pre><code>amq-noc --root ~/Code --json | jq '.data.rollup'</code></pre>
+    <p>JSON snapshots include rollups, the attention queue, and project/session/agent metadata for dashboards. Mutating controls stay in the live TUI, where preview and confirmation flows protect execution.</p>
 
     <h2>Team Compatibility</h2>
     <ul>
       <li>schema 3 teams advertise <code>operator</code> and <code>capabilities.operator_gates</code></li>
       <li>legacy schema 1/2 teams default to a non-runnable <code>user</code> operator gate</li>
       <li>teams can opt out with <code>--no-operator</code></li>
-      <li>custom operator handles are honored in reads and generated AMQ actions</li>
+      <li>custom operator handles are honored in reads and generated AMQ commands</li>
       <li>legacy teams with a runnable member named <code>user</code> do not get an implicit operator gate</li>
     </ul>
 

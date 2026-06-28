@@ -1,5 +1,41 @@
 # amq-noc Release Plan
 
+## amq-squad 2.9 visible-lead control track (0.11.x)
+
+Updated: 2026-06-28. Status: 0.11.0 is the amq-squad 2.9.0 remote-control
+release candidate.
+
+This release makes amq-noc a namespace-safe client for amq-squad 2.9
+orchestrators and visible goal leads. It consumes the v2.9 `status --json`
+contract for profile/session identity, AMQ root, brief path, task path,
+launch-record path, topology, visible lead identity, member record state,
+pane state, runtime actions, and `goal_binding`.
+
+Core behavior:
+
+- Discover default and named-profile session roots without collapsing
+  `default/<session>` and `<profile>/<session>` into one target.
+- Render namespace and fallback/native goal binding context in JSON and the TUI
+  session detail pane.
+- Preserve amq-squad-owned runtime commands and action availability, including
+  explicit `namespace_id` on session and agent actions.
+- Route live-lead directives through amq-squad `send` with the selected profile,
+  and route down-lead directives / gate answers through the selected AMQ root.
+- Keep child agents as internal rows; the visible operator surface remains the
+  orchestrated session and lead unless a child owns current attention.
+
+Release gates:
+
+```sh
+gofmt -l .
+git diff --check
+go test ./...
+go vet ./...
+make ci
+go build -o /tmp/amq-noc-rc ./cmd/amq-noc
+/tmp/amq-noc-rc --once --root ~/Code
+```
+
 ## AMQ-first operator-client track (0.10.x)
 
 Updated: 2026-06-22. Status: 0.10.0 is the AMQ/amq-squad alignment release

@@ -38,7 +38,7 @@ func (m *NOCModel) beginViewOutput() tea.Cmd {
 	}
 	projectDir := strings.TrimSpace(n.project.Dir)
 	session := strings.TrimSpace(n.session.Name)
-	profile := sessionCommandProfile(n.project, n.session.Name)
+	profile := sessionCommandProfileForSession(n.project, n.session)
 	if profile == "PROFILE" {
 		profile = ""
 	}

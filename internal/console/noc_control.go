@@ -2312,7 +2312,7 @@ func (m *NOCModel) beginSendPrompt() tea.Cmd {
 	}
 	projectDir := strings.TrimSpace(n.project.Dir)
 	session := strings.TrimSpace(n.session.Name)
-	profile := sessionCommandProfile(n.project, n.session.Name)
+	profile := sessionCommandProfileForSession(n.project, n.session)
 	if profile == "PROFILE" {
 		// Mixed profiles in one session: let amq-squad resolve the agent's own
 		// profile rather than pinning a wrong one. Empty omits --profile.
@@ -2395,7 +2395,7 @@ func (m *NOCModel) beginDirectiveForSession(project noc.ProjectSnapshot, sess st
 	if leadFound && agentOperational(leadAg) {
 		projectDir := strings.TrimSpace(project.Dir)
 		session := strings.TrimSpace(sess.Name)
-		profile := sessionCommandProfile(project, sess.Name)
+		profile := sessionCommandProfileForSession(project, sess)
 		if profile == "PROFILE" {
 			profile = ""
 		}

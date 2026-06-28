@@ -246,6 +246,95 @@ func TestApplyRuntimeActionsPrefersTopLevelSessionCatalog(t *testing.T) {
 	}
 }
 
+func TestApplyRuntimeActionsFoldsV29MetadataAndLeadActions(t *testing.T) {
+	ps := noc.ProjectSnapshot{
+		Project:        "amq-noc",
+		Dir:            "/repo",
+		TeamConfigured: true,
+		Snap: state.Snapshot{Sessions: []state.Session{{
+			Name:         "s",
+			TeamProfile:  "review",
+			Root:         "/repo/.agent-mail/review/s",
+			Orchestrated: true,
+			LeadRole:     "cto",
+			LeadHandle:   "cto",
+			Agents: []state.Agent{
+				{Handle: "cto", Role: "cto", TeamProfile: "review", IsLead: true, Liveness: state.LivenessAlive},
+				{Handle: "qa", Role: "qa", TeamProfile: "review", Liveness: state.LivenessAlive},
+			},
+		}}},
+	}
+	env := nocSnapshotEnvelope(noc.MultiSnapshot{Projects: []noc.ProjectSnapshot{ps}}, "", false)
+	ns := noc.ResolveNamespace("/repo", "review", "s")
+	var calls int
+	applyRuntimeActions(&env, func(dir, profile, session string) noc.RuntimeStatus {
+		calls++
+		if dir != "/repo" || profile != "review" || session != "s" {
+			t.Fatalf("runtime fetch scope = dir=%q profile=%q session=%q", dir, profile, session)
+		}
+		return noc.RuntimeStatus{
+			Profile:      "review",
+			Namespace:    ns,
+			GoalBinding:  noc.GoalBinding{Mode: "native_goal", NativeGoal: true, Verified: true, Source: "goal", NativeSource: "/goal"},
+			Orchestrated: true,
+			Lead:         "cto",
+			LeadHandle:   "cto",
+			SessionActions: []noc.RuntimeAction{
+				{Kind: "status", Label: "show session status", Scope: "session", NamespaceID: ns.ID, Command: "amq-squad status --project /repo --profile review --session s --json", Available: true},
+				{Kind: "task_list", Label: "list tasks", Scope: "session", NamespaceID: ns.ID, Command: "amq-squad task list --project /repo --profile review --session s", Available: true},
+			},
+			Members: []noc.RuntimeMember{{
+				Role:        "cto",
+				Handle:      "cto",
+				Status:      "live",
+				RecordState: "restorable",
+				IsLead:      true,
+				Namespace:   ns,
+				Root:        ns.AMQRoot,
+				AgentDir:    ns.AMQRoot + "/agents/cto",
+				PaneAlive:   true,
+				Actions: []noc.RuntimeAction{
+					{Kind: "focus", Label: "focus pane", Scope: "agent", NamespaceID: ns.ID, Command: "amq-squad focus --project /repo --profile review --session s --role cto", Available: true},
+					{Kind: "send", Label: "send a prompt", Scope: "agent", NamespaceID: ns.ID, Command: "amq-squad send --project /repo --profile review --session s --role cto --body-file -", Mutates: true, NeedsConfirmation: true, Available: true},
+				},
+			}},
+		}
+	})
+
+	if calls != 1 {
+		t.Fatalf("runtime fetch calls = %d, want 1", calls)
+	}
+	sess := sessionRow(t, env)
+	if sess.Profile != "review" || sess.Namespace.ID != "review/s" || sess.GoalBinding.Mode != "native_goal" {
+		t.Fatalf("session metadata not folded: %+v", sess)
+	}
+	if !sess.Orchestrated || sess.Lead != "cto" || sess.LeadHandle != "cto" {
+		t.Fatalf("visible lead metadata not folded: %+v", sess)
+	}
+	status, ok := findNOCAction(sess.Actions, "session", "status")
+	if !ok || status.NamespaceID != "review/s" || !strings.Contains(status.Command, "--profile review") {
+		t.Fatalf("profile-scoped status not folded: %+v ok=%v", status, ok)
+	}
+	taskList, ok := findNOCAction(sess.Actions, "session", "task_list")
+	if !ok || taskList.NamespaceID != "review/s" || taskList.Mutates || !strings.Contains(taskList.Command, "task list") {
+		t.Fatalf("task_list action not folded: %+v ok=%v", taskList, ok)
+	}
+	cto := agentRow(t, sess, "cto")
+	if cto.RuntimeStatus != "live" || cto.RecordState != "restorable" || !cto.IsLead || cto.Namespace.ID != "review/s" {
+		t.Fatalf("lead agent metadata not folded: %+v", cto)
+	}
+	if cto.PaneAlive == nil || !*cto.PaneAlive {
+		t.Fatalf("lead pane state not folded: %+v", cto.PaneAlive)
+	}
+	if cto.LaunchRecord != "/repo/.agent-mail/review/s/agents/cto/extensions/io.github.omriariav.amq-squad/launch.json" {
+		t.Fatalf("launch record path = %q", cto.LaunchRecord)
+	}
+	send, ok := findNOCAction(cto.Actions, "agent", "send")
+	if !ok || send.NamespaceID != "review/s" || !send.Mutates || !send.RequiresConfirmation || !send.Template || !strings.Contains(send.Command, "--profile review") {
+		t.Fatalf("lead send action not folded safely: %+v ok=%v", send, ok)
+	}
+}
+
 func countActions(actions []nocActionJSONData, scope, name string) int {
 	n := 0
 	for _, a := range actions {

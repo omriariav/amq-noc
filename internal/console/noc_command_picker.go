@@ -126,10 +126,10 @@ func runtimeFetchScope(n nocNode) (dir, profile, session string) {
 	switch n.kind {
 	case nodeSession:
 		dir, session = strings.TrimSpace(n.project.Dir), strings.TrimSpace(n.session.Name)
-		profile = sessionCommandProfile(n.project, n.session.Name)
+		profile = sessionCommandProfileForSession(n.project, n.session)
 	case nodeAgent:
 		dir, session = strings.TrimSpace(n.project.Dir), strings.TrimSpace(n.session.Name)
-		profile = sessionCommandProfile(n.project, n.session.Name)
+		profile = sessionCommandProfileForSession(n.project, n.session)
 	default:
 		return "", "", ""
 	}
@@ -252,7 +252,7 @@ func (m *NOCModel) selectedCommandActions() []nocCommandAction {
 	case nodeProject:
 		return kickRecoverActions(n.project, "", projectDetailAMQRoot(n.project))
 	case nodeSession:
-		return kickRecoverActions(n.project, n.session.Name, n.session.Root)
+		return kickRecoverActionsForSession(n.project, n.session, n.session.Root)
 	case nodeAgent:
 		return agentCommandActions(n.project, n.session, n.agent)
 	default:

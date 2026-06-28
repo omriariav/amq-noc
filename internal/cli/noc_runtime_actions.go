@@ -1,10 +1,11 @@
 package cli
 
-// noc_runtime_actions.go folds amq-squad's v1.5 published runtime actions into
-// the CLI's deterministic action model so `--actions` and `--json` advertise the
-// exact control commands amq-squad owns (focus/send/resume/status) instead of
-// fallback-only templates. It is the CLI half of amq-noc#7; the TUI command
-// picker already consumes the same noc.RuntimeStatus contract.
+// noc_runtime_actions.go folds amq-squad's published runtime actions and v2.9
+// namespace/lead metadata into the CLI's deterministic action model so
+// `--actions` and `--json` advertise the exact control commands and identities
+// amq-squad owns instead of fallback-only templates. It is the CLI half of
+// amq-noc#7; the TUI command picker already consumes the same
+// noc.RuntimeStatus contract.
 //
 // Preference rule: when a squad-managed session reports AVAILABLE published
 // actions, the top-level v1.5.2 session action catalog replaces generated
@@ -52,7 +53,7 @@ func applyRuntimeActions(env *nocSnapshotEnvelopeData, fetch runtimeActionFetch)
 				continue
 			}
 			rs := fetch(p.Dir, sessionEnvelopeRuntimeProfile(*sess), sess.Name)
-			if !rs.HasActions() {
+			if !rs.HasActions() && !rs.HasStatusMetadata() {
 				continue
 			}
 			foldRuntimeActionsIntoSession(sess, rs)
@@ -69,6 +70,9 @@ func applyRuntimeActions(env *nocSnapshotEnvelopeData, fetch runtimeActionFetch)
 // default, empty, or mixed profile resolves to "" (FetchRuntimeStatus then omits
 // the --profile flag).
 func sessionEnvelopeRuntimeProfile(sess nocSessionJSONData) string {
+	if profile := strings.TrimSpace(sess.Profile); profile != "" && profile != team.DefaultProfile {
+		return profile
+	}
 	seen := map[string]bool{}
 	for _, ag := range sess.Agents {
 		p := strings.TrimSpace(ag.TeamProfile)
@@ -97,6 +101,7 @@ func sessionEnvelopeRuntimeProfile(sess nocSessionJSONData) string {
 // the matching member. Only AVAILABLE actions are folded, mirroring the TUI
 // picker, so dead-pane focus/send never surface as runnable commands.
 func foldRuntimeActionsIntoSession(sess *nocSessionJSONData, rs noc.RuntimeStatus) {
+	foldRuntimeMetadataIntoSession(sess, rs)
 	if hasPublishedSessionCatalog(rs) {
 		sess.Actions = removeSupersededFallbackSessionActions(sess.Actions, rs.SessionActions)
 		for _, a := range rs.SessionActions {
@@ -136,6 +141,57 @@ func foldRuntimeActionsIntoSession(sess *nocSessionJSONData, rs noc.RuntimeStatu
 			}
 			ag.Actions = replaceOrAppendNOCAction(ag.Actions, publishedAgentAction(ag.ID, role, a))
 		}
+	}
+}
+
+func foldRuntimeMetadataIntoSession(sess *nocSessionJSONData, rs noc.RuntimeStatus) {
+	if strings.TrimSpace(rs.Profile) != "" {
+		sess.Profile = rs.Profile
+	}
+	if strings.TrimSpace(rs.Namespace.ID) != "" {
+		sess.Namespace = rs.Namespace
+	}
+	if strings.TrimSpace(rs.GoalBinding.Mode) != "" {
+		sess.GoalBinding = rs.GoalBinding
+	}
+	if rs.Orchestrated {
+		sess.Orchestrated = true
+		if strings.TrimSpace(rs.Lead) != "" {
+			sess.Lead = rs.Lead
+		}
+		if strings.TrimSpace(rs.LeadHandle) != "" {
+			sess.LeadHandle = rs.LeadHandle
+		}
+	}
+	for ai := range sess.Agents {
+		ag := &sess.Agents[ai]
+		mem, ok := rs.MemberByRole(ag.Role)
+		if !ok {
+			mem, ok = rs.MemberByRole(ag.Handle)
+		}
+		if !ok {
+			continue
+		}
+		if strings.TrimSpace(mem.Status) != "" {
+			ag.RuntimeStatus = mem.Status
+		}
+		if strings.TrimSpace(mem.RecordState) != "" {
+			ag.RecordState = mem.RecordState
+		}
+		if strings.TrimSpace(mem.Namespace.ID) != "" {
+			ag.Namespace = mem.Namespace
+		}
+		if strings.TrimSpace(mem.AgentDir) != "" {
+			ag.LaunchRecord = mem.AgentDir + "/extensions/io.github.omriariav.amq-squad/launch.json"
+			ag.Namespace.Paths.LaunchRecord = ag.LaunchRecord
+		}
+		if mem.External {
+			ag.External = true
+		}
+		if mem.IsLead {
+			ag.IsLead = true
+		}
+		ag.PaneAlive = boolPtr(mem.PaneAlive)
 	}
 }
 
@@ -200,13 +256,17 @@ func removeSupersededFallbackSessionActions(actions []nocActionJSONData, publish
 // published command is exact and concrete, so it carries no template vars.
 func publishedLegacySessionAction(sessionID string, a noc.RuntimeAction) nocActionJSONData {
 	if a.Kind == "resume" {
-		return nocAction("session", sessionID, "resume", a.Command,
+		out := nocAction("session", sessionID, "resume", a.Command,
 			"Resume this session in tmux via amq-squad's published runtime action.",
 			true, true, false)
+		out.NamespaceID = runtimeActionNamespaceID(a, out.NamespaceID)
+		return out
 	}
-	return nocAction("session", sessionID, "status", a.Command,
+	out := nocAction("session", sessionID, "status", a.Command,
 		"Show this session's amq-squad status via the published runtime action.",
 		false, false, false)
+	out.NamespaceID = runtimeActionNamespaceID(a, out.NamespaceID)
+	return out
 }
 
 // publishedCatalogSessionAction classifies v1.5.2 top-level session actions.
@@ -219,9 +279,11 @@ func publishedCatalogSessionAction(sessionID string, a noc.RuntimeAction) nocAct
 	if label != "" {
 		description = label + " via amq-squad's published runtime action."
 	}
-	return nocAction("session", sessionID, name, a.Command,
+	out := nocAction("session", sessionID, name, a.Command,
 		description,
 		a.Mutates, a.NeedsConfirmation || a.Mutates, false)
+	out.NamespaceID = runtimeActionNamespaceID(a, out.NamespaceID)
+	return out
 }
 
 // publishedAgentAction classifies an agent-scope published action. focus is a
@@ -230,13 +292,24 @@ func publishedCatalogSessionAction(sessionID string, a noc.RuntimeAction) nocAct
 // refused by --run-action (see nocActionReadsStdinBody): copy and pipe a body.
 func publishedAgentAction(agentID, role string, a noc.RuntimeAction) nocActionJSONData {
 	if a.Kind == "send" {
-		return nocAction("agent", agentID, "send", a.Command,
+		out := nocAction("agent", agentID, "send", a.Command,
 			"Deliver a prompt to "+role+"'s tmux pane via amq-squad. Input-required: copy and pipe a body; the NOC will not run a stdin-body send.",
 			true, true, true)
+		out.NamespaceID = runtimeActionNamespaceID(a, out.NamespaceID)
+		return out
 	}
-	return nocAction("agent", agentID, "focus", a.Command,
+	out := nocAction("agent", agentID, "focus", a.Command,
 		"Focus "+role+"'s tmux pane via amq-squad (read-only terminal focus).",
 		false, false, false)
+	out.NamespaceID = runtimeActionNamespaceID(a, out.NamespaceID)
+	return out
+}
+
+func runtimeActionNamespaceID(a noc.RuntimeAction, fallback string) string {
+	if ns := strings.TrimSpace(a.NamespaceID); ns != "" {
+		return ns
+	}
+	return fallback
 }
 
 // replaceOrAppendNOCAction replaces an action with the same ID (stable

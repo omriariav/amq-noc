@@ -32,28 +32,51 @@ type Record struct {
 	Session string   `json:"session"`
 	// SharedWorkstream means Session was chosen as the team-wide workstream,
 	// even if the name happens to equal this agent's role or handle.
-	SharedWorkstream bool      `json:"shared_workstream,omitempty"`
-	Conversation     string    `json:"conversation,omitempty"`
-	Handle           string    `json:"handle"`
-	Role             string    `json:"role,omitempty"`
-	Root             string    `json:"root"`
-	BaseRoot         string    `json:"base_root,omitempty"`
-	RootSource       string    `json:"root_source,omitempty"`
-	AMQVersion       string    `json:"amq_version,omitempty"`
-	CodexArgs        []string  `json:"codex_args,omitempty"`
-	ClaudeArgs       []string  `json:"claude_args,omitempty"`
-	Launcher         string    `json:"launcher,omitempty"`
-	LauncherArgs     []string  `json:"launcher_args,omitempty"`
-	Model            string    `json:"model,omitempty"`
-	Trust            string    `json:"trust,omitempty"`
-	NoDefaultArgs    bool      `json:"no_default_args,omitempty"`
-	AgentPID         int       `json:"agent_pid,omitempty"`
-	AgentTTY         string    `json:"agent_tty,omitempty"`
-	StartedAt        time.Time `json:"started_at"`
+	SharedWorkstream bool         `json:"shared_workstream,omitempty"`
+	Conversation     string       `json:"conversation,omitempty"`
+	Handle           string       `json:"handle"`
+	Role             string       `json:"role,omitempty"`
+	Root             string       `json:"root"`
+	BaseRoot         string       `json:"base_root,omitempty"`
+	RootSource       string       `json:"root_source,omitempty"`
+	AMQVersion       string       `json:"amq_version,omitempty"`
+	CodexArgs        []string     `json:"codex_args,omitempty"`
+	ClaudeArgs       []string     `json:"claude_args,omitempty"`
+	Launcher         string       `json:"launcher,omitempty"`
+	LauncherArgs     []string     `json:"launcher_args,omitempty"`
+	Model            string       `json:"model,omitempty"`
+	Trust            string       `json:"trust,omitempty"`
+	NoDefaultArgs    bool         `json:"no_default_args,omitempty"`
+	SpawnOrigin      string       `json:"spawn_origin,omitempty"`
+	SpawnDepth       int          `json:"spawn_depth,omitempty"`
+	External         bool         `json:"external,omitempty"`
+	GoalBinding      *GoalBinding `json:"goal_binding,omitempty"`
+	AgentPID         int          `json:"agent_pid,omitempty"`
+	AgentTTY         string       `json:"agent_tty,omitempty"`
+	StartedAt        time.Time    `json:"started_at"`
 	// TeamProfile names the profile the launch was emitted from. Empty
 	// means the implicit default profile. Captured so status / bootstrap
 	// routing can reuse the same profile without rereading flags.
-	TeamProfile string `json:"team_profile,omitempty"`
+	TeamProfile string    `json:"team_profile,omitempty"`
+	Tmux        *TmuxInfo `json:"tmux,omitempty"`
+}
+
+// GoalBinding is launch-time evidence for a visible lead's native /goal binding.
+type GoalBinding struct {
+	Mode       string `json:"mode"`
+	NativeGoal bool   `json:"native_goal"`
+	Source     string `json:"source"`
+	Command    string `json:"command,omitempty"`
+	Detail     string `json:"detail,omitempty"`
+}
+
+// TmuxInfo is the exact tmux identity captured by amq-squad when available.
+type TmuxInfo struct {
+	Session    string `json:"session,omitempty"`
+	WindowID   string `json:"window_id,omitempty"`
+	WindowName string `json:"window_name,omitempty"`
+	PaneID     string `json:"pane_id,omitempty"`
+	Target     string `json:"target,omitempty"`
 }
 
 // Entry is a launch record plus the mailbox directory it was discovered in.
@@ -163,6 +186,12 @@ func ScanEntriesInRoot(projectRoot, baseRoot string) ([]Entry, error) {
 		agentDir func(string) string
 	}{
 		{
+			glob: filepath.Join(baseRoot, "*", "*", "agents", "*", "extensions", LayerName, FileName),
+			agentDir: func(path string) string {
+				return filepath.Dir(filepath.Dir(filepath.Dir(path)))
+			},
+		},
+		{
 			glob: filepath.Join(baseRoot, "*", "agents", "*", "extensions", LayerName, FileName),
 			agentDir: func(path string) string {
 				return filepath.Dir(filepath.Dir(filepath.Dir(path)))
@@ -172,6 +201,12 @@ func ScanEntriesInRoot(projectRoot, baseRoot string) ([]Entry, error) {
 			glob: filepath.Join(baseRoot, "agents", "*", "extensions", LayerName, FileName),
 			agentDir: func(path string) string {
 				return filepath.Dir(filepath.Dir(filepath.Dir(path)))
+			},
+		},
+		{
+			glob: filepath.Join(baseRoot, "*", "*", "agents", "*", FileName),
+			agentDir: func(path string) string {
+				return filepath.Dir(path)
 			},
 		},
 		{
@@ -281,6 +316,7 @@ func ScanLegacyEntriesInRoot(projectRoot, baseRoot string) ([]Entry, error) {
 
 func legacyAgentDirs(baseRoot string) ([]string, error) {
 	patterns := []string{
+		filepath.Join(baseRoot, "*", "*", "agents", "*"),
 		filepath.Join(baseRoot, "*", "agents", "*"),
 		filepath.Join(baseRoot, "agents", "*"),
 	}
@@ -339,25 +375,31 @@ func legacyRecord(projectRoot, baseRoot, agentDir string) (Record, error) {
 
 	session := ""
 	root := baseRoot
+	profile := ""
 	handle := filepath.Base(agentDir)
 	binary, ok := inferLegacyBinary(handle)
 	if !ok {
 		return Record{}, fmt.Errorf("cannot infer binary for legacy handle: %s", handle)
 	}
-	if parts[0] != "agents" {
+	if len(parts) >= 4 && parts[2] == "agents" {
+		profile = parts[0]
+		session = parts[1]
+		root = filepath.Join(baseRoot, profile, session)
+	} else if parts[0] != "agents" {
 		session = parts[0]
 		root = filepath.Join(baseRoot, session)
 	}
 
 	return Record{
-		CWD:       projectRoot,
-		Binary:    binary,
-		Session:   session,
-		Handle:    handle,
-		Role:      inferLegacyRole(handle),
-		Root:      root,
-		BaseRoot:  baseRoot,
-		StartedAt: legacyActivityTime(agentDir),
+		CWD:         projectRoot,
+		Binary:      binary,
+		Session:     session,
+		Handle:      handle,
+		Role:        inferLegacyRole(handle),
+		Root:        root,
+		BaseRoot:    baseRoot,
+		TeamProfile: profile,
+		StartedAt:   legacyActivityTime(agentDir),
 	}, nil
 }
 

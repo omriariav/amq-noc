@@ -102,19 +102,20 @@ const (
 
 // Agent is a single discovered agent plus its computed run-state.
 type Agent struct {
-	Handle       string
-	Engine       string // the launch binary: "claude", "codex", ...
-	Role         string
-	AgentPID     int
-	WakePID      int
-	Liveness     Liveness
-	WakeHealth   WakeHealth
-	LastSeen     time.Time
-	Presence     string // raw presence.status as found on disk (informational)
-	Conversation string
-	AgentDir     string
-	Source       string // launch source label, e.g. "launch.json" or "amq history"
-	TeamProfile  string // launch team profile; empty means the default profile
+	Handle           string
+	Engine           string // the launch binary: "claude", "codex", ...
+	Role             string
+	AgentPID         int
+	WakePID          int
+	Liveness         Liveness
+	WakeHealth       WakeHealth
+	LastSeen         time.Time
+	Presence         string // raw presence.status as found on disk (informational)
+	Conversation     string
+	AgentDir         string
+	Source           string // launch source label, e.g. "launch.json" or "amq history"
+	LaunchRecordPath string // concrete amq-squad launch record path when known
+	TeamProfile      string // launch team profile; empty means the default profile
 	// Attention is the agent's derived attention tier (needs-you/blocked/gated/
 	// at-risk/clear) over the current thread evidence it owns. It is SEPARATE from
 	// Liveness: a non-operational agent stays clear here. See Attention.
@@ -131,6 +132,7 @@ type Agent struct {
 // per-agent mailboxes; PR1's discovery + liveness fields are unchanged.
 type Session struct {
 	Name         string // workstream/session name; "" for the rootless layout
+	TeamProfile  string // normalized team profile; "default" for the implicit profile
 	Root         string // the session root directory (base root or base root/<name>)
 	Agents       []Agent
 	Coordination Coordination // derived threads/edges/timeline/triage for this session

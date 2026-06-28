@@ -35,6 +35,28 @@ func (m NOCModel) orchestrationHeader(ps noc.ProjectSnapshot, sess state.Session
 			b.WriteString(m.th.paint(m.th.dim, label) + "\n")
 		}
 	}
+	if ns := noc.ResolveNamespace(ps.Dir, sess.TeamProfile, sess.Name); strings.TrimSpace(ns.ID) != "" {
+		b.WriteString(m.th.paint(m.th.dim, "namespace: "+ns.Display) + "\n")
+		if ns.AMQRoot != "" {
+			b.WriteString(m.th.paint(m.th.dim, "AMQ root: "+ns.AMQRoot) + "\n")
+		}
+		if binding := sessionGoalBinding(ps, ns); strings.TrimSpace(binding.Mode) != "" {
+			label := "goal binding: " + binding.Mode
+			if binding.Verified {
+				label += " verified"
+			}
+			if binding.Source != "" {
+				label += " via " + binding.Source
+			}
+			b.WriteString(m.th.paint(m.th.dim, label) + "\n")
+		}
+		if ns.Paths.Brief != "" {
+			b.WriteString(m.th.paint(m.th.dim, "brief: "+ns.Paths.Brief) + "\n")
+		}
+		if ns.Paths.Tasks != "" {
+			b.WriteString(m.th.paint(m.th.dim, "tasks: "+ns.Paths.Tasks) + "\n")
+		}
+	}
 	if goal := strings.TrimSpace(m.sessionBriefGoal(ps, sess)); goal != "" {
 		// The goal is full-sentence context, so it WRAPS to the pane width
 		// (bounded) instead of clipping invisibly at the pane edge like
@@ -66,7 +88,22 @@ func (m NOCModel) sessionBriefGoal(ps noc.ProjectSnapshot, sess state.Session) s
 	if name == "" || len(ps.SessionBriefGoals) == 0 {
 		return ""
 	}
-	return ps.SessionBriefGoals[name]
+	ns := noc.ResolveNamespace(ps.Dir, sess.TeamProfile, name)
+	for _, key := range []string{ns.ID, sess.TeamProfile + "/" + name, name} {
+		if goal := strings.TrimSpace(ps.SessionBriefGoals[key]); goal != "" {
+			return goal
+		}
+	}
+	return ""
+}
+
+func sessionGoalBinding(ps noc.ProjectSnapshot, ns noc.NamespaceRef) noc.GoalBinding {
+	if ps.SessionGoalBindings != nil {
+		if b, ok := ps.SessionGoalBindings[ns.ID]; ok {
+			return b
+		}
+	}
+	return noc.NamespaceFallbackGoalBinding(ns)
 }
 
 // leadReportsSection renders the per-child digest of the newest p2p exchange

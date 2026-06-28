@@ -1138,7 +1138,7 @@ func TestRunNOCActionsHumanTable(t *testing.T) {
 	}
 }
 
-func TestRunNOCActionsHumanTableShowsProfileChoices(t *testing.T) {
+func TestRunNOCActionsHumanTableShowsProfileScopedSessions(t *testing.T) {
 	root := t.TempDir()
 	proj := filepath.Join(root, "p")
 	seedNOCOperatorTeam(t, proj)
@@ -1151,12 +1151,12 @@ func TestRunNOCActionsHumanTableShowsProfileChoices(t *testing.T) {
 		Root:        filepath.Join(base, "issue-96"),
 		TeamProfile: team.DefaultProfile,
 	})
-	seedAgentRecord(t, base, "issue-96", "qa", launch.Record{
+	seedProfileAgentRecord(t, base, "review", "issue-96", "qa", launch.Record{
 		Binary:      "claude",
 		Role:        "qa",
 		Handle:      "qa",
 		Session:     "issue-96",
-		Root:        filepath.Join(base, "issue-96"),
+		Root:        filepath.Join(base, "review", "issue-96"),
 		TeamProfile: "review",
 	})
 
@@ -1166,8 +1166,13 @@ func TestRunNOCActionsHumanTableShowsProfileChoices(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runNOC --actions mixed profile: %v", err)
 	}
-	if !strings.Contains(stdout, "profile[default|review]") {
-		t.Fatalf("actions table should show profile choices:\n%s", stdout)
+	for _, want := range []string{"session|", "review/issue-96", "--profile review"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("actions table should show profile-scoped sessions, missing %q:\n%s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "profile[default|review]") {
+		t.Fatalf("actions table should not collapse profile namespaces into one template:\n%s", stdout)
 	}
 }
 
@@ -1466,7 +1471,7 @@ func TestExecuteNOCRunActionFillsSessionCleanupCommands(t *testing.T) {
 	}
 }
 
-func TestExecuteNOCRunActionRejectsProfileOutsideChoices(t *testing.T) {
+func TestExecuteNOCRunActionRejectsProfileOverrideOnScopedSession(t *testing.T) {
 	root := t.TempDir()
 	proj := filepath.Join(root, "p")
 	base := filepath.Join(proj, noc.AgentMailDirName)
@@ -1478,12 +1483,12 @@ func TestExecuteNOCRunActionRejectsProfileOutsideChoices(t *testing.T) {
 		Root:        filepath.Join(base, "issue-96"),
 		TeamProfile: team.DefaultProfile,
 	})
-	seedAgentRecord(t, base, "issue-96", "qa", launch.Record{
+	seedProfileAgentRecord(t, base, "review", "issue-96", "qa", launch.Record{
 		Binary:      "claude",
 		Role:        "qa",
 		Handle:      "qa",
 		Session:     "issue-96",
-		Root:        filepath.Join(base, "issue-96"),
+		Root:        filepath.Join(base, "review", "issue-96"),
 		TeamProfile: "review",
 	})
 
@@ -1506,14 +1511,14 @@ func TestExecuteNOCRunActionRejectsProfileOutsideChoices(t *testing.T) {
 	if _, ok := err.(UsageError); !ok {
 		t.Fatalf("want UsageError, got %T: %v", err, err)
 	}
-	for _, want := range []string{`profile="ghost"`, "choose one of: default, review"} {
+	for _, want := range []string{"does not accept template values", "remove --set profile"} {
 		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("invalid profile choice error missing %q: %v", want, err)
+			t.Fatalf("profile override error missing %q: %v", want, err)
 		}
 	}
 }
 
-func TestExecuteNOCRunActionAcceptsProfileChoice(t *testing.T) {
+func TestExecuteNOCRunActionAcceptsNamedProfileSessionID(t *testing.T) {
 	root := t.TempDir()
 	proj := filepath.Join(root, "p")
 	base := filepath.Join(proj, noc.AgentMailDirName)
@@ -1525,12 +1530,12 @@ func TestExecuteNOCRunActionAcceptsProfileChoice(t *testing.T) {
 		Root:        filepath.Join(base, "issue-96"),
 		TeamProfile: team.DefaultProfile,
 	})
-	seedAgentRecord(t, base, "issue-96", "qa", launch.Record{
+	seedProfileAgentRecord(t, base, "review", "issue-96", "qa", launch.Record{
 		Binary:      "claude",
 		Role:        "qa",
 		Handle:      "qa",
 		Session:     "issue-96",
-		Root:        filepath.Join(base, "issue-96"),
+		Root:        filepath.Join(base, "review", "issue-96"),
 		TeamProfile: "review",
 	})
 	var out bytes.Buffer
@@ -1538,8 +1543,7 @@ func TestExecuteNOCRunActionAcceptsProfileChoice(t *testing.T) {
 		Cwd:         root,
 		Roots:       []string{root},
 		Depth:       noc.DefaultDepth,
-		RunActionID: "session|" + proj + "|issue-96|action|resume",
-		ActionVars:  map[string]string{"profile": "review"},
+		RunActionID: "session|" + proj + "|review/issue-96|action|resume",
 		DryRun:      true,
 		Out:         &out,
 		RunActionCommand: func(string) error {
@@ -1548,14 +1552,14 @@ func TestExecuteNOCRunActionAcceptsProfileChoice(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Fatalf("valid profile choice should render: %v", err)
+		t.Fatalf("named profile action should render: %v", err)
 	}
 	if !strings.Contains(out.String(), "--profile review") {
-		t.Fatalf("valid profile choice should be rendered in command:\n%s", out.String())
+		t.Fatalf("named profile action should render profile in command:\n%s", out.String())
 	}
 }
 
-func TestExecuteNOCRunActionMissingProfileNamesChoices(t *testing.T) {
+func TestExecuteNOCRunActionNameIsAmbiguousAcrossProfiles(t *testing.T) {
 	root := t.TempDir()
 	proj := filepath.Join(root, "p")
 	base := filepath.Join(proj, noc.AgentMailDirName)
@@ -1567,35 +1571,35 @@ func TestExecuteNOCRunActionMissingProfileNamesChoices(t *testing.T) {
 		Root:        filepath.Join(base, "issue-96"),
 		TeamProfile: team.DefaultProfile,
 	})
-	seedAgentRecord(t, base, "issue-96", "qa", launch.Record{
+	seedProfileAgentRecord(t, base, "review", "issue-96", "qa", launch.Record{
 		Binary:      "claude",
 		Role:        "qa",
 		Handle:      "qa",
 		Session:     "issue-96",
-		Root:        filepath.Join(base, "issue-96"),
+		Root:        filepath.Join(base, "review", "issue-96"),
 		TeamProfile: "review",
 	})
 	err := executeNOC(nocExecution{
 		Cwd:         root,
 		Roots:       []string{root},
 		Depth:       noc.DefaultDepth,
-		RunActionID: "session|" + proj + "|issue-96|action|resume",
+		RunActionID: "resume",
 		Yes:         true,
 		Out:         &bytes.Buffer{},
 		RunActionCommand: func(string) error {
-			t.Fatal("missing profile value should not run")
+			t.Fatal("ambiguous profile action should not run")
 			return nil
 		},
 	})
 	if err == nil {
-		t.Fatal("missing profile value should fail")
+		t.Fatal("ambiguous action should fail")
 	}
 	if _, ok := err.(UsageError); !ok {
 		t.Fatalf("want UsageError, got %T: %v", err, err)
 	}
-	for _, want := range []string{"--set profile=<value>", "choices: default, review"} {
+	for _, want := range []string{"matches multiple actions", "issue-96", "review/issue-96"} {
 		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("missing profile error missing %q: %v", want, err)
+			t.Fatalf("ambiguous action error missing %q: %v", want, err)
 		}
 	}
 }
@@ -1992,6 +1996,48 @@ func TestExecuteNOCRunActionFillsApproveCommand(t *testing.T) {
 		if !strings.Contains(ran, want) {
 			t.Fatalf("approve command missing %q: %s", want, ran)
 		}
+	}
+}
+
+func TestExecuteNOCRunActionFillsProfileScopedApproveCommand(t *testing.T) {
+	root := t.TempDir()
+	proj := filepath.Join(root, "p")
+	seedNOCOperatorTeam(t, proj)
+	base := filepath.Join(proj, noc.AgentMailDirName)
+	sessionRoot := filepath.Join(base, "review", "issue-96")
+	agentDir := seedProfileAgentRecord(t, base, "review", "issue-96", "cto", launch.Record{
+		Binary:      "codex",
+		Role:        "cto",
+		Handle:      "cto",
+		Session:     "issue-96",
+		Root:        sessionRoot,
+		TeamProfile: "review",
+	})
+	seedNOCNeedsYouMessage(t, agentDir, "cto", "gate/release", "APPROVAL: Ship it?")
+
+	var ran string
+	err := executeNOC(nocExecution{
+		Cwd:         root,
+		Roots:       []string{root},
+		Depth:       noc.DefaultDepth,
+		RunActionID: "agent|" + proj + "|review/issue-96|cto|action|approve",
+		Yes:         true,
+		Out:         &bytes.Buffer{},
+		RunActionCommand: func(command string) error {
+			ran = command
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("executeNOC --run-action profile approve: %v", err)
+	}
+	for _, want := range []string{"amq send", "--root " + sessionRoot, "--me user", "--to cto", "--subject 'Re: APPROVAL: Ship it?'", "--body APPROVED", "--thread gate/release", "--kind answer"} {
+		if !strings.Contains(ran, want) {
+			t.Fatalf("profile approve command missing %q: %s", want, ran)
+		}
+	}
+	if strings.Contains(ran, filepath.Join(base, "issue-96")) {
+		t.Fatalf("profile approve command crossed into default session root: %s", ran)
 	}
 }
 

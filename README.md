@@ -77,7 +77,8 @@ operationally live agents, so fresh presence alone never promotes a wait.
 - AMQ inbox, DLQ, receipts, and ops commands
 - preview-first and confirm-gated controls that execute through `amq-squad`
 - structural operator gates through a virtual operator mailbox, usually `user`
-- support for `amq-squad` operator metadata and published v1.5 runtime actions
+- support for `amq-squad` operator metadata, published runtime actions, and
+  v2.9 namespace/visible-lead status metadata
 - truthful TUI help/footer generated from the handled keymap
 - context-sensitive footer actions that only advertise controls valid for the
   selected row
@@ -89,16 +90,16 @@ operationally live agents, so fresh presence alone never promotes a wait.
 - row-sensitive delete behavior for team profiles, named sessions, and root AMQ
   mailbox rows
 - runtime-action helper commands for project, session, and agent rows
-- published `amq-squad v1.5` runtime-action consumption in CLI action JSON and
-  the `C copy-cmd` picker, including the v1.5.2+ session action catalog, with
-  fallback generation for older contracts
+- published `amq-squad` runtime-action consumption in CLI action JSON and the
+  `C copy-cmd` picker, including the session action catalog, with fallback
+  generation for older contracts
 - JSON/TUI status alignment for fresh-presence `dead-mailbox-live` agents
 - clipboard paste support in filter and action input prompts
-- lead-agent orchestration awareness for `amq-squad v1.7` teams: a `(lead)`
-  badge and lead-first ordering, an `(orchestrated)` session marker, a
-  per-child lead-exchange digest, brief Goal context in the session pane, a
-  deterministic lead-down hint, additive JSON fields, and `orchestrated` /
-  `lead:<role>` filters
+- lead-agent orchestration awareness for `amq-squad` teams: a `(lead)` badge
+  and lead-first ordering, an `(orchestrated)` session marker, a per-child
+  lead-exchange digest, namespace/AMQ/brief/task/goal-binding context in the
+  session pane, a deterministic lead-down hint, additive JSON fields, and
+  `orchestrated` / `lead:<role>` filters
 - configured-workstream derivation in the new-session flow: the prompt leads
   with the team's configured workstream, warns when a typed name diverges
   (a divergent name creates a NEW workstream with a stub brief), and the
@@ -143,16 +144,15 @@ operationally live agents, so fresh presence alone never promotes a wait.
 ## Install
 
 ```sh
-go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.10.0
+go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.11.0
 ```
 
 Requirements:
 
 - Go 1.25+
-- `amq` v0.37.1 or newer; v0.38.0 is preferred for the reserved human operator
-  and exported environment contracts
-- `amq-squad` v2.5.0 or newer for external lead runtime status and the
-  AMQ-first team protocol
+- `amq` v0.38.0 or newer for the reserved human operator and exported
+  environment contracts used by amq-squad v2.9
+- `amq-squad` v2.9.0 or newer for namespace-safe visible-lead remote control
 - `tmux`
 
 ## Quick Start
@@ -242,22 +242,24 @@ For more detail, see [`docs/operator-gate.md`](docs/operator-gate.md).
 
 ## Orchestrated squads
 
-`amq-squad v1.7` teams can be lead-agent orchestrated: `team.json` carries
-`orchestrated: true` plus `lead: <role>`, one member drives the others, and
-children push reports to the lead over AMQ (`status`, `question`,
-`review_request` on `p2p/<lead>__<child>` threads). The NOC is the human's
-client for supervising those squads:
+`amq-squad` teams can be lead-agent orchestrated: `team.json` or
+`amq-squad status --json` carries `orchestrated: true` plus `lead: <role>`, one
+member drives the others, and children push reports to the lead over AMQ
+(`status`, `question`, `review_request` on `p2p/<lead>__<child>` threads). The
+NOC is the human's client for supervising those squads:
 
 - the lead carries a `(lead)` badge and sorts first within its state tier;
   the session row is marked `(orchestrated)`
-- the session pane leads with the lead's identity and the brief's Goal line
-  (`.amq-squad/briefs/<session>.md`), then a per-child digest of the newest
-  lead exchange
+- the session pane leads with the lead's identity, namespace display, AMQ root,
+  goal binding mode, brief path, task path, and the brief's Goal line, then a
+  per-child digest of the newest lead exchange
 - a dead lead with live children surfaces an explicit lead-down warning;
   the five primary states are unchanged
 - `--filter orchestrated` and `--filter lead:<role>` narrow to orchestrated
-  workstreams; JSON snapshots add `orchestrated`, `lead`, `lead_handle`,
-  `lead_down`, and per-agent `is_lead` (all additive)
+  workstreams; JSON snapshots add `profile`, `namespace`, `goal_binding`,
+  `orchestrated`, `lead`, `lead_handle`, `lead_down`, per-agent `is_lead`,
+  `record_state`, `runtime_status`, `pane_alive`, and `launch_record` fields
+  (all additive)
 
 Talking with the lead is first-class. `m` on the orchestrated session (or
 the lead's row) opens CONVERSATION MODE: the full operator-lead dialogue -
@@ -274,22 +276,24 @@ message in its pane through amq-squad's busy-guarded `send` (the NOC never
 passes `--force`); a down lead receives a durable AMQ message on the
 `p2p/<lead>__<operator>` thread instead, read on its next drain or wake.
 Directives never clear operator gates, and result notes name the channel
-that delivered. With `amq-squad v1.9.0+` the lead acknowledges directives
-on the same thread, so the conversation fills from both directions.
+that delivered. amq-squad builds with DIRECTIVE acknowledgments reply on the
+same thread, so the conversation fills from both directions.
 
-Teams without the v1.7 fields render exactly as before.
+Teams without orchestrated/lead metadata render exactly as before.
 
 ## Runtime actions
 
 amq-squad owns runtime orchestration (start / stop / resume / focus / open /
 prompt-delivery and the tmux mechanics behind them). amq-noc consumes published
-`amq-squad v1.5` action metadata when available, renders it as operator UI,
-lets you pick and copy the exact command (`C`), and falls back to deterministic
-NOC-generated commands when runtime support is absent or partial. With
-`amq-squad v1.5.2+`, session-row actions come from the published `data.actions[]`
-catalog. Published-but-unavailable actions such as agent `focus`, `send`, or
-session `attach_control` are omitted instead of replaced with raw tmux
-orchestration. The NOC never drives the runtime itself.
+`amq-squad status --json` action metadata when available, renders it as
+operator UI, lets you pick and copy the exact command (`C`), and falls back to
+deterministic NOC-generated commands when runtime support is absent or partial.
+With `amq-squad v2.9.0+`, the same status contract also supplies the
+profile/session namespace, AMQ root, brief path, task path, launch-record path,
+visible lead identity, topology, and `goal_binding` mode. Published-but-
+unavailable actions such as agent `focus`, `send`, or session `attach_control`
+are omitted instead of replaced with raw tmux orchestration. The NOC never
+drives the runtime itself.
 
 For the consume/orchestrate boundary and fallback behavior, see
 [`docs/runtime-actions.md`](docs/runtime-actions.md).
@@ -329,12 +333,12 @@ amq-noc --filter project:amq-noc \
 - legacy teams with a runnable member named `user` do not get an implicit
   operator gate, avoiding false `needs-you`
 
-Recommended companion version for published runtime actions, the
-orchestrated/lead team contract, and the operator DIRECTIVE norm (leads
-acknowledge NOC directives on the conversation thread):
+Recommended companion version for namespace-safe visible-lead remote control,
+published runtime actions, the orchestrated/lead team contract, and the
+operator DIRECTIVE norm:
 
 ```sh
-go install github.com/omriariav/amq-squad/cmd/amq-squad@v1.9.0
+go install github.com/omriariav/amq-squad/cmd/amq-squad@v2.9.0
 ```
 
 Older `amq-squad` builds keep deterministic fallback action commands.

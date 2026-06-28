@@ -1,6 +1,8 @@
 # Releasing amq-noc
 
-Release changes must go through a PR and `make ci` before merge.
+Release changes must go through a release branch, PR review, and `make ci`
+before merge. Do not tag from an unmerged local worktree; tag only the merge
+commit on `main`.
 
 `amq-noc` follows the same `go install`-based distribution as the rest of the
 toolchain: the published version is whatever `amq-noc version` reports from the
@@ -9,11 +11,22 @@ path round-trips the tag.
 
 ## Release Checklist
 
-1. Confirm the public command surface is still narrow: `amq-noc`, `amq-noc noc`,
+1. Start from an up-to-date `main`, then create a release branch named for the
+   target tag, for example:
+
+   ```sh
+   git fetch --all --prune --tags
+   git switch main
+   git pull --ff-only
+   git switch -c feat/v0.11.0
+   ```
+
+2. Confirm the public command surface is still narrow: `amq-noc`, `amq-noc noc`,
    and `amq-noc version [--json]`. Copied non-NOC lifecycle commands must stay
    unreachable.
-2. Update user-facing install references, usually the README `go install` tag.
-3. Run the local gates:
+3. Update user-facing install references, usually the README `go install` tag,
+   and any release notes or companion-version docs.
+4. Run the local gates:
 
    ```sh
    gofmt -l .
@@ -23,19 +36,35 @@ path round-trips the tag.
    make ci
    ```
 
-4. Merge the release PR.
-5. Tag the merge commit:
+5. Commit the release candidate, push the release branch, and open a PR against
+   `main`.
+6. Review the PR before merging or tagging:
 
    ```sh
-   git tag -a v0.2.0 -m "amq-noc v0.2.0"
-   git push origin v0.2.0
+   gh pr diff <number> --name-only
+   gh pr diff <number> --patch
+   gh pr view <number> --json state,mergeStateStatus,reviewDecision,statusCheckRollup
    ```
 
-6. Create the GitHub release for the tag.
-7. Smoke test the published install path:
+   Confirm the PR is the intended release diff, CI is green, required review is
+   satisfied, and no unrelated work is included. If the review finds release
+   risk or stale docs, update the branch and repeat the local gates.
+7. Merge the release PR, then fetch `main` and verify `HEAD` is the merge
+   commit.
+8. Tag the merge commit:
 
    ```sh
-   make release-smoke VERSION=v0.2.0
+   git switch main
+   git pull --ff-only
+   git tag -a v0.11.0 -m "amq-noc v0.11.0"
+   git push origin v0.11.0
+   ```
+
+9. Create the GitHub release for the tag.
+10. Smoke test the published install path:
+
+   ```sh
+   make release-smoke VERSION=v0.11.0
    ```
 
    The smoke test installs `github.com/omriariav/amq-noc/cmd/amq-noc@VERSION`

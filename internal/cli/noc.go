@@ -603,6 +603,9 @@ type nocCapabilitiesJSONData struct {
 type nocSessionJSONData struct {
 	ID              string                  `json:"id"`
 	Name            string                  `json:"name"`
+	Profile         string                  `json:"profile,omitempty"`
+	Namespace       noc.NamespaceRef        `json:"namespace,omitempty"`
+	GoalBinding     noc.GoalBinding         `json:"goal_binding,omitempty"`
 	Root            string                  `json:"root"`
 	State           string                  `json:"state"`
 	ReasonCode      string                  `json:"reason_code,omitempty"`
@@ -652,6 +655,8 @@ type nocAgentJSONData struct {
 	Role            string              `json:"role,omitempty"`
 	Engine          string              `json:"engine,omitempty"`
 	Liveness        string              `json:"liveness"`
+	RuntimeStatus   string              `json:"runtime_status,omitempty"`
+	RecordState     string              `json:"record_state,omitempty"`
 	WakeHealth      string              `json:"wake_health,omitempty"`
 	Attention       string              `json:"attention"`
 	AttentionReason string              `json:"attention_reason,omitempty"`
@@ -660,6 +665,10 @@ type nocAgentJSONData struct {
 	Conversation    string              `json:"conversation,omitempty"`
 	Source          string              `json:"source,omitempty"`
 	TeamProfile     string              `json:"team_profile"`
+	Namespace       noc.NamespaceRef    `json:"namespace,omitempty"`
+	LaunchRecord    string              `json:"launch_record,omitempty"`
+	External        bool                `json:"external,omitempty"`
+	PaneAlive       *bool               `json:"pane_alive,omitempty"`
 	IsLead          bool                `json:"is_lead,omitempty"`
 	Actions         []nocActionJSONData `json:"actions,omitempty"`
 }
@@ -681,6 +690,7 @@ type nocActionJSONData struct {
 	ID                   string                  `json:"id"`
 	Scope                string                  `json:"scope"`
 	TargetID             string                  `json:"target_id"`
+	NamespaceID          string                  `json:"namespace_id,omitempty"`
 	Command              string                  `json:"command"`
 	Description          string                  `json:"description,omitempty"`
 	Mutates              bool                    `json:"mutates"`
@@ -2287,7 +2297,8 @@ func nocSessionCorrelationPtr(ps noc.ProjectSnapshot, session string) *noc.Sessi
 func nocSessionEnvelope(ps noc.ProjectSnapshot, sess state.Session) nocSessionJSONData {
 	agents := make([]nocAgentJSONData, 0, len(sess.Agents))
 	liveVisible, liveOperational := 0, 0
-	sessionID := nocSessionJSONID(ps.Dir, sess.Name)
+	ns := noc.ResolveNamespace(ps.Dir, sess.TeamProfile, sess.Name)
+	sessionID := nocSessionJSONIDForProfile(ps.Dir, sess.TeamProfile, sess.Name)
 	for _, ag := range sess.Agents {
 		if nocAgentVisibleOnline(ag) {
 			liveVisible++
@@ -2298,8 +2309,13 @@ func nocSessionEnvelope(ps noc.ProjectSnapshot, sess state.Session) nocSessionJS
 		agentAttention := nocAgentPrimaryAttention(sess, ag)
 		profile := strings.TrimSpace(ag.TeamProfile)
 		if profile == "" {
+			profile = strings.TrimSpace(sess.TeamProfile)
+		}
+		if profile == "" {
 			profile = team.DefaultProfile
 		}
+		agentNS := ns
+		agentNS.Paths.LaunchRecord = ag.LaunchRecordPath
 		agents = append(agents, nocAgentJSONData{
 			Handle:          ag.Handle,
 			Role:            ag.Role,
@@ -2313,8 +2329,10 @@ func nocSessionEnvelope(ps noc.ProjectSnapshot, sess state.Session) nocSessionJS
 			Conversation:    ag.Conversation,
 			Source:          ag.Source,
 			TeamProfile:     profile,
+			Namespace:       agentNS,
+			LaunchRecord:    ag.LaunchRecordPath,
 			IsLead:          ag.IsLead,
-			ID:              nocAgentJSONID(ps.Dir, sess.Name, ag.Handle),
+			ID:              nocAgentJSONID(ps.Dir, sess.TeamProfile, sess.Name, ag.Handle),
 			Actions:         nocAgentActions(ps, sess, ag),
 		})
 	}
@@ -2329,6 +2347,9 @@ func nocSessionEnvelope(ps noc.ProjectSnapshot, sess state.Session) nocSessionJS
 	row := nocSessionJSONData{
 		ID:              sessionID,
 		Name:            sess.Name,
+		Profile:         ns.Profile,
+		Namespace:       ns,
+		GoalBinding:     nocSessionGoalBinding(ps, ns),
 		Root:            sess.Root,
 		State:           nocSessionJSONState(sess, liveVisible, len(sess.Agents)),
 		ReasonCode:      nocSessionJSONReasonCode(sess, liveVisible, len(sess.Agents)),
@@ -2352,6 +2373,15 @@ func nocSessionEnvelope(ps noc.ProjectSnapshot, sess state.Session) nocSessionJS
 	}
 	row.AttentionQueue = nocAttentionQueueEnvelope(sess, row, correlation)
 	return row
+}
+
+func nocSessionGoalBinding(ps noc.ProjectSnapshot, ns noc.NamespaceRef) noc.GoalBinding {
+	if ps.SessionGoalBindings != nil {
+		if b, ok := ps.SessionGoalBindings[ns.ID]; ok {
+			return b
+		}
+	}
+	return noc.NamespaceFallbackGoalBinding(ns)
 }
 
 func nocAttentionQueueEnvelope(sess state.Session, row nocSessionJSONData, correlation *noc.SessionCorrelation) []nocAttentionItem {
@@ -2599,15 +2629,15 @@ func nocSessionActions(ps noc.ProjectSnapshot, sess state.Session, sessionID str
 	profileChoices := nocSessionProfileChoices(sess)
 	actions := []nocActionJSONData{
 		nocAction("session", sessionID, "status",
-			shellCommand("amq-squad", "status", "--project", ps.Dir, "--session", sess.Name),
+			nocSquadProfileCommand("status", ps.Dir, profile, "--session", sess.Name),
 			"Show this session's detail table.",
 			false, false, false),
 		nocAction("session", sessionID, "threads",
-			nocThreadsCommand(ps.Dir, sess.Name),
+			nocThreadsCommand(ps.Dir, profile, sess.Name),
 			"Show this session's collapsed AMQ thread summaries.",
 			false, false, false),
 		nocAction("session", sessionID, "thread_context_any",
-			nocThreadContextAnyCommand(ps.Dir, sess.Name),
+			nocThreadContextAnyCommand(ps.Dir, profile, sess.Name),
 			"Read any thread transcript in this session by thread id without moving unread mail.",
 			false, false, true),
 		nocAction("session", sessionID, "amq_ops",
@@ -2634,11 +2664,11 @@ func nocSessionActions(ps noc.ProjectSnapshot, sess state.Session, sessionID str
 	if strings.TrimSpace(sess.Name) != "" {
 		actions = append(actions,
 			nocAction("session", sessionID, "brief",
-				shellCommand("amq-squad", "brief", "--project", ps.Dir, "--session", sess.Name),
+				nocSquadProfileCommand("brief", ps.Dir, profile, "--session", sess.Name),
 				"Show this session's full workstream brief.",
 				false, false, false),
 			withNOCActionVarChoices(nocAction("session", sessionID, "brief_seed",
-				nocBriefSeedCommand(ps.Dir, sess.Name),
+				nocBriefSeedCommand(ps.Dir, profile, sess.Name),
 				"Seed or overwrite this session's workstream brief from file, issue, or GitHub issue source.",
 				true, true, true), "force", []string{"false", "true"}),
 			withNOCActionVarChoices(nocAction("session", sessionID, "fork_plan",
@@ -2670,11 +2700,11 @@ func nocSessionActions(ps noc.ProjectSnapshot, sess state.Session, sessionID str
 	if strings.TrimSpace(sess.Name) != "" {
 		actions = append(actions,
 			nocAction("session", sessionID, "archive",
-				shellCommand("amq-squad", "archive", "--project", ps.Dir, "--yes", sess.Name),
+				nocSquadProfileCommand("archive", ps.Dir, profile, "--yes", sess.Name),
 				"Move this session aside into the project archive without deleting it.",
 				true, true, false),
 			nocAction("session", sessionID, "remove",
-				shellCommand("amq-squad", "rm", "--project", ps.Dir, "--yes", sess.Name),
+				nocSquadProfileCommand("rm", ps.Dir, profile, "--yes", sess.Name),
 				"Permanently remove this session root and brief.",
 				true, true, false))
 	}
@@ -2686,7 +2716,7 @@ func nocAgentActions(ps noc.ProjectSnapshot, sess state.Session, ag state.Agent)
 	if handle == "" {
 		return nil
 	}
-	agentID := nocAgentJSONID(ps.Dir, sess.Name, ag.Handle)
+	agentID := nocAgentJSONID(ps.Dir, sess.TeamProfile, sess.Name, ag.Handle)
 	actions := []nocActionJSONData{
 		nocAction("agent", agentID, "inbox",
 			shellCommand("amq", "list", "--root", sess.Root, "--me", handle, "--new"),
@@ -2742,7 +2772,7 @@ func nocAgentActions(ps noc.ProjectSnapshot, sess state.Session, ag state.Agent)
 	}
 	if role := strings.TrimSpace(ag.Role); role != "" {
 		actions = append(actions, nocAction("agent", agentID, "agent_resume",
-			shellCommand("amq-squad", "agent", "resume", role, "--project", ps.Dir, "--session", sess.Name),
+			nocAgentResumeCommand(ps.Dir, nocProfileOrDefault(sess.TeamProfile), role, sess.Name),
 			"Resume this saved agent launch record by role.",
 			true, true, false))
 	}
@@ -2755,6 +2785,7 @@ func nocAction(scope, targetID, name, command, description string, mutates, conf
 		ID:                   targetID + "|action|" + name,
 		Scope:                scope,
 		TargetID:             targetID,
+		NamespaceID:          nocActionNamespaceID(targetID),
 		Command:              command,
 		Description:          description,
 		Mutates:              mutates,
@@ -2762,6 +2793,26 @@ func nocAction(scope, targetID, name, command, description string, mutates, conf
 		Template:             template,
 		Vars:                 nocActionVariables(name, command),
 	}
+}
+
+func nocActionNamespaceID(targetID string) string {
+	parts := strings.Split(targetID, "|")
+	if len(parts) < 3 {
+		return ""
+	}
+	switch parts[0] {
+	case "session", "agent":
+	default:
+		return ""
+	}
+	sessionKey := strings.TrimSpace(parts[2])
+	if sessionKey == "" {
+		return ""
+	}
+	if strings.Contains(sessionKey, "/") {
+		return sessionKey
+	}
+	return team.DefaultProfile + "/" + sessionKey
 }
 
 func withNOCActionVarChoices(action nocActionJSONData, name string, choices []string) nocActionJSONData {
@@ -2926,8 +2977,21 @@ func nocSessionJSONID(dir, session string) string {
 	return "session|" + dir + "|" + session
 }
 
-func nocAgentJSONID(dir, session, handle string) string {
-	return "agent|" + dir + "|" + session + "|" + handle
+func nocSessionJSONIDForProfile(dir, profile, session string) string {
+	key := nocSessionKey(profile, session)
+	return "session|" + dir + "|" + key
+}
+
+func nocAgentJSONID(dir, profile, session, handle string) string {
+	return "agent|" + dir + "|" + nocSessionKey(profile, session) + "|" + handle
+}
+
+func nocSessionKey(profile, session string) string {
+	profile = strings.TrimSpace(profile)
+	if profile == "" || profile == team.DefaultProfile {
+		return session
+	}
+	return profile + "/" + session
 }
 
 func nocProjectActionProfile(ps noc.ProjectSnapshot) string {
@@ -2941,7 +3005,30 @@ func nocProjectActionProfile(ps noc.ProjectSnapshot) string {
 	}
 }
 
+func nocProfileOrDefault(profile string) string {
+	profile = strings.TrimSpace(profile)
+	if profile == "" {
+		return team.DefaultProfile
+	}
+	return profile
+}
+
+func nocSquadProfileCommand(verb, projectDir, profile string, args ...string) string {
+	return shellCommand("amq-squad", nocSquadProfileArgs(verb, projectDir, profile, args...)...)
+}
+
+func nocSquadProfileArgs(verb, projectDir, profile string, args ...string) []string {
+	out := []string{verb, "--project", projectDir}
+	if profile := nocProfileOrDefault(profile); profile != team.DefaultProfile {
+		out = append(out, "--profile", profile)
+	}
+	return append(out, args...)
+}
+
 func nocSessionActionProfile(sess state.Session) (string, bool) {
+	if strings.TrimSpace(sess.TeamProfile) != "" {
+		return nocProfileOrDefault(sess.TeamProfile), false
+	}
 	profiles := map[string]bool{}
 	for _, ag := range sess.Agents {
 		profile := strings.TrimSpace(ag.TeamProfile)
@@ -2963,6 +3050,9 @@ func nocSessionActionProfile(sess state.Session) (string, bool) {
 }
 
 func nocSessionProfileChoices(sess state.Session) []string {
+	if strings.TrimSpace(sess.TeamProfile) != "" {
+		return []string{nocProfileOrDefault(sess.TeamProfile)}
+	}
 	profiles := map[string]bool{}
 	for _, ag := range sess.Agents {
 		profile := strings.TrimSpace(ag.TeamProfile)
@@ -3005,12 +3095,13 @@ func nocForkPlanCommand(projectDir, profile, fromSession string) string {
 	return shellCommand("amq-squad", args...)
 }
 
-func nocBriefSeedCommand(projectDir, session string) string {
-	return shellCommand("amq-squad", "brief", "seed",
-		"--project", projectDir,
-		"--session", session,
-		"--seed-from", "<seed-from>",
-		"<force>")
+func nocBriefSeedCommand(projectDir, profile, session string) string {
+	args := []string{"brief", "seed", "--project", projectDir}
+	if profile := nocProfileOrDefault(profile); profile != team.DefaultProfile {
+		args = append(args, "--profile", profile)
+	}
+	args = append(args, "--session", session, "--seed-from", "<seed-from>", "<force>")
+	return shellCommand("amq-squad", args...)
 }
 
 func nocAMQCleanupCommand(root string) string {
@@ -3148,16 +3239,14 @@ func nocThreadContextCommand(root, threadID string) string {
 		"--limit", "20")
 }
 
-func nocThreadsCommand(projectDir, session string) string {
-	return shellCommand("amq-squad", "threads",
-		"--project", projectDir,
+func nocThreadsCommand(projectDir, profile, session string) string {
+	return nocSquadProfileCommand("threads", projectDir, profile,
 		"--session", session,
 		"--limit", fmt.Sprint(defaultThreadsLimit))
 }
 
-func nocThreadContextAnyCommand(projectDir, session string) string {
-	return shellCommand("amq-squad", "thread",
-		"--project", projectDir,
+func nocThreadContextAnyCommand(projectDir, profile, session string) string {
+	return nocSquadProfileCommand("thread", projectDir, profile,
 		"--session", session,
 		"--id", "<thread-id>",
 		"--include-body",
@@ -3236,6 +3325,15 @@ func nocResumeCommand(projectDir, profile, session string) string {
 func nocStopCommand(projectDir, profile, session string) string {
 	args := []string{"stop", "--project", projectDir, "--all"}
 	if profile := strings.TrimSpace(profile); profile != "" && profile != team.DefaultProfile {
+		args = append(args, "--profile", profile)
+	}
+	args = append(args, "--session", session)
+	return shellCommand("amq-squad", args...)
+}
+
+func nocAgentResumeCommand(projectDir, profile, role, session string) string {
+	args := []string{"agent", "resume", role, "--project", projectDir}
+	if profile := nocProfileOrDefault(profile); profile != team.DefaultProfile {
 		args = append(args, "--profile", profile)
 	}
 	args = append(args, "--session", session)
@@ -3607,6 +3705,10 @@ func jsonTimePtr(t time.Time) *time.Time {
 	}
 	u := t.UTC()
 	return &u
+}
+
+func boolPtr(v bool) *bool {
+	return &v
 }
 
 // consoleLifecycle is the cli-side stop/resume/restart seam handed to the NOC.

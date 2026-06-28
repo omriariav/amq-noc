@@ -42,6 +42,11 @@ type ProjectSnapshot struct {
 	// right pane can show what a workstream is FOR without leaving the NOC.
 	// Sessions without a readable brief are absent.
 	SessionBriefGoals map[string]string
+	// SessionGoalBindings maps a profile/session namespace id to the binding mode
+	// the NOC can prove from local state. amq-squad status --json may later
+	// refine this to native_goal when the visible lead's launch record carries
+	// evidence; the collector starts with the explicit AMQ task + brief fallback.
+	SessionGoalBindings map[string]GoalBinding
 	// SessionHealth maps session/workstream names to read-only AMQ environment,
 	// ops, presence, and derived health snapshots. It is populated by callers
 	// that explicitly opt into command-backed health enrichment.
@@ -163,6 +168,7 @@ func Collect(roots []string, depth int, probe state.Probe, th state.Thresholds) 
 			ps.Snap = snap
 			applyOrchestrationMetadata(dir, &ps)
 			ps.SessionBriefGoals = readSessionBriefGoals(dir, ps.Snap)
+			ps.SessionGoalBindings = readSessionGoalBindings(dir, ps.Snap)
 			ms.Rollup.Add(snap.Rollup)
 			if hasRunningAgent(snap) {
 				ms.LiveProjects++
@@ -336,6 +342,9 @@ func applyOrchestrationMetadata(projectDir string, ps *ProjectSnapshot) {
 // sessions (agents from different profiles) return "" so callers skip
 // enrichment instead of guessing.
 func effectiveSessionProfile(sess state.Session) string {
+	if profile := strings.TrimSpace(sess.TeamProfile); profile != "" {
+		return profile
+	}
 	resolved := ""
 	for _, ag := range sess.Agents {
 		profile := strings.TrimSpace(ag.TeamProfile)
@@ -366,15 +375,39 @@ func readSessionBriefGoals(projectDir string, snap state.Snapshot) map[string]st
 		if name == "" {
 			continue
 		}
-		goal := readBriefGoal(filepath.Join(projectDir, SquadDirName, "briefs", name+".md"))
+		ns := ResolveNamespace(projectDir, sess.TeamProfile, name)
+		goal := readBriefGoal(ns.Paths.Brief)
 		if goal != "" {
-			out[name] = goal
+			out[sessionMapKey(sess)] = goal
+			out[ns.ID] = goal
+			if ns.Profile == team.DefaultProfile {
+				out[name] = goal
+			}
 		}
 	}
 	if len(out) == 0 {
 		return nil
 	}
 	return out
+}
+
+func readSessionGoalBindings(projectDir string, snap state.Snapshot) map[string]GoalBinding {
+	out := map[string]GoalBinding{}
+	for _, sess := range snap.Sessions {
+		if strings.TrimSpace(sess.Name) == "" {
+			continue
+		}
+		ns := ResolveNamespace(projectDir, sess.TeamProfile, sess.Name)
+		out[ns.ID] = NamespaceFallbackGoalBinding(ns)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func sessionMapKey(sess state.Session) string {
+	return normalizeProfile(sess.TeamProfile) + "/" + strings.TrimSpace(sess.Name)
 }
 
 // readBriefGoal returns the first paragraph under "## Goal" (case-insensitive),
@@ -432,7 +465,30 @@ func listAMQSessionNames(projectDir string) []string {
 		if name == "" || name == ".archive" {
 			continue
 		}
-		out = append(out, name)
+		path := filepath.Join(dir, name)
+		if dirExists(filepath.Join(path, "agents")) {
+			out = append(out, name)
+			continue
+		}
+		profileContainer := false
+		if validNamedTeamProfile(name) {
+			children, err := os.ReadDir(path)
+			if err != nil {
+				continue
+			}
+			for _, child := range children {
+				if !child.IsDir() || child.Name() == "" || child.Name() == ".archive" {
+					continue
+				}
+				if dirExists(filepath.Join(path, child.Name(), "agents")) {
+					profileContainer = true
+					out = append(out, name+"/"+child.Name())
+				}
+			}
+		}
+		if !profileContainer {
+			out = append(out, name)
+		}
 	}
 	sort.Strings(out)
 	return out

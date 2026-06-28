@@ -7,14 +7,25 @@ import (
 )
 
 const sampleStatusJSON = `{"schema_version":1,"kind":"status","data":{
+  "team_home":"/repo",
+  "workstream":"issue-96",
+  "profile":"review",
+  "namespace":{"team_home":"/repo","profile":"review","session":"issue-96","id":"review/issue-96","display":"review/issue-96","amq_session":"issue-96","amq_root":"/repo/.agent-mail/review/issue-96","paths":{"profile_config":"/repo/.amq-squad/teams/review.json","amq_root":"/repo/.agent-mail/review/issue-96","brief":"/repo/.amq-squad/briefs/review/issue-96.md","tasks":"/repo/.amq-squad/tasks/review/issue-96"}},
+  "goal_binding":{"mode":"native_goal","native_goal":true,"verified":true,"source":"goal","native_source":"/goal","command":"/goal status"},
+  "orchestrated":true,
+  "lead":"cto",
+  "lead_handle":"cto",
   "capabilities":{"operator_gates":true},
+  "topology":{"mode":"orchestrator_lead","tmux_sessions":["amq-squad-issue-96"],"live_panes":1,"visible_problem":false},
   "actions":[
-    {"kind":"resume_current_window","label":"resume in current window","scope":"session","command":"amq-squad resume --session s --exec --target current-window","mutates":true,"needs_confirmation":true,"available":true},
+    {"kind":"resume_current_window","label":"resume in current window","scope":"session","namespace_id":"review/issue-96","command":"amq-squad resume --session s --exec --target current-window","mutates":true,"needs_confirmation":true,"available":true},
     {"kind":"resume_new_session","label":"resume in new tmux session","scope":"session","command":"amq-squad resume --session s --exec --target new-session","mutates":true,"needs_confirmation":true,"available":true},
     {"kind":"stop","label":"stop the session","scope":"session","command":"amq-squad stop --session s --all","mutates":true,"needs_confirmation":true,"available":false,"reason":"already stopped"}
   ],
   "records":[
-    {"role":"cto","handle":"cto","status":"live","is_lead":true,"external":true,
+    {"role":"cto","handle":"cto","status":"live","record_state":"restorable","is_lead":true,"external":true,
+     "namespace":{"team_home":"/repo","profile":"review","session":"issue-96","id":"review/issue-96","display":"review/issue-96","amq_session":"issue-96","amq_root":"/repo/.agent-mail/review/issue-96"},
+     "root":"/repo/.agent-mail/review/issue-96","agent_dir":"/repo/.agent-mail/review/issue-96/agents/cto",
      "tmux":{"session":"main","window_id":"@3","window_name":"squad","pane_id":"%1","pane_alive":true},
      "actions":[
        {"kind":"focus","command":"amq-squad focus --session s --role cto","available":true},
@@ -48,6 +59,25 @@ func TestFetchRuntimeStatusParsesContract(t *testing.T) {
 	if !rs.HasActions() {
 		t.Fatal("HasActions should be true when records carry actions")
 	}
+	if !rs.HasStatusMetadata() {
+		t.Fatal("HasStatusMetadata should be true when namespace metadata is present")
+	}
+	if rs.TeamHome != "/repo" || rs.Workstream != "issue-96" || rs.Profile != "review" {
+		t.Fatalf("namespace header parsed wrong: %+v", rs)
+	}
+	if rs.Namespace.ID != "review/issue-96" || rs.Namespace.AMQRoot != "/repo/.agent-mail/review/issue-96" ||
+		rs.Namespace.Paths.Brief != "/repo/.amq-squad/briefs/review/issue-96.md" {
+		t.Fatalf("namespace parsed wrong: %+v", rs.Namespace)
+	}
+	if rs.GoalBinding.Mode != "native_goal" || !rs.GoalBinding.NativeGoal || !rs.GoalBinding.Verified {
+		t.Fatalf("goal binding parsed wrong: %+v", rs.GoalBinding)
+	}
+	if !rs.Orchestrated || rs.Lead != "cto" || rs.LeadHandle != "cto" {
+		t.Fatalf("visible lead metadata parsed wrong: %+v", rs)
+	}
+	if rs.Topology == nil || rs.Topology.Mode != "orchestrator_lead" || rs.Topology.LivePanes != 1 {
+		t.Fatalf("topology parsed wrong: %+v", rs.Topology)
+	}
 	if len(rs.SessionActions) != 3 {
 		t.Fatalf("want 3 session actions, got %d", len(rs.SessionActions))
 	}
@@ -56,7 +86,8 @@ func TestFetchRuntimeStatusParsesContract(t *testing.T) {
 		rs.SessionActions[0].Scope != "session" ||
 		!rs.SessionActions[0].Mutates ||
 		!rs.SessionActions[0].NeedsConfirmation ||
-		!rs.SessionActions[0].Available {
+		!rs.SessionActions[0].Available ||
+		rs.SessionActions[0].NamespaceID != "review/issue-96" {
 		t.Fatalf("session action parsed wrong: %+v", rs.SessionActions[0])
 	}
 	if rs.SessionActions[2].Available || rs.SessionActions[2].Reason != "already stopped" {
@@ -72,8 +103,12 @@ func TestFetchRuntimeStatusParsesContract(t *testing.T) {
 	if cto.Session != "main" || cto.WindowID != "@3" || cto.WindowName != "squad" {
 		t.Errorf("cto tmux session/window not parsed: %+v", cto)
 	}
-	if cto.Status != "live" || !cto.IsLead || !cto.External {
+	if cto.Status != "live" || cto.RecordState != "restorable" || !cto.IsLead || !cto.External {
 		t.Errorf("cto external lead metadata not parsed: %+v", cto)
+	}
+	if cto.Namespace.ID != "review/issue-96" || cto.Root != "/repo/.agent-mail/review/issue-96" ||
+		cto.AgentDir != "/repo/.agent-mail/review/issue-96/agents/cto" {
+		t.Errorf("cto namespace paths not parsed: %+v", cto)
 	}
 	if !cto.Actions[0].Available || cto.Actions[0].Kind != "focus" {
 		t.Errorf("cto focus action wrong: %+v", cto.Actions[0])
@@ -84,6 +119,19 @@ func TestFetchRuntimeStatusParsesContract(t *testing.T) {
 	}
 	if qa.Actions[0].Available {
 		t.Error("qa focus should be unavailable (dead pane)")
+	}
+}
+
+func TestFetchRuntimeStatusMetadataOnly(t *testing.T) {
+	run := func(string, ...string) ([]byte, error) {
+		return []byte(`{"kind":"status","data":{"team_home":"/repo","profile":"review","namespace":{"profile":"review","session":"s","id":"review/s","display":"review/s","amq_session":"s"},"goal_binding":{"mode":"amq_task_brief","verified":false}}}`), nil
+	}
+	rs := FetchRuntimeStatus(run, "/repo", "review", "s")
+	if rs.HasActions() {
+		t.Fatal("metadata-only status should not report runtime actions")
+	}
+	if !rs.HasStatusMetadata() || rs.Namespace.ID != "review/s" || rs.GoalBinding.Mode != "amq_task_brief" {
+		t.Fatalf("metadata-only status should be preserved, got %+v", rs)
 	}
 }
 

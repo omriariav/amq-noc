@@ -916,6 +916,33 @@ func TestKickRecoverLines(t *testing.T) {
 	if strings.Contains(activeProject, "old-session") {
 		t.Fatalf("active project command should not point at stale session:\n%s", activeProject)
 	}
+	duplicateProject := noc.ProjectSnapshot{
+		Dir:            "/repo/app",
+		TeamConfigured: true,
+		SessionStore:   true,
+		Snap: state.Snapshot{Sessions: []state.Session{
+			{Name: "issue-96", TeamProfile: "default", Root: "/repo/app/.agent-mail/issue-96"},
+			{Name: "issue-96", TeamProfile: "review", Root: "/repo/app/.agent-mail/review/issue-96"},
+		}},
+	}
+	selectedReview := duplicateProject.Snap.Sessions[1]
+	selectedActions := kickRecoverActionsForSession(duplicateProject, selectedReview, selectedReview.Root)
+	selectedCommandStrings := make([]string, 0, len(selectedActions))
+	for _, action := range selectedActions {
+		selectedCommandStrings = append(selectedCommandStrings, action.Command)
+	}
+	selectedCommands := strings.Join(selectedCommandStrings, "\n")
+	for _, want := range []string{
+		"amq-squad status --project /repo/app --profile review --session issue-96",
+		"amq-squad resume --project /repo/app --profile review --session issue-96",
+	} {
+		if !strings.Contains(selectedCommands, want) {
+			t.Fatalf("selected named-profile command missing %q:\n%s", want, selectedCommands)
+		}
+	}
+	if strings.Contains(selectedCommands, " --project /repo/app --session issue-96") {
+		t.Fatalf("selected named-profile command crossed into default namespace:\n%s", selectedCommands)
+	}
 	plain := kickRecoverLines(noc.ProjectSnapshot{Dir: "/repo/app", SessionStore: true}, "", "/repo/app/.agent-mail")
 	pj := strings.Join(plain, "\n")
 	for _, want := range []string{

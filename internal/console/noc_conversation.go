@@ -213,7 +213,7 @@ func (m *NOCModel) sendStagedConversation() {
 			cv.note = "send unavailable (no send prompt backend)"
 			return
 		}
-		profile := sessionCommandProfile(cv.project, cv.sess.Name)
+		profile := sessionCommandProfileForSession(cv.project, cv.sess)
 		if profile == "PROFILE" {
 			profile = ""
 		}

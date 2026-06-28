@@ -107,3 +107,15 @@ func seedAgentRecord(t *testing.T, base, workstream, handle string, rec launch.R
 	}
 	return agentDir
 }
+
+func seedProfileAgentRecord(t *testing.T, base, profile, workstream, handle string, rec launch.Record) string {
+	t.Helper()
+	agentDir := filepath.Join(base, profile, workstream, "agents", handle)
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := launch.Write(agentDir, rec); err != nil {
+		t.Fatal(err)
+	}
+	return agentDir
+}

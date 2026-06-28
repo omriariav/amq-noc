@@ -62,6 +62,27 @@ func TestDirectivePaneChannelWhenLeadOperational(t *testing.T) {
 	}
 }
 
+func TestDirectivePaneChannelKeepsNamedProfile(t *testing.T) {
+	m := &NOCModel{}
+	sess := directiveTestSession(state.LivenessAlive)
+	sess.TeamProfile = "review"
+	sess.Root = "/tmp/p/.agent-mail/review/pm-copilot"
+	m.beginDirectiveForSession(noc.ProjectSnapshot{Dir: "/tmp/p"}, sess)
+	if m.input == nil {
+		t.Fatalf("expected directive compose, note=%q", m.actNote)
+	}
+	pa := m.input.build("", "Ship the next slice.", "")
+	if pa.sendPrompt == nil {
+		t.Fatalf("expected pane sendPrompt op, got %+v", pa)
+	}
+	if pa.sendPrompt.Profile != "review" {
+		t.Fatalf("send profile = %q, want review", pa.sendPrompt.Profile)
+	}
+	if !strings.Contains(pa.preview, "--profile review") || !strings.Contains(pa.preview, "--session pm-copilot") {
+		t.Fatalf("named-profile directive preview lost namespace: %q", pa.preview)
+	}
+}
+
 func TestDirectiveAMQFallbackWhenLeadDown(t *testing.T) {
 	m := &NOCModel{}
 	sess := directiveTestSession(state.LivenessStale)

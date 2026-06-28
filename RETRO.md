@@ -1,5 +1,19 @@
 # amq-noc Sprint Retro
 
+## 0.11.0 Notes
+
+- Profile/session identity must be explicit everywhere. Treating a session name
+  as the whole key risks crossing default and named-profile workstreams; the NOC
+  now carries `namespace_id`, profile, AMQ root, brief path, task path, and launch
+  record path as first-class data.
+- amq-squad remains the runtime/control source of truth. v2.9 status metadata is
+  consumed directly, and NOC fallback mode is labeled as `amq_task_brief` instead
+  of pretending there is a native `/goal` binding when none was reported.
+- Lead control has two channels with different semantics: live leads get
+  busy-guarded pane directives through amq-squad `send`; down leads and gate
+  answers go through durable AMQ roots. Tests should keep those channels pinned
+  to the selected namespace.
+
 ## 0.2.2 Notes
 
 - Operator helper commands need to be first-class UI, not decorative text. Long

@@ -68,6 +68,9 @@ type RuntimeBoard struct {
 	Status         string               `json:"status,omitempty"`
 	Source         string               `json:"source,omitempty"`
 	Error          string               `json:"error,omitempty"`
+	Namespace      NamespaceRef         `json:"namespace,omitempty"`
+	GoalBinding    GoalBinding          `json:"goal_binding,omitempty"`
+	Topology       *RuntimeTopology     `json:"topology,omitempty"`
 	LeadDown       bool                 `json:"lead_down,omitempty"`
 	WorkersTotal   int                  `json:"workers_total,omitempty"`
 	WorkersLive    int                  `json:"workers_live,omitempty"`
@@ -78,15 +81,16 @@ type RuntimeBoard struct {
 }
 
 type RuntimeWorkerState struct {
-	Handle     string `json:"handle,omitempty"`
-	Role       string `json:"role,omitempty"`
-	Status     string `json:"status,omitempty"`
-	Source     string `json:"source,omitempty"`
-	Liveness   string `json:"liveness,omitempty"`
-	WakeHealth string `json:"wake_health,omitempty"`
-	IsLead     bool   `json:"is_lead,omitempty"`
-	PaneAlive  bool   `json:"pane_alive,omitempty"`
-	NextAction string `json:"next_action,omitempty"`
+	Handle      string `json:"handle,omitempty"`
+	Role        string `json:"role,omitempty"`
+	Status      string `json:"status,omitempty"`
+	RecordState string `json:"record_state,omitempty"`
+	Source      string `json:"source,omitempty"`
+	Liveness    string `json:"liveness,omitempty"`
+	WakeHealth  string `json:"wake_health,omitempty"`
+	IsLead      bool   `json:"is_lead,omitempty"`
+	PaneAlive   bool   `json:"pane_alive,omitempty"`
+	NextAction  string `json:"next_action,omitempty"`
 }
 
 type EvidenceSummary struct {
@@ -158,8 +162,8 @@ func fetchRuntimeStatusForCorrelation(run taskCommandRunner, dir, session string
 		return RuntimeStatus{}, err.Error()
 	}
 	rs := parseRuntimeStatus(out)
-	if !rs.HasActions() {
-		return RuntimeStatus{}, "amq-squad status did not publish runtime actions"
+	if !rs.HasActions() && !rs.HasStatusMetadata() {
+		return RuntimeStatus{}, "amq-squad status did not publish runtime actions or namespace metadata"
 	}
 	return rs, ""
 }
@@ -354,7 +358,7 @@ func workerReportTypeMessage(m state.Message) string {
 }
 
 func deriveRuntimeBoard(sess state.Session, rs RuntimeStatus, runtimeErr string) RuntimeBoard {
-	if rs.HasActions() {
+	if rs.HasActions() || rs.HasStatusMetadata() {
 		return deriveRuntimeBoardFromStatus(sess, rs)
 	}
 	b := RuntimeBoard{
@@ -391,7 +395,15 @@ func deriveRuntimeBoard(sess state.Session, rs RuntimeStatus, runtimeErr string)
 }
 
 func deriveRuntimeBoardFromStatus(sess state.Session, rs RuntimeStatus) RuntimeBoard {
-	b := RuntimeBoard{Status: healthStatusOK, Source: "amq-squad status --json", LeadDown: state.SessionLeadDown(sess), WorkersTotal: len(rs.Members)}
+	b := RuntimeBoard{
+		Status:       healthStatusOK,
+		Source:       "amq-squad status --json",
+		Namespace:    rs.Namespace,
+		GoalBinding:  rs.GoalBinding,
+		Topology:     rs.Topology,
+		LeadDown:     state.SessionLeadDown(sess),
+		WorkersTotal: len(rs.Members),
+	}
 	for _, mem := range rs.Members {
 		live := runtimeMemberLive(mem)
 		if live {
@@ -407,14 +419,15 @@ func deriveRuntimeBoardFromStatus(sess state.Session, rs RuntimeStatus) RuntimeB
 			b.ExternalDetail = "lead/member reported by amq-squad as external runtime"
 		}
 		b.Rows = append(b.Rows, RuntimeWorkerState{
-			Handle:     mem.Handle,
-			Role:       mem.Role,
-			Status:     mem.Status,
-			Source:     "amq-squad status --json",
-			Liveness:   runtimeMemberLiveness(mem),
-			IsLead:     mem.IsLead,
-			PaneAlive:  mem.PaneAlive,
-			NextAction: nextRuntimeStatusAction(mem),
+			Handle:      mem.Handle,
+			Role:        mem.Role,
+			Status:      mem.Status,
+			RecordState: mem.RecordState,
+			Source:      "amq-squad status --json",
+			Liveness:    runtimeMemberLiveness(mem),
+			IsLead:      mem.IsLead,
+			PaneAlive:   mem.PaneAlive,
+			NextAction:  nextRuntimeStatusAction(mem),
 		})
 	}
 	return b

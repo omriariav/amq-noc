@@ -41,19 +41,23 @@ func BuildWithThresholds(projectRoot, baseRoot string, probe Probe, th Threshold
 
 	// Group entries by session, preserving a stable session root per name.
 	type bucket struct {
-		root   string
-		agents []Agent
+		name    string
+		profile string
+		root    string
+		agents  []Agent
 	}
 	bySession := map[string]*bucket{}
 	var order []string
 	for _, e := range entries {
 		name := e.Record.Session
+		profile := normalizedLaunchProfile(e.Record.TeamProfile)
+		key := sessionBucketKey(profile, name)
 		root := sessionRoot(projectRoot, baseRoot, e.Record)
-		b, ok := bySession[name]
+		b, ok := bySession[key]
 		if !ok {
-			b = &bucket{root: root}
-			bySession[name] = b
-			order = append(order, name)
+			b = &bucket{name: name, profile: profile, root: root}
+			bySession[key] = b
+			order = append(order, key)
 		}
 		b.agents = append(b.agents, classifyAgent(e, probe))
 	}
@@ -62,15 +66,16 @@ func BuildWithThresholds(projectRoot, baseRoot string, probe Probe, th Threshold
 	now := probe.Now()
 	sessions := make([]Session, 0, len(order))
 	var snapRollup TriageRollup
-	for _, name := range order {
-		b := bySession[name]
+	for _, key := range order {
+		b := bySession[key]
 		sortAgents(b.agents)
 
 		coord := coordinateSession(b.root, b.agents, now, th)
-		coord.AttentionQueue = buildAttentionQueue(coord.Threads, b.agents, th, name)
+		coord.AttentionQueue = buildAttentionQueue(coord.Threads, b.agents, th, b.name)
 		sessAttention, unowned := attachAttention(b.agents, coord.Threads)
 		sessions = append(sessions, Session{
-			Name:             name,
+			Name:             b.name,
+			TeamProfile:      b.profile,
 			Root:             b.root,
 			Agents:           b.agents,
 			Coordination:     coord,
@@ -128,7 +133,22 @@ func sessionRoot(projectRoot, baseRoot string, rec launch.Record) string {
 	if rec.Session == "" {
 		return baseRoot
 	}
+	if profile := normalizedLaunchProfile(rec.TeamProfile); profile != "" && profile != "default" {
+		return filepath.Join(baseRoot, profile, rec.Session)
+	}
 	return filepath.Join(baseRoot, rec.Session)
+}
+
+func sessionBucketKey(profile, session string) string {
+	return normalizedLaunchProfile(profile) + "\x00" + session
+}
+
+func normalizedLaunchProfile(profile string) string {
+	profile = strings.TrimSpace(profile)
+	if profile == "" {
+		return "default"
+	}
+	return profile
 }
 
 func absoluteLaunchRoot(projectRoot, launchCWD, root string) string {
@@ -165,14 +185,15 @@ func sortAgents(agents []Agent) {
 func classifyAgent(e launch.Entry, probe Probe) Agent {
 	rec := e.Record
 	a := Agent{
-		Handle:       rec.Handle,
-		Engine:       rec.Binary,
-		Role:         rec.Role,
-		AgentPID:     rec.AgentPID,
-		Conversation: rec.Conversation,
-		AgentDir:     e.AgentDir,
-		Source:       e.Source,
-		TeamProfile:  rec.TeamProfile,
+		Handle:           rec.Handle,
+		Engine:           rec.Binary,
+		Role:             rec.Role,
+		AgentPID:         rec.AgentPID,
+		Conversation:     rec.Conversation,
+		AgentDir:         e.AgentDir,
+		Source:           e.Source,
+		LaunchRecordPath: launch.ExistingPath(e.AgentDir),
+		TeamProfile:      rec.TeamProfile,
 	}
 
 	pres, presErr := readPresence(e.AgentDir)

@@ -1,11 +1,10 @@
 package noc
 
-// runtime.go consumes amq-squad's v1.5.0 tmux runtime contract — the per-member
-// `tmux` block, `pane_alive`, and `actions[]` exposed by `amq-squad status
-// --json` — so the NOC renders the exact, runnable control commands amq-squad
-// advertises instead of inferring tmux state itself. This is the consumer half
-// of amq-noc#6: amq-squad owns the execution/control contract; the NOC consumes
-// it. Pure data + READ-ONLY exec; no rendering.
+// runtime.go consumes amq-squad's status JSON contract: the per-member tmux
+// runtime/actions introduced in v1.5 and the namespace/visible-lead metadata
+// added for v2.9. The NOC renders the exact commands and identities amq-squad
+// advertises instead of inferring tmux or profile/session state itself.
+// Pure data + READ-ONLY exec; no rendering.
 
 import (
 	"bytes"
@@ -22,6 +21,7 @@ type RuntimeAction struct {
 	Kind              string
 	Label             string
 	Scope             string
+	NamespaceID       string
 	Command           string
 	Mutates           bool
 	NeedsConfirmation bool
@@ -31,17 +31,21 @@ type RuntimeAction struct {
 
 // RuntimeMember is one member's runtime view as reported by amq-squad.
 type RuntimeMember struct {
-	Role       string
-	Handle     string
-	Status     string
-	IsLead     bool
-	External   bool
-	Session    string // tmux session hosting the pane (#{session_name})
-	WindowID   string // tmux window id (@N)
-	WindowName string // tmux window name (#{window_name})
-	PaneID     string // tmux pane id (%N) — the authoritative control address
-	PaneAlive  bool
-	Actions    []RuntimeAction
+	Role        string
+	Handle      string
+	Status      string
+	RecordState string
+	IsLead      bool
+	External    bool
+	Namespace   NamespaceRef
+	Root        string
+	AgentDir    string
+	Session     string // tmux session hosting the pane (#{session_name})
+	WindowID    string // tmux window id (@N)
+	WindowName  string // tmux window name (#{window_name})
+	PaneID      string // tmux pane id (%N) — the authoritative control address
+	PaneAlive   bool
+	Actions     []RuntimeAction
 }
 
 // JumpTarget builds the focus target for this member from the runtime contract:
@@ -78,8 +82,27 @@ func (m RuntimeMember) JumpTarget(workstream, role string) (TmuxTarget, bool) {
 // builds that set it; absent on v1.5.0, where Members still carry actions).
 type RuntimeStatus struct {
 	Advertised     bool
+	TeamHome       string
+	Workstream     string
+	Profile        string
+	Namespace      NamespaceRef
+	GoalBinding    GoalBinding
+	Orchestrated   bool
+	Lead           string
+	LeadHandle     string
+	Topology       *RuntimeTopology
 	SessionActions []RuntimeAction
 	Members        []RuntimeMember
+}
+
+type RuntimeTopology struct {
+	Mode           string   `json:"mode,omitempty"`
+	TmuxSessions   []string `json:"tmux_sessions,omitempty"`
+	LivePanes      int      `json:"live_panes,omitempty"`
+	LiveWindows    int      `json:"live_windows,omitempty"`
+	VisibleProblem bool     `json:"visible_problem,omitempty"`
+	ProblemFor     string   `json:"problem_for,omitempty"`
+	Detail         string   `json:"detail,omitempty"`
 }
 
 // HasActions reports whether any member carries runtime actions — the robust
@@ -95,6 +118,13 @@ func (rs RuntimeStatus) HasActions() bool {
 		}
 	}
 	return false
+}
+
+func (rs RuntimeStatus) HasStatusMetadata() bool {
+	return strings.TrimSpace(rs.Namespace.ID) != "" ||
+		strings.TrimSpace(rs.TeamHome) != "" ||
+		strings.TrimSpace(rs.GoalBinding.Mode) != "" ||
+		rs.Orchestrated
 }
 
 // MemberByRole returns the member with the given role (case-insensitive).
@@ -132,17 +162,30 @@ func DefaultSquadRunner(dir string, args ...string) ([]byte, error) {
 type squadStatusEnvelope struct {
 	Kind string `json:"kind"`
 	Data struct {
+		TeamHome     string       `json:"team_home"`
+		Workstream   string       `json:"workstream"`
+		Profile      string       `json:"profile"`
+		Namespace    NamespaceRef `json:"namespace"`
+		GoalBinding  GoalBinding  `json:"goal_binding"`
+		Orchestrated bool         `json:"orchestrated"`
+		Lead         string       `json:"lead"`
+		LeadHandle   string       `json:"lead_handle"`
 		Capabilities struct {
 			RuntimeActions bool `json:"runtime_actions"`
 		} `json:"capabilities"`
-		Actions []runtimeActionEnvelope `json:"actions"`
-		Records []struct {
-			Role     string `json:"role"`
-			Handle   string `json:"handle"`
-			Status   string `json:"status"`
-			IsLead   bool   `json:"is_lead"`
-			External bool   `json:"external"`
-			Tmux     *struct {
+		Topology *RuntimeTopology        `json:"topology"`
+		Actions  []runtimeActionEnvelope `json:"actions"`
+		Records  []struct {
+			Role        string       `json:"role"`
+			Handle      string       `json:"handle"`
+			Status      string       `json:"status"`
+			RecordState string       `json:"record_state"`
+			IsLead      bool         `json:"is_lead"`
+			External    bool         `json:"external"`
+			Namespace   NamespaceRef `json:"namespace"`
+			Root        string       `json:"root"`
+			AgentDir    string       `json:"agent_dir"`
+			Tmux        *struct {
 				Session    string `json:"session"`
 				WindowID   string `json:"window_id"`
 				WindowName string `json:"window_name"`
@@ -158,6 +201,7 @@ type runtimeActionEnvelope struct {
 	Kind              string `json:"kind"`
 	Label             string `json:"label"`
 	Scope             string `json:"scope"`
+	NamespaceID       string `json:"namespace_id"`
 	Command           string `json:"command"`
 	Mutates           bool   `json:"mutates"`
 	NeedsConfirmation bool   `json:"needs_confirmation"`
@@ -195,13 +239,32 @@ func parseRuntimeStatus(out []byte) RuntimeStatus {
 		return RuntimeStatus{}
 	}
 	rs := RuntimeStatus{Advertised: env.Data.Capabilities.RuntimeActions}
+	rs.TeamHome = strings.TrimSpace(env.Data.TeamHome)
+	rs.Workstream = strings.TrimSpace(env.Data.Workstream)
+	rs.Profile = strings.TrimSpace(env.Data.Profile)
+	rs.Namespace = env.Data.Namespace
+	rs.GoalBinding = env.Data.GoalBinding
+	rs.Orchestrated = env.Data.Orchestrated
+	rs.Lead = strings.TrimSpace(env.Data.Lead)
+	rs.LeadHandle = strings.TrimSpace(env.Data.LeadHandle)
+	rs.Topology = env.Data.Topology
 	for _, a := range env.Data.Actions {
 		if action, ok := parseRuntimeAction(a); ok {
 			rs.SessionActions = append(rs.SessionActions, action)
 		}
 	}
 	for _, r := range env.Data.Records {
-		m := RuntimeMember{Role: r.Role, Handle: r.Handle, Status: r.Status, IsLead: r.IsLead, External: r.External}
+		m := RuntimeMember{
+			Role:        r.Role,
+			Handle:      r.Handle,
+			Status:      r.Status,
+			RecordState: r.RecordState,
+			IsLead:      r.IsLead,
+			External:    r.External,
+			Namespace:   r.Namespace,
+			Root:        r.Root,
+			AgentDir:    r.AgentDir,
+		}
 		if r.Tmux != nil {
 			m.Session = r.Tmux.Session
 			m.WindowID = r.Tmux.WindowID
@@ -219,7 +282,7 @@ func parseRuntimeStatus(out []byte) RuntimeStatus {
 	// A status response that advertises neither the capability nor any actions is
 	// a pre-v1.5 amq-squad with no runtime contract. Stay a zero RuntimeStatus
 	// (totality) rather than returning members with empty Actions.
-	if !rs.Advertised && !rs.HasActions() {
+	if !rs.Advertised && !rs.HasActions() && !rs.HasStatusMetadata() {
 		return RuntimeStatus{}
 	}
 	return rs
@@ -233,6 +296,7 @@ func parseRuntimeAction(a runtimeActionEnvelope) (RuntimeAction, bool) {
 		Kind:              strings.TrimSpace(a.Kind),
 		Label:             strings.TrimSpace(a.Label),
 		Scope:             strings.TrimSpace(a.Scope),
+		NamespaceID:       strings.TrimSpace(a.NamespaceID),
 		Command:           a.Command,
 		Mutates:           a.Mutates,
 		NeedsConfirmation: a.NeedsConfirmation,

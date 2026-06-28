@@ -104,10 +104,14 @@ func (s *nocTreeState) setCollapsed(id string, v bool) {
 }
 
 // Stable node ids.
-func rootNodeID(root string) string               { return "root|" + root }
-func projectNodeID(dir string) string             { return "proj|" + dir }
-func sessionNodeID(dir, sess string) string       { return "sess|" + dir + "|" + sess }
-func agentNodeID(dir, sess, handle string) string { return "agent|" + dir + "|" + sess + "|" + handle }
+func rootNodeID(root string) string   { return "root|" + root }
+func projectNodeID(dir string) string { return "proj|" + dir }
+func sessionNodeID(dir string, sess state.Session) string {
+	return "sess|" + dir + "|" + sessionNamespaceLabel(sess)
+}
+func agentNodeID(dir string, sess state.Session, handle string) string {
+	return "agent|" + dir + "|" + sessionNamespaceLabel(sess) + "|" + handle
+}
 
 func projectNodeIDDefaultCollapsed(id string) bool { return strings.HasPrefix(id, "proj|") }
 
@@ -212,7 +216,7 @@ func buildNOCTree(ms noc.MultiSnapshot, ts nocTreeState, filter string, hideStal
 			}
 
 			for si, sess := range visSessions {
-				sid := sessionNodeID(ps.Dir, sess.Name)
+				sid := sessionNodeID(ps.Dir, sess)
 				sExpanded := !ts.isCollapsed(sid)
 				agents := sortedAgentsForSession(sess)
 				visAgents := make([]state.Agent, 0, len(agents))
@@ -243,7 +247,7 @@ func buildNOCTree(ms noc.MultiSnapshot, ts nocTreeState, filter string, hideStal
 				for ai, ag := range visAgents {
 					nodes = append(nodes, nocNode{
 						kind:    nodeAgent,
-						id:      agentNodeID(ps.Dir, sess.Name, ag.Handle),
+						id:      agentNodeID(ps.Dir, sess, ag.Handle),
 						depth:   projDepth + 2,
 						label:   agentLabel(ag),
 						state:   agentNodeState(sess, ag),
@@ -469,10 +473,22 @@ func sessionLabel(sess state.Session) string {
 			name = "(default-session)"
 		}
 	}
+	if profile := strings.TrimSpace(sess.TeamProfile); profile != "" && profile != "default" {
+		name = profile + "/" + name
+	}
 	if sess.Orchestrated {
 		name += " (orchestrated)"
 	}
 	return name
+}
+
+func sessionNamespaceLabel(sess state.Session) string {
+	name := strings.TrimSpace(sess.Name)
+	profile := strings.TrimSpace(sess.TeamProfile)
+	if profile == "" || profile == "default" {
+		return name
+	}
+	return profile + "/" + name
 }
 
 // isBaseRootSession reports whether a session is the base-root (rootless)

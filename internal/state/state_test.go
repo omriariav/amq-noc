@@ -48,6 +48,18 @@ func seedAgent(t *testing.T, base, session, handle string, rec launch.Record) st
 	return agentDir
 }
 
+func seedProfileAgent(t *testing.T, base, profile, session, handle string, rec launch.Record) string {
+	t.Helper()
+	agentDir := filepath.Join(base, profile, session, "agents", handle)
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := launch.Write(agentDir, rec); err != nil {
+		t.Fatal(err)
+	}
+	return agentDir
+}
+
 func seedPresence(t *testing.T, agentDir, handle, status string, lastSeen time.Time) {
 	t.Helper()
 	pres := presenceFile{Schema: 1, Handle: handle, Status: status, LastSeen: lastSeen}
@@ -89,7 +101,7 @@ func TestBuildDiscoversSessionsAndAgents(t *testing.T) {
 	base := t.TempDir()
 	proj := t.TempDir()
 
-	seedAgent(t, base, "issue-96", "cto", launch.Record{
+	seedProfileAgent(t, base, "review", "issue-96", "cto", launch.Record{
 		Binary: "codex", Handle: "cto", Role: "cto", Session: "issue-96", AgentPID: 1111, TeamProfile: "review",
 	})
 	seedAgent(t, base, "issue-96", "fullstack", launch.Record{
@@ -109,22 +121,27 @@ func TestBuildDiscoversSessionsAndAgents(t *testing.T) {
 		t.Fatalf("Build: %v", err)
 	}
 
-	if len(snap.Sessions) != 2 {
-		t.Fatalf("want 2 sessions, got %d: %+v", len(snap.Sessions), snap.Sessions)
+	if len(snap.Sessions) != 3 {
+		t.Fatalf("want 3 namespace-distinct sessions, got %d: %+v", len(snap.Sessions), snap.Sessions)
 	}
-	// Sessions are sorted by name: drive-fix before issue-96.
-	if snap.Sessions[0].Name != "drive-fix" || snap.Sessions[1].Name != "issue-96" {
-		t.Fatalf("session order wrong: %q, %q", snap.Sessions[0].Name, snap.Sessions[1].Name)
+	// Sessions are sorted by namespace key: default profile sessions first, then
+	// named profile sessions with the same workstream.
+	if snap.Sessions[0].Name != "drive-fix" || snap.Sessions[0].TeamProfile != "default" ||
+		snap.Sessions[1].Name != "issue-96" || snap.Sessions[1].TeamProfile != "default" ||
+		snap.Sessions[2].Name != "issue-96" || snap.Sessions[2].TeamProfile != "review" {
+		t.Fatalf("session order wrong: %+v", snap.Sessions)
 	}
-	if got := len(snap.Sessions[1].Agents); got != 2 {
-		t.Fatalf("issue-96 want 2 agents, got %d", got)
+	if got := len(snap.Sessions[1].Agents); got != 1 {
+		t.Fatalf("default issue-96 want 1 agent, got %d", got)
+	}
+	if got := len(snap.Sessions[2].Agents); got != 1 {
+		t.Fatalf("review issue-96 want 1 agent, got %d", got)
 	}
 	if got := findAgent(t, snap, "cto").TeamProfile; got != "review" {
 		t.Fatalf("TeamProfile = %q, want review", got)
 	}
-	// Agents sorted by role: cto before fullstack.
-	if snap.Sessions[1].Agents[0].Handle != "cto" || snap.Sessions[1].Agents[1].Handle != "fullstack" {
-		t.Fatalf("agent order wrong: %+v", snap.Sessions[1].Agents)
+	if snap.Sessions[1].Agents[0].Handle != "fullstack" || snap.Sessions[2].Agents[0].Handle != "cto" {
+		t.Fatalf("namespace grouping wrong: default=%+v review=%+v", snap.Sessions[1].Agents, snap.Sessions[2].Agents)
 	}
 	if snap.BaseRoot != base {
 		t.Fatalf("BaseRoot = %q, want %q", snap.BaseRoot, base)

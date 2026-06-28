@@ -390,7 +390,7 @@ func (m *NOCModel) jump() (tea.Model, tea.Cmd) {
 	if who == "" {
 		who = strings.TrimSpace(n.agent.Handle)
 	}
-	profile := sessionCommandProfile(n.project, n.session.Name)
+	profile := sessionCommandProfileForSession(n.project, n.session)
 	if profile == "PROFILE" {
 		profile = ""
 	}

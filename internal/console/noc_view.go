@@ -1110,17 +1110,29 @@ func kickRecoverLines(ps noc.ProjectSnapshot, sessionName, amqRoot string) []str
 }
 
 func kickRecoverActions(ps noc.ProjectSnapshot, sessionName, amqRoot string) []nocCommandAction {
+	profile := ""
+	if strings.TrimSpace(sessionName) != "" {
+		profile = sessionCommandProfile(ps, sessionName)
+	}
+	return kickRecoverActionsForProfile(ps, sessionName, amqRoot, profile)
+}
+
+func kickRecoverActionsForSession(ps noc.ProjectSnapshot, sess state.Session, amqRoot string) []nocCommandAction {
+	return kickRecoverActionsForProfile(ps, sess.Name, amqRoot, sessionCommandProfileForSession(ps, sess))
+}
+
+func kickRecoverActionsForProfile(ps noc.ProjectSnapshot, sessionName, amqRoot, commandProfile string) []nocCommandAction {
 	switch squadKindTag(ps) {
 	case "squad":
 		dir := shellToken(strings.TrimSpace(ps.Dir))
 		if strings.TrimSpace(sessionName) != "" {
 			s := shellToken(sessionName)
-			profile := squadProfileFlag(sessionCommandProfile(ps, sessionName))
+			profile := squadProfileFlag(commandProfile)
 			return []nocCommandAction{
 				commandAction("status", "amq-squad status --project "+dir+profile+" --session "+s, "show this session's amq-squad state"),
 				commandAction("resume preview", "amq-squad resume --project "+dir+profile+" --session "+s, "print the recovery plan without launching"),
-				commandAction("resume here", squadResumeCurrentWindowCommand(ps.Dir, sessionName, sessionCommandProfile(ps, sessionName)), "resume agents in the current tmux window"),
-				commandAction("open new tmux session", squadResumeNewSessionCommand(ps.Dir, sessionName, sessionCommandProfile(ps, sessionName)), "resume agents in a named tmux session"),
+				commandAction("resume here", squadResumeCurrentWindowCommand(ps.Dir, sessionName, commandProfile), "resume agents in the current tmux window"),
+				commandAction("open new tmux session", squadResumeNewSessionCommand(ps.Dir, sessionName, commandProfile), "resume agents in a named tmux session"),
 			}
 		}
 		profileName := projectCommandProfile(ps)
@@ -1240,6 +1252,9 @@ func sessionCommandProfile(ps noc.ProjectSnapshot, sessionName string) string {
 		if sess.Name != sessionName {
 			continue
 		}
+		if profile := strings.TrimSpace(sess.TeamProfile); profile != "" {
+			return profile
+		}
 		seen := map[string]bool{}
 		for _, ag := range sess.Agents {
 			profile := strings.TrimSpace(ag.TeamProfile)
@@ -1259,6 +1274,13 @@ func sessionCommandProfile(ps noc.ProjectSnapshot, sessionName string) string {
 		break
 	}
 	return projectCommandProfile(ps)
+}
+
+func sessionCommandProfileForSession(ps noc.ProjectSnapshot, sess state.Session) string {
+	if profile := strings.TrimSpace(sess.TeamProfile); profile != "" {
+		return profile
+	}
+	return sessionCommandProfile(ps, sess.Name)
 }
 
 func projectCommandProfile(ps noc.ProjectSnapshot) string {
@@ -1299,6 +1321,10 @@ func squadResumeNewSessionCommand(projectDir, sessionName, profile string) strin
 // deterministic to show. Quiet (dim), inline - never a shortcut or palette.
 func (m NOCModel) commandsSection(ps noc.ProjectSnapshot, sessionName, amqRoot string) string {
 	return m.commandActionsSection(kickRecoverActions(ps, sessionName, amqRoot))
+}
+
+func (m NOCModel) sessionCommandsSection(ps noc.ProjectSnapshot, sess state.Session) string {
+	return m.commandActionsSection(kickRecoverActionsForSession(ps, sess, sess.Root))
 }
 
 func (m NOCModel) agentCommandsSection(ps noc.ProjectSnapshot, sess state.Session, ag state.Agent) string {
@@ -1741,7 +1767,7 @@ func (m NOCModel) sessionDetail(n nocNode) string {
 			b.WriteString(m.th.paint(m.th.dim, "  (no recent events)") + "\n")
 		}
 	}
-	b.WriteString(m.commandsSection(n.project, n.session.Name, n.session.Root))
+	b.WriteString(m.sessionCommandsSection(n.project, n.session))
 	return b.String()
 }
 

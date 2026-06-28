@@ -8,9 +8,10 @@ perform the runtime mechanics itself. There is a hard architectural line:
   focusing, opening, and delivering prompts to a session or agent, including all
   tmux/window/process mechanics, is amq-squad's job.
 - **amq-noc consumes, renders, and selects.** The NOC consumes published
-  `amq-squad v1.5` action metadata when available, renders it as operator UI,
-  lets the operator pick and copy the exact command, and degrades to
-  deterministic fallback commands when runtime support is absent or partial.
+  `amq-squad status --json` action and namespace metadata when available,
+  renders it as operator UI, lets the operator pick and copy the exact command,
+  and degrades to deterministic fallback commands when runtime support is
+  absent or partial.
 
 The NOC never drives the runtime. It surfaces what amq-squad offers and hands the
 operator a command; amq-squad (or the operator running that command) does the work.
@@ -32,6 +33,11 @@ operator a command; amq-squad (or the operator running that command) does the wo
   With older v1.5 contracts, member-level session `status` and `resume`
   replace fallback commands while preserving stable action IDs. Agent `focus`
   and `send` are added only when `available:true`.
+- **Namespace and visible-lead metadata**: with `amq-squad v2.9.0+`, the same
+  status envelope carries profile/session identity, AMQ root, brief path, task
+  path, launch-record path, `goal_binding`, topology, and visible lead identity.
+  The NOC displays and serializes these fields directly instead of rebuilding
+  them from tmux panes or guessing from a session name.
 - **Command templates**: when published action metadata is absent or partial,
   the NOC still generates deterministic fallback commands from the read-only
   session/coordination snapshot: `amq` fallbacks (drain, send) and
@@ -65,6 +71,9 @@ gracefully rather than break:
 
 - It still renders the project/session/agent operational state and the
   needs-you / blocked / waiting / online / stale status model.
+- It still renders a namespace-safe fallback binding (`amq_task_brief`) from the
+  durable AMQ root, active brief, and task path when the native `/goal` binding
+  is absent.
 - It offers the commands it can derive deterministically (kick/recover, the
   bundled `new`/`resume`/`archive`/`rm` helpers) for manual copy/run.
 - It does not show runtime-action affordances that the metadata does not back,
@@ -89,19 +98,22 @@ runtime-action work must not reach for tmux.
 
 ## Dependencies
 
-The NOC-side consumption depends on amq-squad publishing the runtime-action and
-capability metadata: amq-squad #61, #62, #47, and the JSON contract polish from
-amq-squad #79 / v1.5.2. NOC issues #6 (runtime actions), #7 (member action
-consumption), #15 (session action catalog consumption), and #5 (dormant
-control/diagnostics cleanup) track the NOC side.
+The NOC-side consumption depends on amq-squad publishing the runtime-action,
+capability, and namespace metadata: amq-squad #61, #62, #47, the JSON contract
+polish from amq-squad #79 / v1.5.2, and the v2.9.0 visible-lead/namespace
+status contract. NOC issues #6 (runtime actions), #7 (member action
+consumption), #15 (session action catalog consumption), #5 (dormant
+control/diagnostics cleanup), and the v0.11.0 amq-squad 2.9 support work track
+the NOC side.
 
 ## Determinism
 
-Every rendered field is verbatim-or-structural: capability flags come from
-amq-squad/team metadata, and command templates either come from future
-amq-squad-published action metadata or from NOC's deterministic fallback
-generator. The visible status model is computed from structural signals
-(operator-addressed asks, declared blocks, aging thresholds, agent liveness),
-never from prose interpretation or an LLM. The contract and availability tests
+Every rendered field is verbatim-or-structural: capability flags, namespace
+identity, goal binding, topology, and published commands come from
+amq-squad/team metadata, while fallback command templates come from NOC's
+deterministic generator. The visible status model is computed from structural
+signals (operator-addressed asks, declared blocks, aging thresholds, agent
+liveness), never from prose interpretation or an LLM. The contract and
+availability tests
 (`internal/console/noc_keymap_test.go`, `noc_footer_test.go`) keep the
 advertised surface in lockstep with what the handlers will actually do.

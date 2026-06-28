@@ -116,9 +116,11 @@
 
     <p><code>v0.11.0</code> adds namespace-safe amq-squad 2.9 visible-lead control: profile/session identity, AMQ root, brief path, task path, launch-record path, topology, runtime status, and <code>goal_binding</code> flow into JSON and the TUI. Session and agent actions carry <code>namespace_id</code>, named-profile commands keep <code>--profile</code>, live-lead directives use amq-squad <code>send</code>, and down-lead directives plus gate answers stay pinned to the selected AMQ root.</p>
 
+    <p><code>v0.12.0</code> promotes release and task-correlation evidence into the JSON attention queue: named-profile task stores are resolved with <code>--profile</code>, dependency-gated review tasks and task/report mismatches become read-only inspect rows, and missing PR URL, reviewed head SHA, local/CI test, review, or human-owned merge/release gate evidence is surfaced as a release blocker rather than hidden in nested detail.</p>
+
     <h2>Install</h2>
-    <pre><code>go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.11.0</code></pre>
-    <p>Requires Go 1.25+, <code>amq</code> v0.38.0 or newer for the reserved human operator and exported environment contracts used by amq-squad v2.9, <code>amq-squad</code> v2.9.0 or newer for namespace-safe visible-lead remote control, and <code>tmux</code>.</p>
+    <pre><code>go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.12.0</code></pre>
+    <p>Requires Go 1.25+, <code>amq</code> v0.38.0 or newer for the reserved human operator and exported environment contracts used by amq-squad v2.10, <code>amq-squad</code> v2.10.0 or newer for namespace-safe visible-lead remote control, and <code>tmux</code>.</p>
 
     <h2>Quick Start</h2>
     <pre><code>amq-noc --root ~/Code
@@ -139,7 +141,7 @@ amq-noc --actions --root ~/Code --filter needs-you</code></pre>
     <p>Contributor guidance for TUI keys, help, and footer tests lives in <a href="docs/tui-keymap.md">docs/tui-keymap.md</a>.</p>
 
     <h2>Runtime Actions</h2>
-    <p><code>amq-squad</code> owns runtime orchestration: start, stop, resume, focus, open, prompt delivery, and the tmux mechanics behind them. <code>amq-noc</code> consumes published <code>amq-squad status --json</code> action metadata when available, renders it as operator UI, lets you pick and copy the exact command with <code>C</code>, and falls back to deterministic NOC-generated commands when runtime support is absent or partial. With <code>amq-squad v2.9.0+</code>, the same status contract also supplies profile/session namespace, AMQ root, brief path, task path, launch-record path, visible lead identity, topology, and <code>goal_binding</code>. Published-but-unavailable actions such as agent <code>focus</code>, <code>send</code>, or session <code>attach_control</code> are omitted instead of replaced with raw tmux orchestration.</p>
+    <p><code>amq-squad</code> owns runtime orchestration: start, stop, resume, focus, open, prompt delivery, and the tmux mechanics behind them. <code>amq-noc</code> consumes published <code>amq-squad status --json</code> action metadata when available, renders it as operator UI, lets you pick and copy the exact command with <code>C</code>, and falls back to deterministic NOC-generated commands when runtime support is absent or partial. With <code>amq-squad v2.10.0+</code>, the same status contract also supplies profile/session namespace, AMQ root, brief path, task path, launch-record path, visible lead identity, topology, and <code>goal_binding</code>. Published-but-unavailable actions such as agent <code>focus</code>, <code>send</code>, or session <code>attach_control</code> are omitted instead of replaced with raw tmux orchestration.</p>
     <p>The NOC never drives the runtime itself.</p>
 
     <h2>Operator Gates</h2>

@@ -4520,6 +4520,84 @@ func TestNOCJSONAttentionQueueAgentResumeUsesAgentActionID(t *testing.T) {
 	}
 }
 
+func TestNOCJSONAttentionQueueIncludesCorrelationSignals(t *testing.T) {
+	project := nocProjectEnvelope(noc.ProjectSnapshot{
+		Project: "api",
+		Dir:     "/root/api",
+		SessionCorrelations: map[string]noc.SessionCorrelation{
+			"issue-96": {
+				Tasks: noc.TaskStoreSnapshot{Tasks: []noc.TaskItem{{
+					ID:         "t1",
+					Status:     "pending",
+					AssignedTo: "fullstack",
+				}}},
+				Mismatches: []noc.CorrelationSignal{{
+					Name:   "pending_task_has_worker_report",
+					Status: "warn",
+					TaskID: "t1",
+					Detail: "fullstack has AMQ report evidence while task is pending",
+				}},
+				Evidence: noc.EvidenceSummary{
+					Status:   "warn",
+					Blockers: []string{"missing reviewed head SHA evidence"},
+				},
+			},
+		},
+		Snap: state.Snapshot{Sessions: []state.Session{{
+			Name:        "issue-96",
+			TeamProfile: "review",
+		}}},
+	})
+	queue := project.Sessions[0].AttentionQueue
+	if len(queue) != 2 {
+		t.Fatalf("attention_queue = %+v, want correlation mismatch and evidence blocker", queue)
+	}
+	var mismatch, blocker nocAttentionItem
+	for _, item := range queue {
+		switch item.Kind {
+		case "task-report-mismatch":
+			mismatch = item
+		case "release-evidence-blocker":
+			blocker = item
+		}
+	}
+	if mismatch.TaskID != "t1" || mismatch.WhoActs != "fullstack" || mismatch.Status != "warn" {
+		t.Fatalf("mismatch item = %+v", mismatch)
+	}
+	if mismatch.ActionID != "session|/root/api|review/issue-96|action|threads" || mismatch.NextAction != "threads" {
+		t.Fatalf("mismatch action = %+v", mismatch)
+	}
+	if blocker.WhoActs != "user" || blocker.Source != "correlation.evidence" || blocker.Why != "missing reviewed head SHA evidence" {
+		t.Fatalf("evidence blocker item = %+v", blocker)
+	}
+	if blocker.ActionID != "session|/root/api|review/issue-96|action|threads" {
+		t.Fatalf("evidence blocker action = %+v", blocker)
+	}
+}
+
+func TestNOCCorrelationAttentionOmitsMissingSyntheticActionID(t *testing.T) {
+	items := nocCorrelationAttentionItems(nocSessionJSONData{Name: "issue-96"}, &noc.SessionCorrelation{
+		Mismatches: []noc.CorrelationSignal{{
+			Name:   "pending_task_has_worker_report",
+			Status: "warn",
+			TaskID: "t1",
+			Detail: "fullstack has AMQ report evidence while task is pending",
+		}},
+		Evidence: noc.EvidenceSummary{
+			Status:   "warn",
+			Blockers: []string{"missing reviewed head SHA evidence"},
+		},
+	})
+	if len(items) != 2 {
+		t.Fatalf("items = %+v, want mismatch and blocker", items)
+	}
+	for _, item := range items {
+		if item.NextAction != "" || item.ActionID != "" {
+			t.Fatalf("missing synthetic action id must omit next action, got %+v", item)
+		}
+	}
+}
+
 func TestNOCJSONAttentionQueueOmitsMissingActionID(t *testing.T) {
 	project := nocProjectEnvelope(noc.ProjectSnapshot{
 		Project: "api",

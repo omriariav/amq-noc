@@ -78,7 +78,7 @@ operationally live agents, so fresh presence alone never promotes a wait.
 - preview-first and confirm-gated controls that execute through `amq-squad`
 - structural operator gates through a virtual operator mailbox, usually `user`
 - support for `amq-squad` operator metadata, published runtime actions, and
-  v2.9 namespace/visible-lead status metadata
+  v2.10 namespace/visible-lead status metadata
 - truthful TUI help/footer generated from the handled keymap
 - context-sensitive footer actions that only advertise controls valid for the
   selected row
@@ -134,6 +134,10 @@ operationally live agents, so fresh presence alone never promotes a wait.
   `amq doctor --ops`, receipts where available, `amq-squad status --json`,
   task-store state, worker reports, and merge/release evidence are exposed
   without making the NOC the protocol source of truth
+- release/task correlation blockers in JSON attention queues: task/report
+  mismatches, dependency-gated review tasks, missing PR/head/test/review
+  evidence, and missing human-owned merge/release gates are promoted with
+  read-only inspect actions
 - `--notify`: opt-in macOS desktop notification on the same needs-you 0->N
   transition as the terminal bell, independent of `--no-bell`
 - narrow-terminal truthfulness: footer legends wrap to the terminal width,
@@ -144,15 +148,15 @@ operationally live agents, so fresh presence alone never promotes a wait.
 ## Install
 
 ```sh
-go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.11.0
+go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.12.0
 ```
 
 Requirements:
 
 - Go 1.25+
 - `amq` v0.38.0 or newer for the reserved human operator and exported
-  environment contracts used by amq-squad v2.9
-- `amq-squad` v2.9.0 or newer for namespace-safe visible-lead remote control
+  environment contracts used by amq-squad v2.10
+- `amq-squad` v2.10.0 or newer for namespace-safe visible-lead remote control
 - `tmux`
 
 ## Quick Start
@@ -288,7 +292,7 @@ prompt-delivery and the tmux mechanics behind them). amq-noc consumes published
 `amq-squad status --json` action metadata when available, renders it as
 operator UI, lets you pick and copy the exact command (`C`), and falls back to
 deterministic NOC-generated commands when runtime support is absent or partial.
-With `amq-squad v2.9.0+`, the same status contract also supplies the
+With `amq-squad v2.10.0+`, the same status contract also supplies the
 profile/session namespace, AMQ root, brief path, task path, launch-record path,
 visible lead identity, topology, and `goal_binding` mode. Published-but-
 unavailable actions such as agent `focus`, `send`, or session `attach_control`
@@ -338,7 +342,7 @@ published runtime actions, the orchestrated/lead team contract, and the
 operator DIRECTIVE norm:
 
 ```sh
-go install github.com/omriariav/amq-squad/cmd/amq-squad@v2.9.0
+go install github.com/omriariav/amq-squad/cmd/amq-squad@v2.10.0
 ```
 
 Older `amq-squad` builds keep deterministic fallback action commands.

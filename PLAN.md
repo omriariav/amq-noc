@@ -2,8 +2,9 @@
 
 ## Release evidence and task correlation track (0.12.x)
 
-Updated: 2026-06-28. Status: 0.12.0 is a local release candidate awaiting
-operator approval for branch/PR/review/merge/tag/release side effects.
+Updated: 2026-06-28. Status: 0.12.0 is in release PR #52 after local gates
+and `senior-dev` review passed; merge, tag, GitHub release, and published
+install smoke follow the release checklist.
 
 This release deepens the 0.10 correlation layer so release and task evidence
 are visible where the operator actually triages work:

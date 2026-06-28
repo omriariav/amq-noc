@@ -14,7 +14,7 @@ func TestFetchSessionCorrelationParsesTasksReportsAndEvidence(t *testing.T) {
 	run := func(dir string, name string, args ...string) ([]byte, error) {
 		key := name + " " + strings.Join(args, " ")
 		switch key {
-		case "amq-squad task list --json --session issue-96":
+		case "amq-squad task list --project /repo/app --session issue-96 --json":
 			return []byte(`{"schema_version":1,"kind":"tasks","data":{"session":"issue-96","tasks":[
 				{"id":"t1","title":"Implementation","status":"completed","assigned_to":"backend-dev","evidence":"https://github.com/o/r/pull/12 #40 head abcdef1 go test ./..."},
 				{"id":"t2","title":"Review","status":"pending","assigned_to":"qa","depends_on":["t1"]}
@@ -142,7 +142,7 @@ func TestFetchSessionCorrelationPreservesWorkerReportBeforeLeadAck(t *testing.T)
 	run := func(dir string, name string, args ...string) ([]byte, error) {
 		key := name + " " + strings.Join(args, " ")
 		switch key {
-		case "amq-squad task list --json --session issue-96":
+		case "amq-squad task list --project /repo/app --session issue-96 --json":
 			return []byte(`{"schema_version":1,"kind":"tasks","data":{"tasks":[]}}`), nil
 		case "amq-squad status --project /repo/app --session issue-96 --json":
 			return []byte(sampleCorrelationRuntimeStatusJSON), nil
@@ -209,7 +209,7 @@ func TestFetchSessionCorrelationRuntimeStatusOverridesStaleSnapshot(t *testing.T
 	run := func(dir string, name string, args ...string) ([]byte, error) {
 		key := name + " " + strings.Join(args, " ")
 		switch key {
-		case "amq-squad task list --json --session issue-96":
+		case "amq-squad task list --project /repo/app --session issue-96 --json":
 			return []byte(`{"schema_version":1,"kind":"tasks","data":{"tasks":[]}}`), nil
 		case "amq-squad status --project /repo/app --session issue-96 --json":
 			return []byte(sampleCorrelationRuntimeStatusJSON), nil
@@ -237,6 +237,82 @@ func TestFetchSessionCorrelationRuntimeStatusOverridesStaleSnapshot(t *testing.T
 		}
 	}
 	t.Fatalf("backend-dev row missing: %+v", c.Runtime.Rows)
+}
+
+func TestFetchSessionCorrelationUsesNamedProfileCommands(t *testing.T) {
+	var commands []string
+	run := func(dir string, name string, args ...string) ([]byte, error) {
+		key := name + " " + strings.Join(args, " ")
+		commands = append(commands, key)
+		switch key {
+		case "amq-squad task list --project /repo/app --profile review --session issue-96 --json":
+			return []byte(`{"schema_version":1,"kind":"tasks","data":{"tasks":[]}}`), nil
+		case "amq-squad status --project /repo/app --profile review --session issue-96 --json":
+			return []byte(sampleCorrelationRuntimeStatusJSON), nil
+		default:
+			t.Fatalf("unexpected command: %s", key)
+			return nil, nil
+		}
+	}
+	FetchSessionCorrelation(run, ProjectSnapshot{Dir: "/repo/app"}, state.Session{
+		Name:        "issue-96",
+		TeamProfile: "review",
+	})
+	if len(commands) != 2 {
+		t.Fatalf("commands = %+v", commands)
+	}
+}
+
+func TestFetchSessionCorrelationDoesNotTreatGenericReviewAsReleaseEvidence(t *testing.T) {
+	run := func(dir string, name string, args ...string) ([]byte, error) {
+		key := name + " " + strings.Join(args, " ")
+		switch key {
+		case "amq-squad task list --project /repo/app --session issue-96 --json":
+			return []byte(`{"schema_version":1,"kind":"tasks","data":{"tasks":[
+				{"id":"t1","title":"Review UI copy","status":"pending","assigned_to":"qa"}
+			]}}`), nil
+		case "amq-squad status --project /repo/app --session issue-96 --json":
+			return []byte(sampleCorrelationRuntimeStatusJSON), nil
+		default:
+			t.Fatalf("unexpected command: %s", key)
+			return nil, nil
+		}
+	}
+	c := FetchSessionCorrelation(run, ProjectSnapshot{Dir: "/repo/app"}, state.Session{
+		Name: "issue-96",
+		Coordination: state.Coordination{Messages: []state.Message{{
+			ID:      "r1",
+			From:    "qa",
+			To:      []string{"cto"},
+			Thread:  "p2p/cto__qa",
+			Subject: "Review ready",
+			Kind:    state.KindReviewRequest,
+		}}},
+	})
+	if len(c.Evidence.Blockers) != 0 || c.Evidence.Status == healthStatusWarn {
+		t.Fatalf("generic review should not produce release blockers: %+v", c.Evidence)
+	}
+}
+
+func TestFetchSessionCorrelationDoesNotTreatDecisionTextAsCIEvidence(t *testing.T) {
+	run := func(dir string, name string, args ...string) ([]byte, error) {
+		key := name + " " + strings.Join(args, " ")
+		switch key {
+		case "amq-squad task list --project /repo/app --session issue-96 --json":
+			return []byte(`{"schema_version":1,"kind":"tasks","data":{"tasks":[
+				{"id":"t1","title":"Decision queue cleanup","status":"pending","assigned_to":"qa"}
+			]}}`), nil
+		case "amq-squad status --project /repo/app --session issue-96 --json":
+			return []byte(sampleCorrelationRuntimeStatusJSON), nil
+		default:
+			t.Fatalf("unexpected command: %s", key)
+			return nil, nil
+		}
+	}
+	c := FetchSessionCorrelation(run, ProjectSnapshot{Dir: "/repo/app"}, state.Session{Name: "issue-96"})
+	if len(c.Evidence.CITests) != 0 || len(c.Evidence.Blockers) != 0 || c.Evidence.Status == healthStatusWarn {
+		t.Fatalf("decision text should not produce CI evidence or release blockers: %+v", c.Evidence)
+	}
 }
 
 const sampleCorrelationRuntimeStatusJSON = `{"schema_version":1,"kind":"status","data":{"records":[

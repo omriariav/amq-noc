@@ -1,5 +1,38 @@
 # amq-noc Release Plan
 
+## Release evidence and task correlation track (0.12.x)
+
+Updated: 2026-06-28. Status: 0.12.0 is a local release candidate awaiting
+operator approval for branch/PR/review/merge/tag/release side effects.
+
+This release deepens the 0.10 correlation layer so release and task evidence
+are visible where the operator actually triages work:
+
+- Named-profile task and runtime correlation now calls `amq-squad` with explicit
+  `--project` and `--profile`, so sessions such as
+  `release-v0-12-0/v0-12-0` read the correct task store.
+- Release evidence detection includes task titles/descriptions and promotes
+  missing PR URL, reviewed head SHA, local/CI test evidence, review evidence,
+  and human-owned merge/release gates as blockers when a release context exists.
+- Task/report mismatch and release-evidence blocker rows are projected into the
+  JSON `attention_queue` with read-only inspect actions instead of staying
+  buried in nested correlation details.
+- Generic review traffic does not create release blockers unless the text also
+  carries merge/release/PR/head/CI/test-evidence context.
+- The release evidence record is tracked in
+  `docs/0.12-release-candidate-evidence.md`.
+
+Release gates:
+
+```sh
+gofmt -l .
+git diff --check
+go test ./...
+go vet ./...
+make ci
+go run ./cmd/amq-noc noc --json --root /Users/omri.a/Code/amq-noc --filter session:v0-12-0
+```
+
 ## amq-squad 2.9 visible-lead control track (0.11.x)
 
 Updated: 2026-06-28. Status: 0.11.0 is the amq-squad 2.9.0 remote-control

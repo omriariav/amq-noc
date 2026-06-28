@@ -141,8 +141,8 @@ func EnrichCorrelations(ms *MultiSnapshot, run taskCommandRunner) {
 }
 
 func FetchSessionCorrelation(run taskCommandRunner, ps ProjectSnapshot, sess state.Session) SessionCorrelation {
-	tasks := fetchTaskStore(run, ps.Dir, sess.Name)
-	runtimeStatus, runtimeErr := fetchRuntimeStatusForCorrelation(run, ps.Dir, sess.Name)
+	tasks := fetchTaskStore(run, ps.Dir, sess)
+	runtimeStatus, runtimeErr := fetchRuntimeStatusForCorrelation(run, ps.Dir, sess)
 	messages := correlationMessages(sess)
 	reports := deriveWorkerReports(sess, messages)
 	c := SessionCorrelation{
@@ -156,8 +156,11 @@ func FetchSessionCorrelation(run taskCommandRunner, ps ProjectSnapshot, sess sta
 	return c
 }
 
-func fetchRuntimeStatusForCorrelation(run taskCommandRunner, dir, session string) (RuntimeStatus, string) {
-	out, err := run(dir, "amq-squad", "status", "--project", dir, "--session", session, "--json")
+func fetchRuntimeStatusForCorrelation(run taskCommandRunner, dir string, sess state.Session) (RuntimeStatus, string) {
+	args := []string{"status", "--project", dir}
+	args = append(args, squadProfileArgs(sess.TeamProfile)...)
+	args = append(args, "--session", sess.Name, "--json")
+	out, err := run(dir, "amq-squad", args...)
 	if err != nil {
 		return RuntimeStatus{}, err.Error()
 	}
@@ -168,8 +171,11 @@ func fetchRuntimeStatusForCorrelation(run taskCommandRunner, dir, session string
 	return rs, ""
 }
 
-func fetchTaskStore(run taskCommandRunner, dir, session string) TaskStoreSnapshot {
-	out, err := run(dir, "amq-squad", "task", "list", "--json", "--session", session)
+func fetchTaskStore(run taskCommandRunner, dir string, sess state.Session) TaskStoreSnapshot {
+	args := []string{"task", "list", "--project", dir}
+	args = append(args, squadProfileArgs(sess.TeamProfile)...)
+	args = append(args, "--session", sess.Name, "--json")
+	out, err := run(dir, "amq-squad", args...)
 	if err != nil {
 		return TaskStoreSnapshot{Status: healthStatusCapabilityGap, Error: err.Error()}
 	}
@@ -207,6 +213,14 @@ func fetchTaskStore(run taskCommandRunner, dir, session string) TaskStoreSnapsho
 		})
 	}
 	return TaskStoreSnapshot{Status: healthStatusOK, Tasks: tasks}
+}
+
+func squadProfileArgs(profile string) []string {
+	profile = strings.TrimSpace(profile)
+	if profile == "" || profile == "default" {
+		return nil
+	}
+	return []string{"--profile", profile}
 }
 
 func correlationMessages(sess state.Session) []state.Message {
@@ -472,6 +486,8 @@ func deriveCorrelationSignals(tasks TaskStoreSnapshot, reports []WorkerReport, s
 func deriveEvidenceSummary(tasks []TaskItem, sess state.Session, reports []WorkerReport) EvidenceSummary {
 	var e EvidenceSummary
 	for _, task := range tasks {
+		addEvidenceText(&e, task.Title)
+		addEvidenceText(&e, task.Description)
 		addEvidenceText(&e, task.Evidence)
 	}
 	for _, th := range sess.Coordination.Threads {
@@ -502,6 +518,23 @@ func deriveEvidenceSummary(tasks []TaskItem, sess state.Session, reports []Worke
 	if len(e.HeadSHAs) > 1 {
 		e.Blockers = appendUnique(e.Blockers, "multiple head SHAs observed; verify SHA match before merge/release")
 	}
+	if releaseEvidenceExpected(tasks, sess, reports, e) {
+		if len(e.PRURLs) == 0 {
+			e.Blockers = appendUnique(e.Blockers, "missing PR URL evidence")
+		}
+		if len(e.HeadSHAs) == 0 {
+			e.Blockers = appendUnique(e.Blockers, "missing reviewed head SHA evidence")
+		}
+		if len(e.LocalTests) == 0 && len(e.CITests) == 0 {
+			e.Blockers = appendUnique(e.Blockers, "missing local or CI test evidence")
+		}
+		if len(e.ReviewThreads) == 0 {
+			e.Blockers = appendUnique(e.Blockers, "missing review evidence")
+		}
+		if len(e.MergeReleaseGates) == 0 {
+			e.Blockers = appendUnique(e.Blockers, "missing human-owned merge/release gate")
+		}
+	}
 	if len(e.Blockers) > 0 {
 		e.Status = healthStatusWarn
 	} else if e.CapabilityGap != "" {
@@ -510,6 +543,47 @@ func deriveEvidenceSummary(tasks []TaskItem, sess state.Session, reports []Worke
 		e.Status = healthStatusOK
 	}
 	return e
+}
+
+func releaseEvidenceExpected(tasks []TaskItem, sess state.Session, reports []WorkerReport, e EvidenceSummary) bool {
+	if len(e.PRURLs) > 0 || len(e.HeadSHAs) > 0 || len(e.LocalTests) > 0 || len(e.CITests) > 0 || len(e.MergeReleaseGates) > 0 || e.VerifyMergeVerdict != "" {
+		return true
+	}
+	for _, report := range reports {
+		text := report.Subject + " " + report.Preview
+		if releaseEvidenceText(text) {
+			return true
+		}
+	}
+	for _, task := range tasks {
+		text := strings.ToLower(task.Title + " " + task.Description + " " + task.Evidence)
+		if releaseEvidenceText(text) {
+			return true
+		}
+	}
+	for _, th := range sess.Coordination.Threads {
+		if releaseEvidenceText(th.Subject + " " + th.LatestBody) {
+			return true
+		}
+	}
+	return false
+}
+
+func releaseEvidenceText(text string) bool {
+	text = strings.ToLower(text)
+	if containsCIEvidence(text) {
+		return true
+	}
+	for _, marker := range []string{"merge", "release", "pr ", "pull request", "head sha", "reviewed head", "test evidence", "verify merge"} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsCIEvidence(text string) bool {
+	return ciEvidenceRE.MatchString(text)
 }
 
 func summarizeCorrelation(c SessionCorrelation) (string, string) {
@@ -541,7 +615,7 @@ func addEvidenceText(e *EvidenceSummary, text string) {
 	if strings.Contains(lower, "go test") || strings.Contains(lower, "gofmt") || strings.Contains(lower, "git diff --check") {
 		e.LocalTests = appendUnique(e.LocalTests, compactPreview(text))
 	}
-	if strings.Contains(lower, "ci") || strings.Contains(lower, "github actions") {
+	if containsCIEvidence(text) {
 		e.CITests = appendUnique(e.CITests, compactPreview(text))
 	}
 	if strings.Contains(lower, "verify merge") || strings.Contains(lower, "merge verified") || strings.Contains(lower, "sha match") {
@@ -550,9 +624,10 @@ func addEvidenceText(e *EvidenceSummary, text string) {
 }
 
 var (
-	prURLRE    = regexp.MustCompile(`https?://[^\s)]+/(pull|pulls|merge_requests)/[0-9]+`)
-	issueRefRE = regexp.MustCompile(`#\d+`)
-	shaRE      = regexp.MustCompile(`\b[0-9a-f]{7,40}\b`)
+	prURLRE      = regexp.MustCompile(`https?://[^\s)]+/(pull|pulls|merge_requests)/[0-9]+`)
+	issueRefRE   = regexp.MustCompile(`#\d+`)
+	shaRE        = regexp.MustCompile(`\b[0-9a-f]{7,40}\b`)
+	ciEvidenceRE = regexp.MustCompile(`(?i)\b(ci|github actions)\b`)
 )
 
 func hasAssigneeReport(reports []WorkerReport, assignee string) bool {

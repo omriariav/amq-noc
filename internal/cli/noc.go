@@ -632,8 +632,11 @@ type nocSessionJSONData struct {
 type nocAttentionItem struct {
 	Kind         string     `json:"kind"`
 	Urgency      int        `json:"urgency"`
+	Status       string     `json:"status,omitempty"`
 	WhoActs      string     `json:"who_acts,omitempty"`
 	Thread       string     `json:"thread,omitempty"`
+	TaskID       string     `json:"task_id,omitempty"`
+	Source       string     `json:"source,omitempty"`
 	Since        *time.Time `json:"since,omitempty"`
 	AgeSource    string     `json:"age_source,omitempty"`
 	Why          string     `json:"why,omitempty"`
@@ -2385,10 +2388,7 @@ func nocSessionGoalBinding(ps noc.ProjectSnapshot, ns noc.NamespaceRef) noc.Goal
 }
 
 func nocAttentionQueueEnvelope(sess state.Session, row nocSessionJSONData, correlation *noc.SessionCorrelation) []nocAttentionItem {
-	if len(sess.Coordination.AttentionQueue) == 0 {
-		return nil
-	}
-	out := make([]nocAttentionItem, 0, len(sess.Coordination.AttentionQueue))
+	out := make([]nocAttentionItem, 0, len(sess.Coordination.AttentionQueue)+correlationAttentionCount(correlation))
 	for _, item := range sess.Coordination.AttentionQueue {
 		if item.Kind == state.AttentionStaleWorker && runtimeWorkerLive(correlation, item.WhoActs) {
 			continue
@@ -2414,7 +2414,145 @@ func nocAttentionQueueEnvelope(sess state.Session, row nocSessionJSONData, corre
 			Conflict:     item.Conflict,
 		})
 	}
+	out = append(out, nocCorrelationAttentionItems(row, correlation)...)
+	if len(out) == 0 {
+		return nil
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Urgency != out[j].Urgency {
+			return out[i].Urgency < out[j].Urgency
+		}
+		if out[i].Kind != out[j].Kind {
+			return out[i].Kind < out[j].Kind
+		}
+		if out[i].Thread != out[j].Thread {
+			return out[i].Thread < out[j].Thread
+		}
+		return out[i].TaskID < out[j].TaskID
+	})
 	return out
+}
+
+func correlationAttentionCount(correlation *noc.SessionCorrelation) int {
+	if correlation == nil {
+		return 0
+	}
+	return len(correlation.Mismatches) + len(correlation.Evidence.Blockers)
+}
+
+func nocCorrelationAttentionItems(row nocSessionJSONData, correlation *noc.SessionCorrelation) []nocAttentionItem {
+	if correlation == nil {
+		return nil
+	}
+	var out []nocAttentionItem
+	for _, mismatch := range correlation.Mismatches {
+		if strings.TrimSpace(mismatch.Name) == "" {
+			continue
+		}
+		nextAction := "threads"
+		if strings.TrimSpace(mismatch.Thread) != "" {
+			nextAction = "thread_context_any"
+		}
+		nextAction, actionID := nocAttentionSyntheticAction(nextAction, row)
+		out = append(out, nocAttentionItem{
+			Kind:        "task-report-mismatch",
+			Urgency:     correlationSignalUrgency(mismatch),
+			Status:      mismatch.Status,
+			WhoActs:     correlationTaskAssignee(correlation.Tasks.Tasks, mismatch.TaskID),
+			Thread:      mismatch.Thread,
+			TaskID:      mismatch.TaskID,
+			Source:      "correlation",
+			Why:         correlationSignalWhy(mismatch),
+			Session:     row.Name,
+			Profile:     row.Profile,
+			BodyPreview: mismatch.Detail,
+			NextAction:  nextAction,
+			ActionID:    actionID,
+		})
+	}
+	for _, blocker := range correlation.Evidence.Blockers {
+		blocker = strings.TrimSpace(blocker)
+		if blocker == "" {
+			continue
+		}
+		nextAction, actionID := nocAttentionSyntheticAction("threads", row)
+		out = append(out, nocAttentionItem{
+			Kind:        "release-evidence-blocker",
+			Urgency:     1,
+			Status:      correlation.Evidence.Status,
+			WhoActs:     "user",
+			Source:      "correlation.evidence",
+			Why:         blocker,
+			Session:     row.Name,
+			Profile:     row.Profile,
+			BodyPreview: evidenceBlockerPreview(correlation.Evidence),
+			NextAction:  nextAction,
+			ActionID:    actionID,
+		})
+	}
+	return out
+}
+
+func nocAttentionSyntheticAction(action string, row nocSessionJSONData) (string, string) {
+	if id := nocAttentionSessionActionID(row.Actions, action); id != "" {
+		return action, id
+	}
+	return "", ""
+}
+
+func correlationSignalUrgency(signal noc.CorrelationSignal) int {
+	switch strings.TrimSpace(signal.Status) {
+	case "warn":
+		return 1
+	case "capability_gap":
+		return 2
+	default:
+		if signal.Name == "dependency_gated_task" {
+			return 4
+		}
+		return 3
+	}
+}
+
+func correlationSignalWhy(signal noc.CorrelationSignal) string {
+	name := strings.ReplaceAll(strings.TrimSpace(signal.Name), "_", " ")
+	if strings.TrimSpace(signal.Detail) == "" {
+		return name
+	}
+	return name + ": " + strings.TrimSpace(signal.Detail)
+}
+
+func correlationTaskAssignee(tasks []noc.TaskItem, taskID string) string {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return ""
+	}
+	for _, task := range tasks {
+		if task.ID == taskID {
+			return task.AssignedTo
+		}
+	}
+	return ""
+}
+
+func evidenceBlockerPreview(e noc.EvidenceSummary) string {
+	var parts []string
+	if len(e.PRURLs) > 0 {
+		parts = append(parts, "PR "+e.PRURLs[0])
+	}
+	if len(e.HeadSHAs) > 0 {
+		parts = append(parts, "head "+e.HeadSHAs[0])
+	}
+	if len(e.LocalTests) > 0 {
+		parts = append(parts, "local tests present")
+	}
+	if len(e.CITests) > 0 {
+		parts = append(parts, "CI evidence present")
+	}
+	if e.HumanGateRequired {
+		parts = append(parts, "human gate open")
+	}
+	return strings.Join(parts, "; ")
 }
 
 func runtimeWorkerLive(correlation *noc.SessionCorrelation, handle string) bool {

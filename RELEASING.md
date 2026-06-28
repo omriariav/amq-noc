@@ -71,7 +71,7 @@ path round-trips the tag.
    For each issue on the release milestone:
 
    - close it when the merged release fully shipped or superseded it;
-   - move unfinished work to the next release milestone, for example `0.13.0`;
+   - move unfinished work to the next release milestone;
    - leave a short comment when closing a tracker as shipped/superseded rather
      than by a PR auto-close keyword.
 

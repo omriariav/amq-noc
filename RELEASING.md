@@ -18,7 +18,7 @@ path round-trips the tag.
    git fetch --all --prune --tags
    git switch main
    git pull --ff-only
-   git switch -c feat/v0.11.0
+   git switch -c feat/v0.12.0
    ```
 
 2. Confirm the public command surface is still narrow: `amq-noc`, `amq-noc noc`,
@@ -26,7 +26,18 @@ path round-trips the tag.
    unreachable.
 3. Update user-facing install references, usually the README `go install` tag,
    and any release notes or companion-version docs.
-4. Run the local gates:
+4. Check the release milestone before opening the PR:
+
+   ```sh
+   gh issue list --repo omriariav/amq-noc --state open --milestone 0.12.0
+   ```
+
+   Every issue in the milestone must be intentional release scope. Move backlog
+   that will not ship to the next milestone before the PR is reviewed. Prefer
+   `Closes #...` / `Fixes #...` references in the PR body for issues the PR
+   fully handles; otherwise plan a manual issue cleanup immediately after merge
+   and before tagging.
+5. Run the local gates:
 
    ```sh
    gofmt -l .
@@ -36,9 +47,9 @@ path round-trips the tag.
    make ci
    ```
 
-5. Commit the release candidate, push the release branch, and open a PR against
+6. Commit the release candidate, push the release branch, and open a PR against
    `main`.
-6. Review the PR before merging or tagging:
+7. Review the PR before merging or tagging:
 
    ```sh
    gh pr diff <number> --name-only
@@ -49,22 +60,39 @@ path round-trips the tag.
    Confirm the PR is the intended release diff, CI is green, required review is
    satisfied, and no unrelated work is included. If the review finds release
    risk or stale docs, update the branch and repeat the local gates.
-7. Merge the release PR, then fetch `main` and verify `HEAD` is the merge
+8. Merge the release PR, then fetch `main` and verify `HEAD` is the merge
    commit.
-8. Tag the merge commit:
+9. Resolve release issues and milestones before tagging:
+
+   ```sh
+   gh issue list --repo omriariav/amq-noc --state open --milestone 0.12.0
+   ```
+
+   For each issue on the release milestone:
+
+   - close it when the merged release fully shipped or superseded it;
+   - move unfinished work to the next release milestone, for example `0.13.0`;
+   - leave a short comment when closing a tracker as shipped/superseded rather
+     than by a PR auto-close keyword.
+
+   Do not tag while the release milestone still has open issues. Once the
+   milestone is empty, close the completed release milestone in GitHub. Also
+   close any previous completed milestone that is still open, and confirm the
+   next release milestone exists.
+10. Tag the merge commit:
 
    ```sh
    git switch main
    git pull --ff-only
-   git tag -a v0.11.0 -m "amq-noc v0.11.0"
-   git push origin v0.11.0
+   git tag -a v0.12.0 -m "amq-noc v0.12.0"
+   git push origin v0.12.0
    ```
 
-9. Create the GitHub release for the tag.
-10. Smoke test the published install path:
+11. Create the GitHub release for the tag.
+12. Smoke test the published install path:
 
    ```sh
-   make release-smoke VERSION=v0.11.0
+   make release-smoke VERSION=v0.12.0
    ```
 
    The smoke test installs `github.com/omriariav/amq-noc/cmd/amq-noc@VERSION`

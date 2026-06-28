@@ -14,7 +14,7 @@ func TestNOCHelpHasNoDeadKeys(t *testing.T) {
 	})
 	help := stdout + stderr
 
-	for _, dead := range []string{"(or J)", "COMMAND PALETTE", "palette", "press A to mute", "with 'A'", "c/D/i/v", "blocked / stale"} {
+	for _, dead := range []string{"(or J)", "COMMAND PALETTE", "palette", "press A to mute", "with 'A'", "c/D/i/v", "blocked / stale", "--actions", "--run-action", "flat action queue", "noc_actions"} {
 		if strings.Contains(help, dead) {
 			t.Errorf("noc --help still advertises removed/dead surface %q (issue #4.1)", dead)
 		}

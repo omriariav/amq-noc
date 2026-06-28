@@ -118,7 +118,7 @@ Usage:
   amq-noc version [--json]
 
 Commands:
-  noc       Multi-root NOC TUI, snapshots, action queue, and confirm-gated controls.
+  noc       Multi-root NOC TUI, snapshots, and confirm-gated operator controls.
   version   Print the amq-noc version.
 
 Global flags (accepted before or after the subcommand, until a literal "--"):
@@ -142,9 +142,8 @@ Examples:
   amq-noc --filter needs-you
   amq-noc --once --root ~/Code
   amq-noc --json --root ~/Code | jq .
-  amq-noc --actions --root ~/Code --filter needs-you
 
-Confirmed mutating actions remain preview-first and run through amq-squad.
+Mutating TUI controls remain preview-first and run through amq-squad.
 Run 'amq-noc noc --help' for all NOC options.
 `)
 }

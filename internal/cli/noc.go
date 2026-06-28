@@ -136,10 +136,7 @@ Usage:
   amq-noc noc [--root DIR ...] [--depth N] [--refresh 2s]
                 [--at-risk-wait 5m] [--review-age 15m] [--stale-after 72h]
                 [--filter EXPR] [--once] [--tree|--all] [--hide-stale]
-                [--show-stale] [--no-bell] [--json] [--actions [--action NAME[,NAME]]
-                [--action-id ID[,ID]] [--target-id ID[,ID]]
-                [--scope project,session,agent] [--mutating] [--commands]]
-                [--run-action ID_OR_NAME [--set key=value ...] [--dry-run] [--yes|-y]]
+                [--show-stale] [--no-bell] [--notify] [--json]
 
 A full-screen TUI ("network operations center") over EVERY discovered amq-squad
 project or candidate team-home under the given roots. Discovery includes
@@ -153,13 +150,12 @@ an agent.
 The NOC rewards LIVENESS: an online squad active just now sorts to the top, while
 a stopped squad whose only blocked threads are days old (older than --stale-after)
 is age-decayed to the bottom and rendered dim. The live TUI starts with stale
-squads hidden; press h to show them, or start with --show-stale. For --once,
---json, and --actions, use --hide-stale to opt into the same focused scope.
+squads hidden; press h to show them, or start with --show-stale. For --once
+and --json, use --hide-stale to opt into the same focused scope.
 
 When a session FIRST needs you (its needs-you count goes 0->N) the NOC rings the
 terminal bell once and shows a banner; start muted with --no-bell. The banner
-clears on the next keypress. (The same actions are scriptable as --action names;
-see the --actions/--action/--run-action surface below.)
+clears on the next keypress.
 
 Mutating control keys are preview-first and confirm-gated. Press T on a project, session,
 or agent row to type a team spec (role IDs, market numbers, all, with optional
@@ -184,7 +180,7 @@ drained, or sent a prompt (press p to deliver a typed prompt to the agent's
 pane via amq-squad send); press v for a read-only latest-output preview and o
 to focus the agent's pane after a confirm. Needs-you rows can be approved,
 replied to, or denied. Squad rows can receive broadcasts or lifecycle controls. The live
-footer shows only actions currently valid for the selected row; press ? for the
+footer shows only controls currently valid for the selected row; press ? for the
 full, always-current key map.
 
 --filter accepts the same typed filter as the TUI: needs-you, needs-user,
@@ -198,37 +194,10 @@ appear) or the current directory. The TUI renders to /dev/tty; stdout stays
 clean. With --once it renders a rollup digest (needs-attention + project
 rollups) to STDOUT; add --tree (or --all) for the full expansion.
 With --json it emits a noc_snapshot envelope to STDOUT and exits, including
-top thread summaries plus read-only and confirm-required action commands for
-projects, sessions, and agents. Project rows with a session store include amq_env for AMQ env JSON and amq_who for AMQ session and agent inventory. Configured team project rows include team_rules for durable team-rules.md inspection. Team/create-capable project rows include a read-only roles action so
-the role market is discoverable from the same queue. Session rows include
-brief for the full workstream brief, confirm-required brief_seed to write one, presence for AMQ presence list, amq_ops for AMQ doctor --ops, and confirm-required amq_cleanup for stale AMQ tmp-file cleanup; needs-you session and agent rows include
-read-only thread_context plus confirm-required read_needs_you, reply, approve,
-and deny actions for the top human-needed thread. read_needs_you uses AMQ read,
-so it moves unread mail to cur like AMQ read does. Session rows also include
-confirm-required broadcast actions; agent rows include inbox, receipts, receipts_wait, dlq, confirm-gated
-dlq_read, dlq_retry, dlq_retry_all, dlq_purge, message, message_wait, and drain actions over that agent's AMQ mailbox. With --actions it emits just the
-flat action queue; add --json for a noc_actions envelope. Add --action
-doctor,history,resume_plan,fork_plan,status,amq_env,amq_who,route_explain,roles,team_rules,team_profiles,delete_team,threads,thread_context_any,brief,brief_seed,presence,amq_ops,amq_cleanup,stop,resume,restart,new_team,new_profile,new_session,sync_pointers,thread_context,read_needs_you,reply,approve,deny,dlq,dlq_read,dlq_retry,dlq_retry_all,dlq_purge,receipts,receipts_wait,inbox,message,message_wait,broadcast,archive,remove,agent_resume, --action-id,
---target-id, --scope, or --mutating to narrow that queue. Add --commands for one selected
-command per line. Add --run-action ID_OR_NAME to execute exactly one action;
-mutating actions preview and prompt unless --yes is set. Exact action IDs always
-win; otherwise the action name must resolve uniquely after --filter and
---hide-stale are applied. Template actions such as resume_plan, fork_plan, new_team, new_profile,
-new_session, delete_team, brief_seed, sync_pointers, reply, deny, message, message_wait, broadcast, amq_cleanup, dlq_read, dlq_retry, dlq_purge, receipts_wait, and mixed-profile resume accept --set
-key=value values for placeholders; new_team/new_profile accept optional
-session=<name>, role=binary inside roles, or optional binary=role=cli,...
-overrides. sync_pointers accepts optional allow-outside=true; brief_seed accepts optional force=true. Optional
---session, --binary, --force, and --allow-outside flags are omitted when not set. JSON
-actions expose a vars array naming required values, optional values, derived
-values such as tmux-session from session, and choices when known for profile or
-boolean variables. Open-ended values include examples, such as role selections.
-The actions table marks known choices in the VARS column. Unknown --set keys are
-rejected before execution; values with published choices must match one of those
-choices. Add --dry-run to render without running; add --json with --dry-run for
-a noc_action_plan envelope. Creation
-template values are preflighted locally for session/profile slug validity, brief
-seed reference shape, role selections, binary overrides, and duplicates across
-the selected profile's team-home and member AMQ roots before execution.
+rollups, attention_queue, project/session/agent metadata, lead orchestration
+fields, and AMQ/team contract metadata needed by dashboards. The JSON snapshot
+is an observation surface; operator controls remain in the live TUI where
+preview and confirmation flows protect mutating work.
 In the live TUI, T (new-team) accepts optional initial sessions such as
 "cto,qa,session=issue-96", and N (new-session) accepts inline seeds such as
 "issue-97 seed-from=issue:31" before preview.
@@ -239,36 +208,11 @@ Examples:
   amq-noc noc --filter needs-you
   amq-noc noc --once | less -R
   amq-noc noc --json | jq .
-  amq-noc noc --actions --filter needs-you
-  amq-noc noc --actions --action threads --commands
-  amq-noc noc --actions --action team_rules --commands
-  amq-noc noc --actions --action amq_env --commands
-  amq-noc noc --actions --action amq_who --commands
-  amq-noc noc --actions --action presence --commands
-  amq-noc noc --actions --filter needs-you --action thread_context,read_needs_you,reply,approve,deny
-  amq-noc noc --actions --action resume --mutating
-  amq-noc noc --actions --action message,broadcast
-  amq-noc noc --filter session:issue-96 --run-action amq_cleanup --set tmp-older-than=36h --yes
-  amq-noc noc --actions --action dlq --commands
-  amq-noc noc --filter agent:cto --run-action dlq_retry --set dlq-id=dlq_123 --yes
-  amq-noc noc --filter agent:cto --run-action dlq_purge --set older-than=168h --yes
-  amq-noc noc --actions --action receipts --commands
-  amq-noc noc --filter agent:cto --run-action receipts_wait --set msg-id=msg_123 --set stage=drained --set timeout=60s
-  amq-noc noc --actions --action inbox --commands
-  amq-noc noc --filter agent:cto --run-action message_wait --set body='Please check status' --set timeout=60s --yes
-  amq-noc noc --actions --target-id 'session|/repo/app|issue-96' --scope session
-  amq-noc noc --actions --action archive,remove --commands
-  amq-noc noc --actions --action resume --commands
-  amq-noc noc --run-action sync_pointers --set profile=review --set allow-outside=true --yes
-  amq-noc noc --actions --json | jq .
-  amq-noc noc --filter project:app --run-action new_session --set session=issue-97 --dry-run --json
-  amq-noc noc --filter project:app --run-action new_session --set session=issue-97 --set seed-from=issue:31 --yes
-  amq-noc noc --run-action 'project|/repo/app|action|new_team' --set roles=cto,qa --set session=issue-96 --yes
-  amq-noc noc --run-action 'agent|/repo/app|issue-96|cto|action|message' --set body='Please check status' --yes
   amq-noc noc --once --tree
   amq-noc noc --hide-stale --stale-after 24h
   amq-noc noc --show-stale
   amq-noc noc --no-bell
+  amq-noc noc --notify
 `)
 	}
 	if err := parseFlags(fs, args); err != nil {
@@ -452,8 +396,7 @@ func executeNOC(s nocExecution) error {
 		ms = filterNOCSnapshot(ms, s.Filter, s.HideStale)
 		noc.EnrichHealth(&ms, nil)
 		noc.EnrichCorrelations(&ms, nil)
-		env := nocSnapshotEnvelope(ms, s.Filter, s.HideStale)
-		applyRuntimeActions(&env, s.RuntimeFetch)
+		env := nocSnapshotEnvelopeWithoutActions(ms, s.Filter, s.HideStale)
 		return writeJSONEnvelope(s.Out, "noc_snapshot", env)
 	}
 
@@ -524,8 +467,8 @@ type nocSnapshotEnvelopeData struct {
 	HideStale           bool                 `json:"hide_stale,omitempty"`
 	ProjectCount        int                  `json:"project_count"`
 	LiveProjects        int                  `json:"live_projects"`
-	ActionCount         int                  `json:"action_count"`
-	MutatingActionCount int                  `json:"mutating_action_count"`
+	ActionCount         int                  `json:"action_count,omitempty"`
+	MutatingActionCount int                  `json:"mutating_action_count,omitempty"`
 	LastActivity        *time.Time           `json:"last_activity,omitempty"`
 	Rollup              nocRollupData        `json:"rollup"`
 	Actions             []nocActionJSONData  `json:"actions,omitempty"`
@@ -781,25 +724,36 @@ func scopedNOCProject(ps noc.ProjectSnapshot, filter string) (noc.ProjectSnapsho
 }
 
 func nocSnapshotEnvelope(ms noc.MultiSnapshot, filter string, hideStale bool) nocSnapshotEnvelopeData {
+	return nocSnapshotEnvelopeWithActions(ms, filter, hideStale, true)
+}
+
+func nocSnapshotEnvelopeWithoutActions(ms noc.MultiSnapshot, filter string, hideStale bool) nocSnapshotEnvelopeData {
+	return nocSnapshotEnvelopeWithActions(ms, filter, hideStale, false)
+}
+
+func nocSnapshotEnvelopeWithActions(ms noc.MultiSnapshot, filter string, hideStale bool, includeActions bool) nocSnapshotEnvelopeData {
 	projects := make([]nocProjectJSONData, 0, len(ms.Projects))
 	for _, ps := range ms.Projects {
-		projects = append(projects, nocProjectEnvelope(ps))
+		projects = append(projects, nocProjectEnvelopeWithActions(ps, includeActions))
 	}
-	actions := nocFlatActions(projects)
-	return nocSnapshotEnvelopeData{
-		Roots:               append([]string(nil), ms.Roots...),
-		ObservedAt:          ms.ObservedAt,
-		Filter:              strings.TrimSpace(filter),
-		HideStale:           hideStale,
-		ProjectCount:        len(ms.Projects),
-		LiveProjects:        ms.LiveProjects,
-		ActionCount:         len(actions),
-		MutatingActionCount: nocMutatingActionCount(actions),
-		LastActivity:        jsonTimePtr(ms.LastActivity),
-		Rollup:              nocRollupEnvelope(ms.Rollup),
-		Actions:             actions,
-		Projects:            projects,
+	env := nocSnapshotEnvelopeData{
+		Roots:        append([]string(nil), ms.Roots...),
+		ObservedAt:   ms.ObservedAt,
+		Filter:       strings.TrimSpace(filter),
+		HideStale:    hideStale,
+		ProjectCount: len(ms.Projects),
+		LiveProjects: ms.LiveProjects,
+		LastActivity: jsonTimePtr(ms.LastActivity),
+		Rollup:       nocRollupEnvelope(ms.Rollup),
+		Projects:     projects,
 	}
+	if includeActions {
+		actions := nocFlatActions(projects)
+		env.ActionCount = len(actions)
+		env.MutatingActionCount = nocMutatingActionCount(actions)
+		env.Actions = actions
+	}
+	return env
 }
 
 func nocActionsEnvelope(env nocSnapshotEnvelopeData) nocActionsEnvelopeData {
@@ -2215,16 +2169,20 @@ func nocMutatingActionCount(actions []nocActionJSONData) int {
 }
 
 func nocProjectEnvelope(ps noc.ProjectSnapshot) nocProjectJSONData {
+	return nocProjectEnvelopeWithActions(ps, true)
+}
+
+func nocProjectEnvelopeWithActions(ps noc.ProjectSnapshot, includeActions bool) nocProjectJSONData {
 	sessions := make([]nocSessionJSONData, 0, len(ps.Snap.Sessions))
 	live, total := 0, 0
 	for _, sess := range ps.Snap.Sessions {
-		row := nocSessionEnvelope(ps, sess)
+		row := nocSessionEnvelopeWithActions(ps, sess, includeActions)
 		live += row.AgentsAlive
 		total += row.AgentsTotal
 		sessions = append(sessions, row)
 	}
 	projectID := nocProjectJSONID(ps.Dir)
-	return nocProjectJSONData{
+	row := nocProjectJSONData{
 		ID:             projectID,
 		Project:        ps.Project,
 		Dir:            ps.Dir,
@@ -2254,8 +2212,11 @@ func nocProjectEnvelope(ps noc.ProjectSnapshot) nocProjectJSONData {
 		LastActivity: jsonTimePtr(nocProjectLastActivity(ps)),
 		Rollup:       nocRollupEnvelope(ps.Snap.Rollup),
 		Sessions:     sessions,
-		Actions:      nocProjectActions(ps, projectID, len(sessions)),
 	}
+	if includeActions {
+		row.Actions = nocProjectActions(ps, projectID, len(sessions))
+	}
+	return row
 }
 
 func nocProjectBaseRoot(ps noc.ProjectSnapshot) string {
@@ -2298,6 +2259,10 @@ func nocSessionCorrelationPtr(ps noc.ProjectSnapshot, session string) *noc.Sessi
 }
 
 func nocSessionEnvelope(ps noc.ProjectSnapshot, sess state.Session) nocSessionJSONData {
+	return nocSessionEnvelopeWithActions(ps, sess, true)
+}
+
+func nocSessionEnvelopeWithActions(ps noc.ProjectSnapshot, sess state.Session, includeActions bool) nocSessionJSONData {
 	agents := make([]nocAgentJSONData, 0, len(sess.Agents))
 	liveVisible, liveOperational := 0, 0
 	ns := noc.ResolveNamespace(ps.Dir, sess.TeamProfile, sess.Name)
@@ -2319,7 +2284,7 @@ func nocSessionEnvelope(ps noc.ProjectSnapshot, sess state.Session) nocSessionJS
 		}
 		agentNS := ns
 		agentNS.Paths.LaunchRecord = ag.LaunchRecordPath
-		agents = append(agents, nocAgentJSONData{
+		agentRow := nocAgentJSONData{
 			Handle:          ag.Handle,
 			Role:            ag.Role,
 			Engine:          ag.Engine,
@@ -2336,8 +2301,11 @@ func nocSessionEnvelope(ps noc.ProjectSnapshot, sess state.Session) nocSessionJS
 			LaunchRecord:    ag.LaunchRecordPath,
 			IsLead:          ag.IsLead,
 			ID:              nocAgentJSONID(ps.Dir, sess.TeamProfile, sess.Name, ag.Handle),
-			Actions:         nocAgentActions(ps, sess, ag),
-		})
+		}
+		if includeActions {
+			agentRow.Actions = nocAgentActions(ps, sess, ag)
+		}
+		agents = append(agents, agentRow)
 	}
 	threads := threadRows(sess.Coordination.Threads)
 	threadCount := len(threads)
@@ -2345,7 +2313,10 @@ func nocSessionEnvelope(ps noc.ProjectSnapshot, sess state.Session) nocSessionJS
 		threads = threads[:defaultThreadsLimit]
 	}
 	sessionAttention := nocSessionPrimaryAttentionDetail(sess)
-	actions := nocSessionActions(ps, sess, sessionID, liveOperational, len(agents))
+	var actions []nocActionJSONData
+	if includeActions {
+		actions = nocSessionActions(ps, sess, sessionID, liveOperational, len(agents))
+	}
 	correlation := nocSessionCorrelationPtr(ps, sess.Name)
 	row := nocSessionJSONData{
 		ID:              sessionID,

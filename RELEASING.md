@@ -108,8 +108,8 @@ with the tag you push.
 
 ## Notes
 
-- `amq-noc` is the NOC and dispatcher surface. Confirmed mutating actions remain
-  preview-first and confirm-gated, and squad lifecycle/config actions are
+- `amq-noc` is the NOC and operator surface. Confirmed mutating controls remain
+  preview-first and confirm-gated, and squad lifecycle/config commands are
   delegated to the installed `amq-squad` CLI; releasing `amq-noc` does not
   release `amq-squad`.
 - A major version bump (1.x and beyond) is out of scope for the 0.x line. When

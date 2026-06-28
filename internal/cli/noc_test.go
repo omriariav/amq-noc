@@ -1083,6 +1083,10 @@ func TestRunNOCJSONEnvelope(t *testing.T) {
 	if project.Project != "p" {
 		t.Errorf("project = %q, want p", project.Project)
 	}
+	if env.Data.ActionCount != 0 || env.Data.MutatingActionCount != 0 || len(env.Data.Actions) != 0 ||
+		len(project.Actions) != 0 || strings.Contains(stdout, `"action_count"`) || strings.Contains(stdout, `"actions"`) {
+		t.Fatalf("normal noc --json must not expose the legacy action queue:\n%s", stdout)
+	}
 	if project.State != "stopped" {
 		t.Errorf("project state = %q, want stopped", project.State)
 	}
@@ -1096,6 +1100,9 @@ func TestRunNOCJSONEnvelope(t *testing.T) {
 	agent := session.Agents[0]
 	if agent.Handle != "cto" || agent.TeamProfile != "default" {
 		t.Errorf("agent = %+v, want cto default profile", agent)
+	}
+	if len(session.Actions) != 0 || len(agent.Actions) != 0 {
+		t.Fatalf("normal noc --json nested rows must not expose actions: session=%+v agent=%+v", session.Actions, agent.Actions)
 	}
 	if containsCLI(stdout, "amq-noc NOC") {
 		t.Fatalf("noc --json leaked human NOC render:\n%s", stdout)

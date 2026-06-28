@@ -1982,13 +1982,13 @@ func (m NOCModel) footerView() string {
 		b.WriteString("\n")
 	}
 	// The control-key legend is a second footer row, CONTEXT-SENSITIVE (#4.2): it
-	// shows only the mutating actions valid for the SELECTED row's kind, so the
+	// shows only the mutating controls valid for the SELECTED row's kind, so the
 	// operator is not taught keys that do nothing here. The full key map is one
 	// keypress away under ? (the nav row above advertises it).
 	ascii := m.colorMode == ColorAscii
 	control := m.controlFooterLegendForSelection(ascii)
 	if control == "" {
-		control = "no actions for this row (select a squad with work; ? for all keys)"
+		control = "no controls for this row (select a squad with work; ? for all keys)"
 	}
 	lines := m.wrapFooterLine(control)
 	for i, line := range lines {

@@ -128,6 +128,9 @@ func TestExecuteNOC_PassesRootsAndThresholds(t *testing.T) {
 	if cap.cfg.ProjectDoctor == nil {
 		t.Error("ProjectDoctor seam should be wired")
 	}
+	if cap.cfg.ProjectHistory == nil {
+		t.Error("ProjectHistory seam should be wired")
+	}
 	if cap.cfg.TeamRules == nil {
 		t.Error("TeamRules seam should be wired")
 	}
@@ -185,6 +188,16 @@ func TestNOCTerminalSessionNameScopesProjectAndWorkstream(t *testing.T) {
 	want := "amq-squad-my-project-api-issue-200"
 	if got != want {
 		t.Fatalf("nocTerminalSessionName = %q, want %q", got, want)
+	}
+}
+
+func TestConsoleProjectHistoryRejectsEmptyProject(t *testing.T) {
+	_, err := consoleProjectHistory(console.ProjectHistoryRequest{})
+	if err == nil {
+		t.Fatal("empty project history request should fail")
+	}
+	if !strings.Contains(err.Error(), "project dir cannot be empty") {
+		t.Fatalf("empty project history error = %v", err)
 	}
 }
 

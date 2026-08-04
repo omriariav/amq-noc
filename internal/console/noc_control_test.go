@@ -898,6 +898,40 @@ func TestAdaptAgentResumeCarriesScope(t *testing.T) {
 	}
 }
 
+func TestAdaptProjectHistoryCarriesProjectDir(t *testing.T) {
+	var got ProjectHistoryRequest
+	fn := adaptProjectHistory(func(req ProjectHistoryRequest) (ProjectHistoryResult, error) {
+		got = req
+		return ProjectHistoryResult{ProjectDir: req.ProjectDir, Output: "history"}, nil
+	})
+	res, err := fn(projectHistoryOp{ProjectDir: "/tmp/team"})
+	if err != nil {
+		t.Fatalf("adaptProjectHistory: %v", err)
+	}
+	if got.ProjectDir != "/tmp/team" {
+		t.Fatalf("ProjectHistoryRequest mismatch: %+v", got)
+	}
+	if res.ProjectDir != "/tmp/team" || res.Output != "history" {
+		t.Fatalf("project history result mismatch: %+v", res)
+	}
+}
+
+// TestProjectHistoryCommandDoesNotClaimAMQSquadRan is the F1 regression: the
+// project-history scan is local (reads launch.json directly; amq-squad's
+// `history` verb is gone in 2.28 and this never shelled it out even before
+// 2.28), so its rendered command must not claim an amq-squad invocation ran.
+func TestProjectHistoryCommandDoesNotClaimAMQSquadRan(t *testing.T) {
+	op := projectHistoryOp{ProjectDir: "/tmp/team"}
+	got := op.command()
+	if strings.Contains(got, "amq-squad") {
+		t.Fatalf("projectHistoryOp.command() = %q, must not claim an amq-squad invocation", got)
+	}
+	want := "amq-noc (local) history --project /tmp/team"
+	if got != want {
+		t.Fatalf("projectHistoryOp.command() = %q, want %q", got, want)
+	}
+}
+
 func TestAdaptStatusCarriesRequest(t *testing.T) {
 	var got StatusRequest
 	fn := adaptStatus(func(req StatusRequest) (StatusResult, error) {

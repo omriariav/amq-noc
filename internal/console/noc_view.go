@@ -110,6 +110,9 @@ func (m *NOCModel) View() string {
 	if m.projectDoctorResult != nil {
 		return m.overlayFrame(m.projectDoctorResultOverlayView())
 	}
+	if m.projectHistoryResult != nil {
+		return m.overlayFrame(m.projectHistoryResultOverlayView())
+	}
 	if m.teamRulesResult != nil {
 		return m.overlayFrame(m.teamRulesResultOverlayView())
 	}

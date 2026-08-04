@@ -17,6 +17,7 @@ func TestPalette_IncludesProjectAndCreationActions(t *testing.T) {
 		"beta/action/amq-env",
 		"beta/action/amq-who",
 		"beta/action/doctor",
+		"beta/action/history",
 		"beta/action/resume-plan",
 		"beta/action/roles",
 		"beta/action/team-rules",
@@ -65,6 +66,7 @@ func TestPalette_IncludesProjectAndCreationActions(t *testing.T) {
 		"empty-team/project",
 		"empty-team/action/status",
 		"empty-team/action/doctor",
+		"empty-team/action/history",
 		"empty-team/action/resume-plan",
 		"empty-team/action/roles",
 		"empty-team/action/team-rules",
@@ -91,6 +93,7 @@ func TestPalette_ActionAliasesFindCreationRows(t *testing.T) {
 		tag   string
 	}{
 		{query: "beta doctor health", label: "beta/action/doctor", tag: "doctor"},
+		{query: "beta history", label: "beta/action/history", tag: "history"},
 		{query: "beta resume plan", label: "beta/action/resume-plan", tag: "resume plan"},
 		{query: "beta amq env", label: "beta/action/amq-env", tag: "AMQ env"},
 		{query: "beta amq who", label: "beta/action/amq-who", tag: "AMQ who"},

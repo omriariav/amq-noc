@@ -41,6 +41,7 @@ type paletteAction int
 const (
 	palNoAction paletteAction = iota
 	palDoctor
+	palHistory
 	palResumePlan
 	palForkPlan
 	palStatus
@@ -762,6 +763,17 @@ func appendProjectActionItems(items []paletteItem, ps noc.ProjectSnapshot) []pal
 				snapshot:   ps,
 			})
 	}
+	if ps.TeamConfigured || ps.SessionStore || len(ps.Snap.Sessions) > 0 {
+		items = append(items, paletteItem{
+			kind:       palAction,
+			label:      ps.Project + "/action/history",
+			search:     ps.Project + " history launch records restorable restore previous sessions recovery",
+			action:     palHistory,
+			project:    ps.Project,
+			projectDir: ps.Dir,
+			snapshot:   ps,
+		})
+	}
 	items = appendProjectResumePlanActions(items, ps)
 	if ps.TeamConfigured {
 		items = append(items, paletteItem{
@@ -1055,6 +1067,9 @@ func (m *NOCModel) paletteAction(it paletteItem) tea.Cmd {
 	case palDoctor:
 		m.selectPaletteProject(it)
 		return m.beginProjectDoctorFor(it.projectDir)
+	case palHistory:
+		m.selectPaletteProject(it)
+		return m.beginProjectHistoryFor(it.projectDir)
 	case palResumePlan:
 		m.selectPaletteProject(it)
 		return m.beginProjectResumePlanFor(it.projectDir, it.profile)
@@ -1351,6 +1366,8 @@ func paletteActionLabel(it paletteItem) string {
 	switch it.action {
 	case palDoctor:
 		return "doctor"
+	case palHistory:
+		return "history"
 	case palResumePlan:
 		return "resume plan"
 	case palForkPlan:

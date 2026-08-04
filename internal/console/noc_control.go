@@ -824,6 +824,35 @@ type projectDoctorResultOverlay struct {
 	result  projectDoctorResult
 }
 
+// projectHistoryOp is the exact effect a NOC project-history action runs. It
+// is read-only and NOT an amq-squad command: amq-squad's `history` verb was
+// removed in 2.28 with no replacement, and this NOC-side scan of local
+// launch.json records (consoleProjectHistory in cli) never shelled it out
+// even before 2.28. command() renders that honestly - "amq-noc (local)", not
+// a fake `amq-squad history` invocation - matching the same local-action
+// treatment as forkPlanOp/briefOp/briefSeedOp.
+type projectHistoryOp struct {
+	ProjectDir string
+}
+
+func (op projectHistoryOp) command() string {
+	parts := []string{"amq-noc (local)", "history"}
+	if strings.TrimSpace(op.ProjectDir) != "" {
+		parts = append(parts, "--project", shellToken(op.ProjectDir))
+	}
+	return strings.Join(parts, " ")
+}
+
+type projectHistoryResult struct {
+	ProjectDir string
+	Output     string
+}
+
+type projectHistoryResultOverlay struct {
+	preview string
+	result  projectHistoryResult
+}
+
 // teamRulesOp is the exact amq-squad team-rules read effect a NOC project
 // action runs. It is read-only.
 type teamRulesOp struct {
@@ -1752,6 +1781,30 @@ func (m *NOCModel) beginProjectDoctorFor(projectDir string) tea.Cmd {
 	}
 	m.projectDoctorResult = &projectDoctorResultOverlay{preview: op.command(), result: res}
 	m.actNote = "DOCTOR read: " + op.command()
+	return nil
+}
+
+func (m *NOCModel) beginProjectHistoryFor(projectDir string) tea.Cmd {
+	projectDir = strings.TrimSpace(projectDir)
+	if projectDir == "" {
+		m.actNote = "history: selected project has no directory"
+		return nil
+	}
+	op := projectHistoryOp{ProjectDir: projectDir}
+	if m.projectHistory == nil {
+		m.actNote = "history unavailable in this context (no project history backend)"
+		return nil
+	}
+	res, err := m.projectHistory(op)
+	if err != nil {
+		m.actNote = "history failed: " + err.Error()
+		return nil
+	}
+	if strings.TrimSpace(res.ProjectDir) == "" {
+		res.ProjectDir = projectDir
+	}
+	m.projectHistoryResult = &projectHistoryResultOverlay{preview: op.command(), result: res}
+	m.actNote = "HISTORY read: " + op.command()
 	return nil
 }
 
@@ -3158,6 +3211,7 @@ func (m *NOCModel) handleResultKey(key string) (tea.Model, tea.Cmd) {
 		m.roleMarket = nil
 		m.teamProfiles = nil
 		m.projectDoctorResult = nil
+		m.projectHistoryResult = nil
 		m.teamRulesResult = nil
 		m.projectResumePlanResult = nil
 		m.forkPlanResult = nil
@@ -4622,6 +4676,37 @@ func (m NOCModel) projectDoctorResultOverlayView() string {
 	output := strings.TrimRight(p.result.Output, "\n")
 	if output == "" {
 		output = "(no doctor output)"
+	}
+	b.WriteString(m.th.paint(m.th.brand, output))
+	b.WriteString("\n")
+	b.WriteString(m.th.paint(m.th.rule, m.thinRule()))
+	b.WriteString("\n")
+	b.WriteString(m.th.paint(m.th.needsYou, "enter close | esc close"))
+	return b.String()
+}
+
+// projectHistoryResultOverlayView renders launch-history records after a
+// read-only project-history inspection completes.
+func (m NOCModel) projectHistoryResultOverlayView() string {
+	p := m.projectHistoryResult
+	var b strings.Builder
+	b.WriteString(m.th.paint(m.th.needsYou, "HISTORY"))
+	b.WriteString("\n")
+	b.WriteString(m.th.paint(m.th.rule, m.thinRule()))
+	b.WriteString("\n")
+	if dir := strings.TrimSpace(p.result.ProjectDir); dir != "" {
+		b.WriteString(m.th.paint(m.th.dim, "project: "+dir))
+		b.WriteString("\n")
+	}
+	if preview := strings.TrimSpace(p.preview); preview != "" {
+		b.WriteString(m.th.paint(m.th.dim, "ran: "+preview))
+		b.WriteString("\n")
+	}
+	b.WriteString(m.th.paint(m.th.dim, "output:"))
+	b.WriteString("\n")
+	output := strings.TrimRight(p.result.Output, "\n")
+	if output == "" {
+		output = "(no history output)"
 	}
 	b.WriteString(m.th.paint(m.th.brand, output))
 	b.WriteString("\n")

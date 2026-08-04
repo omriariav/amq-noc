@@ -167,6 +167,9 @@ type NOCModel struct {
 	// projectDoctorResult is a read-only result overlay for project doctor
 	// output, opened from project/action/doctor.
 	projectDoctorResult *projectDoctorResultOverlay
+	// projectHistoryResult is a read-only result overlay for local launch
+	// history, opened from project/action/history.
+	projectHistoryResult *projectHistoryResultOverlay
 	// teamRulesResult is a read-only result overlay for durable team norms,
 	// opened from project/action/team-rules.
 	teamRulesResult *teamRulesResultOverlay
@@ -307,6 +310,7 @@ type NOCModel struct {
 	amqEnv            func(amqEnvOp) (amqEnvResult, error)
 	presence          func(presenceOp) (presenceResult, error)
 	projectDoctor     func(projectDoctorOp) (projectDoctorResult, error)
+	projectHistory    func(projectHistoryOp) (projectHistoryResult, error)
 	teamRules         func(teamRulesOp) (teamRulesResult, error)
 	projectResumePlan func(projectResumePlanOp) (projectResumePlanResult, error)
 	forkPlan          func(forkPlanOp) (forkPlanResult, error)

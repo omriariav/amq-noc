@@ -447,6 +447,7 @@ func executeNOC(s nocExecution) error {
 	cfg.AMQEnv = consoleAMQEnv
 	cfg.Presence = consolePresence
 	cfg.ProjectDoctor = consoleProjectDoctor
+	cfg.ProjectHistory = consoleProjectHistory
 	cfg.TeamRules = consoleTeamRules
 	cfg.ProjectResumePlan = consoleProjectResumePlan
 	cfg.ForkPlan = consoleForkPlan
@@ -3975,6 +3976,21 @@ func consoleAgentResume(req console.AgentResumeRequest) error {
 	return delegateSquad(req.ProjectDir, args...)
 }
 
+// consoleAgentResumeArgs builds the `amq-squad agent resume` argv for a
+// confirmed single-agent resume action. It mirrors agentResumeOp.command() so
+// the confirmed preview and the executed argv stay in lockstep. This
+// deliberately stays on the internal `agent resume <role>` verb rather than
+// the public `resume --role <role> --exec`: amq-squad 2.28 hides `agent` from
+// --help/completion but keeps it fully dispatchable, and it replays the saved
+// launch record into the TEAM's own tmux session, matching what the operator
+// expects from a single-agent restore. Public `resume --exec` with no
+// --target defaults to current-window, which from inside the live TUI would
+// spawn the restored agent into the NOC's own AltScreen instead - the exact
+// hijack consoleResumeArgs avoids by always pinning --target new-session.
+// Operator-facing COPY suggestions (nocAgentResumeCommand, and
+// agentCommandActions in noc_view.go) intentionally use the public `resume
+// --role --exec` form instead: a human running those from their own shell
+// gets amq-squad's normal current-window placement, which is correct there.
 func consoleAgentResumeArgs(req console.AgentResumeRequest) ([]string, error) {
 	role := strings.TrimSpace(req.Role)
 	if role == "" {
@@ -4688,6 +4704,26 @@ func consoleProjectDoctor(req console.ProjectDoctorRequest) (console.ProjectDoct
 		}
 	}
 	return console.ProjectDoctorResult{ProjectDir: projectDir, Output: out.String()}, nil
+}
+
+// consoleProjectHistory scans local launch.json records for restorable
+// history. This is NOT amq-squad history (that verb no longer exists in
+// 2.28, and this NOC-side scan never shelled it out even before 2.28) - it
+// reads .agent-mail extension launch records directly via scanHistoryEntries.
+// projectHistoryOp.command() renders that honestly as a local action, not a
+// fake `amq-squad history` invocation.
+func consoleProjectHistory(req console.ProjectHistoryRequest) (console.ProjectHistoryResult, error) {
+	projectDir := strings.TrimSpace(req.ProjectDir)
+	if projectDir == "" {
+		return console.ProjectHistoryResult{}, fmt.Errorf("project dir cannot be empty")
+	}
+	entries := scanHistoryEntries([]string{projectDir})
+	sortRestorableEntries(entries)
+	var out bytes.Buffer
+	if err := writeHistoryTable(&out, historyRecordsFromEntries(entries)); err != nil {
+		return console.ProjectHistoryResult{}, err
+	}
+	return console.ProjectHistoryResult{ProjectDir: projectDir, Output: out.String()}, nil
 }
 
 func consoleTeamRules(req console.TeamRulesRequest) (console.TeamRulesResult, error) {

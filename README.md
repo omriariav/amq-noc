@@ -157,8 +157,11 @@ Requirements:
 - `amq` v0.51.1 or newer (amq-squad 2.26+ hard-requires this floor) for the
   reserved human operator and exported environment contracts
 - `amq-squad` v2.28.0 or newer: Simple Mode's lifecycle verbs (`start` / `down`
-  / `resume`) replaced `up` / `stop` / `agent`, and `history` was removed with
-  no replacement; amq-noc's composed fallback commands target this surface
+  / `resume`) replaced `up` / `stop`; `history` was removed with no
+  replacement; `agent` was NOT removed - it's hidden from `--help`/completion
+  as an internal child launch/restore boundary, and amq-noc's single-agent
+  restore deliberately still executes `agent resume` on it. amq-noc's
+  composed fallback commands target this surface
 - `tmux`
 
 ## Quick Start

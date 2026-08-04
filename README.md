@@ -334,7 +334,12 @@ operator DIRECTIVE norm:
 go install github.com/omriariav/amq-squad/cmd/amq-squad@v2.28.0
 ```
 
-Older `amq-squad` builds keep deterministic fallback copy commands.
+Published runtime actions are still rendered verbatim regardless of what the
+installed `amq-squad` build advertises. The NOC's own composed fallback
+commands, however, target the 2.28 Simple Mode CLI surface (`start`/`down`,
+no `up`/`stop`/`archive`/`rm`/`fork`/`brief`); an older, below-floor
+`amq-squad` install is flagged as a capability error by health rather than
+silently handed a fallback command shape it cannot run.
 
 `amq-squad` 2.28 also changed the default `--trust` posture for fresh Codex
 launches from `sandboxed` to `approve-for-me`. amq-noc does not pin `--trust`

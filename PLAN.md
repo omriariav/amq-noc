@@ -21,15 +21,28 @@ internal child launch/restore boundary:
   human running it by hand answers `start`'s own prompt) and `stop` -> `down`.
   The composed "restart" flow already ran stop-then-resume, so it only needed
   the verb rename. `agent resume <role>` is UNCHANGED on the real exec seam
-  (still hidden-but-functional); only operator-facing COPY suggestions were
-  repointed at the public `resume --role <role> --exec` form.
+  (consoleAgentResumeArgs, agentResumeOp.command() - still hidden-but-
+  functional, and it replays into the team's own tmux session, which public
+  `resume --exec` with no `--target` cannot do safely from inside the live TUI
+  since its current-window default would hijack the NOC's own AltScreen);
+  only operator-facing COPY suggestions (nocAgentResumeCommand,
+  agentCommandActions) were repointed at the public `resume --role <role>
+  --exec` form, which is correct for a human running them from their own
+  shell. Single-agent restore staying on amq-squad's internal `agent resume`
+  boundary (2.28's public `resume` has no per-role placement contract of its
+  own) is an upstream ask candidate.
 - Removed with no replacement (2.28 has none, none invented): the `history`
-  project action; session `archive`/`remove` (Del is now project-scoped only);
-  the `fork_plan` and `brief`/`brief_seed` session actions' composed command
-  text (the underlying NOC features are local reimplementations - fork-plan
-  via `executeResume(resumeModeFresh)`, brief read/seed via local file I/O -
-  and stay fully functional; their TUI preview text no longer falsely claims
-  a shelled `amq-squad fork`/`brief` command).
+  project action's composed `amq-squad history ...` command text; session
+  `archive`/`remove` (Del is now project-scoped only); the `fork_plan` and
+  `brief`/`brief_seed` session actions' composed command text (the underlying
+  NOC features are local reimplementations - fork-plan via
+  `executeResume(resumeModeFresh)`, brief read/seed via local file I/O - and
+  stay fully functional; their TUI preview text no longer falsely claims a
+  shelled `amq-squad fork`/`brief` command). The project-history OVERLAY
+  itself (picker entry, consoleProjectHistory, the launch.json scan) was
+  never an amq-squad command even before 2.28 - it stayed, only relabeled so
+  its preview/actNote read "amq-noc (local) history ..." instead of a fake
+  `amq-squad history` invocation.
 - `internal/cli/noc.go`'s hidden `--run-action`/`--commands` surfaces (kept
   working but undocumented since v0.12.1) execute the exact JSON action
   `Command` text via `sh -c`, so every fix above had to keep those strings

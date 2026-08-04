@@ -13,8 +13,9 @@ import (
 func TestConsoleUpArgs(t *testing.T) {
 	got := consoleUpArgs("/tmp/team home", "")
 	want := []string{
-		"up",
+		"start",
 		"--project", "/tmp/team home",
+		"--yes",
 		"--target", "new-session",
 		"--terminal-session", "amq-squad-team-home",
 	}
@@ -26,9 +27,10 @@ func TestConsoleUpArgs(t *testing.T) {
 func TestConsoleUpArgsCarriesProfile(t *testing.T) {
 	got := consoleUpArgs("/tmp/p", "review")
 	want := []string{
-		"up",
+		"start",
 		"--project", "/tmp/p",
 		"--profile", "review",
+		"--yes",
 		"--target", "new-session",
 		"--terminal-session", "amq-squad-p",
 	}

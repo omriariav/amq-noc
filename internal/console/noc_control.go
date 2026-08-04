@@ -166,7 +166,9 @@ type lifecycleOp struct {
 }
 
 // agentResumeOp is the exact single-agent launch effect a confirmed palette
-// agent-resume action runs. It resumes one saved launch record by role.
+// agent-resume action runs. It resumes one saved launch record by role via
+// `amq-squad resume --role <role> --exec` (2.28 removed the `agent` subtree
+// that used to carry this as `amq-squad agent resume <role>`).
 type agentResumeOp struct {
 	ProjectDir string
 	Role       string
@@ -174,13 +176,14 @@ type agentResumeOp struct {
 }
 
 func (op agentResumeOp) command() string {
-	parts := []string{squadCommandToken(), "agent", "resume", shellToken(op.Role)}
+	parts := []string{squadCommandToken(), "resume"}
 	if strings.TrimSpace(op.ProjectDir) != "" {
 		parts = append(parts, "--project", shellToken(op.ProjectDir))
 	}
 	if strings.TrimSpace(op.Session) != "" {
 		parts = append(parts, "--session", shellToken(op.Session))
 	}
+	parts = append(parts, "--role", shellToken(op.Role), "--exec")
 	return strings.Join(parts, " ")
 }
 
@@ -846,30 +849,6 @@ type projectDoctorResultOverlay struct {
 	result  projectDoctorResult
 }
 
-// projectHistoryOp is the exact amq-squad history effect a NOC project-history
-// action runs. It is read-only.
-type projectHistoryOp struct {
-	ProjectDir string
-}
-
-func (op projectHistoryOp) command() string {
-	parts := []string{squadCommandToken(), "history"}
-	if strings.TrimSpace(op.ProjectDir) != "" {
-		parts = append(parts, "--project", shellToken(op.ProjectDir))
-	}
-	return strings.Join(parts, " ")
-}
-
-type projectHistoryResult struct {
-	ProjectDir string
-	Output     string
-}
-
-type projectHistoryResultOverlay struct {
-	preview string
-	result  projectHistoryResult
-}
-
 // teamRulesOp is the exact amq-squad team-rules read effect a NOC project
 // action runs. It is read-only.
 type teamRulesOp struct {
@@ -1068,12 +1047,15 @@ func (op newTeamOp) command() string {
 
 // command renders the lifecycle command the overlay previews for confirm. It is
 // the stop/resume analogue of act.Preview and mirrors the project-scoped CLI
-// verbs: `amq-squad stop --project ... --all` / `amq-squad resume --project ...`.
+// verbs: `amq-squad down --project ... --all` / `amq-squad resume --project ...`.
+// This preview is what the NOC actually execs on confirm (see consoleUpArgs,
+// consoleStopArgs), so it stays in lockstep with the exec argv rather than
+// being a copy-only hint.
 func (op lifecycleOp) command() string {
 	projectArgs := lifecycleProjectArgs(op.ProjectDir)
 	profileArgs := lifecycleProfileArgs(op.Profile)
 	squad := squadCommandToken()
-	stop := squad + " stop" + projectArgs + " --all" + profileArgs + " --session " + shellToken(op.Session)
+	stop := squad + " down" + projectArgs + " --all" + profileArgs + " --session " + shellToken(op.Session)
 	terminalSession := nocTerminalSessionName(op.ProjectDir, op.Session)
 	resume := squad + " resume" + projectArgs + profileArgs + " --exec --target new-session --terminal-session " +
 		shellToken(terminalSession) + " --session " + shellToken(op.Session)
@@ -1088,9 +1070,12 @@ func (op lifecycleOp) command() string {
 	case lifecycleUp:
 		// up pins NO --session: amq-squad derives the workstream from the team
 		// config (#22's lesson). Detached new-session target mirrors resume so
-		// the NOC's own pane is never hijacked.
-		return squad + " up" + projectArgs + profileArgs +
-			" --target new-session --terminal-session " + shellToken(nocTerminalSessionName(op.ProjectDir, ""))
+		// the NOC's own pane is never hijacked. `start` prompts interactively
+		// (default No) unless --yes; the NOC's own confirm overlay already
+		// gated this, and delegateSquad execs captured/non-interactive, so
+		// --yes rides along here too (this preview IS the exec argv).
+		return squad + " start" + projectArgs + profileArgs +
+			" --yes --target new-session --terminal-session " + shellToken(nocTerminalSessionName(op.ProjectDir, ""))
 	default:
 		return squad + " " + string(op.Verb) + projectArgs
 	}
@@ -1775,30 +1760,6 @@ func (m *NOCModel) beginProjectDoctorFor(projectDir string) tea.Cmd {
 	}
 	m.projectDoctorResult = &projectDoctorResultOverlay{preview: op.command(), result: res}
 	m.actNote = "DOCTOR read: " + op.command()
-	return nil
-}
-
-func (m *NOCModel) beginProjectHistoryFor(projectDir string) tea.Cmd {
-	projectDir = strings.TrimSpace(projectDir)
-	if projectDir == "" {
-		m.actNote = "history: selected project has no directory"
-		return nil
-	}
-	op := projectHistoryOp{ProjectDir: projectDir}
-	if m.projectHistory == nil {
-		m.actNote = "history unavailable in this context (no project history backend)"
-		return nil
-	}
-	res, err := m.projectHistory(op)
-	if err != nil {
-		m.actNote = "history failed: " + err.Error()
-		return nil
-	}
-	if strings.TrimSpace(res.ProjectDir) == "" {
-		res.ProjectDir = projectDir
-	}
-	m.projectHistoryResult = &projectHistoryResultOverlay{preview: op.command(), result: res}
-	m.actNote = "HISTORY read: " + op.command()
 	return nil
 }
 
@@ -2609,7 +2570,7 @@ func (m *NOCModel) beginLifecycleFor(projectDir, session string, handles []strin
 // --- up (launch the configured team) --------------------------------------
 
 // beginUp opens the confirm overlay for launching the selected project's
-// configured team profile via `amq-squad up` (#19). It deliberately pins NO
+// configured team profile via `amq-squad start` (#19). It deliberately pins NO
 // --session: amq-squad derives the workstream from the team config (#22's
 // lesson), and the right-pane launch actions already display the resolved
 // workstream. The exec target is the same detached new-session convention as
@@ -3232,7 +3193,6 @@ func (m *NOCModel) handleResultKey(key string) (tea.Model, tea.Cmd) {
 		m.roleMarket = nil
 		m.teamProfiles = nil
 		m.projectDoctorResult = nil
-		m.projectHistoryResult = nil
 		m.teamRulesResult = nil
 		m.projectResumePlanResult = nil
 		m.forkPlanResult = nil
@@ -4708,37 +4668,6 @@ func (m NOCModel) projectDoctorResultOverlayView() string {
 	output := strings.TrimRight(p.result.Output, "\n")
 	if output == "" {
 		output = "(no doctor output)"
-	}
-	b.WriteString(m.th.paint(m.th.brand, output))
-	b.WriteString("\n")
-	b.WriteString(m.th.paint(m.th.rule, m.thinRule()))
-	b.WriteString("\n")
-	b.WriteString(m.th.paint(m.th.needsYou, "enter close | esc close"))
-	return b.String()
-}
-
-// projectHistoryResultOverlayView renders launch-history records after a
-// read-only project-history inspection completes.
-func (m NOCModel) projectHistoryResultOverlayView() string {
-	p := m.projectHistoryResult
-	var b strings.Builder
-	b.WriteString(m.th.paint(m.th.needsYou, "HISTORY"))
-	b.WriteString("\n")
-	b.WriteString(m.th.paint(m.th.rule, m.thinRule()))
-	b.WriteString("\n")
-	if dir := strings.TrimSpace(p.result.ProjectDir); dir != "" {
-		b.WriteString(m.th.paint(m.th.dim, "project: "+dir))
-		b.WriteString("\n")
-	}
-	if preview := strings.TrimSpace(p.preview); preview != "" {
-		b.WriteString(m.th.paint(m.th.dim, "ran: "+preview))
-		b.WriteString("\n")
-	}
-	b.WriteString(m.th.paint(m.th.dim, "output:"))
-	b.WriteString("\n")
-	output := strings.TrimRight(p.result.Output, "\n")
-	if output == "" {
-		output = "(no history output)"
 	}
 	b.WriteString(m.th.paint(m.th.brand, output))
 	b.WriteString("\n")

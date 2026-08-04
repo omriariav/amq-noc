@@ -859,7 +859,9 @@ func removeContiguousSubsequence(args, sub []string) []string {
 }
 
 // emitCommandOptions controls extra flags injected into the emitted
-// 'amq-squad agent up' invocation. Force adds --force-duplicate so a
+// 'agent up' launcher invocation (retained dead-code vocabulary predating
+// amq-squad 2.28's removal of the `agent` subtree; see the package comment).
+// Force adds --force-duplicate so a
 // planner (e.g. resume) can emit a command that matches the plan when a
 // live agent has been overridden. NoBootstrap lets an operator force the
 // emitted command to skip bootstrap even for a seat that would otherwise

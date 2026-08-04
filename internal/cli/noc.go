@@ -165,7 +165,7 @@ detached tmux session; existing names are rejected in the editor, including
 empty AMQ session directories, so you can resume or restart instead. Press S/R/X
 to stop/resume/restart; mixed-profile sessions ask which profile to operate on.
 Press U on a project, session, or agent row to launch that project's configured
-team profile (amq-squad up; no session is pinned, the team config decides the
+team profile (amq-squad start; no session is pinned, the team config decides the
 workstream; when the workstream already exists the confirm notes that up boots
 fresh agents while R resume restores saved conversations). Press L on an
 orchestrated session or its lead row to send the lead a directive: a live lead
@@ -448,7 +448,6 @@ func executeNOC(s nocExecution) error {
 	cfg.AMQEnv = consoleAMQEnv
 	cfg.Presence = consolePresence
 	cfg.ProjectDoctor = consoleProjectDoctor
-	cfg.ProjectHistory = consoleProjectHistory
 	cfg.TeamRules = consoleTeamRules
 	cfg.ProjectResumePlan = consoleProjectResumePlan
 	cfg.ForkPlan = consoleForkPlan
@@ -2649,12 +2648,6 @@ func nocProjectActions(ps noc.ProjectSnapshot, projectID string, sessionCount in
 			"Check AMQ, tmux, wake, markers, and all team profile health for this team-home.",
 			false, false, false),
 	}
-	if ps.TeamConfigured || ps.SessionStore || sessionCount > 0 {
-		actions = append(actions, nocAction("project", projectID, "history",
-			shellCommand("amq-squad", "history", "--project", ps.Dir),
-			"Show restorable launch records for this team-home.",
-			false, false, false))
-	}
 	if ps.TeamConfigured {
 		resumePlan := nocAction("project", projectID, "resume_plan",
 			nocResumePlanCommand(ps.Dir, nocProjectActionProfile(ps)),
@@ -3432,7 +3425,7 @@ func nocResumeCommand(projectDir, profile, session string) string {
 }
 
 func nocStopCommand(projectDir, profile, session string) string {
-	args := []string{"stop", "--project", projectDir, "--all"}
+	args := []string{"down", "--project", projectDir, "--all"}
 	if profile := strings.TrimSpace(profile); profile != "" && profile != team.DefaultProfile {
 		args = append(args, "--profile", profile)
 	}
@@ -3441,11 +3434,11 @@ func nocStopCommand(projectDir, profile, session string) string {
 }
 
 func nocAgentResumeCommand(projectDir, profile, role, session string) string {
-	args := []string{"agent", "resume", role, "--project", projectDir}
+	args := []string{"resume", "--project", projectDir}
 	if profile := nocProfileOrDefault(profile); profile != team.DefaultProfile {
 		args = append(args, "--profile", profile)
 	}
-	args = append(args, "--session", session)
+	args = append(args, "--session", session, "--role", role, "--exec")
 	return shellCommand("amq-squad", args...)
 }
 
@@ -3822,7 +3815,7 @@ func boolPtr(v bool) *bool {
 
 // consoleLifecycle is the cli-side stop/resume/restart seam handed to the NOC.
 // It is invoked ONLY for a confirmed lifecycle action from the TUI. Stop drives
-// the same executeDown path as `amq-squad stop --all`; resume shells back into
+// the same executeDown path as `amq-squad down --all`; resume shells back into
 // the live `amq-squad resume --exec --target new-session` path so it actually
 // brings the team back without writing into the NOC AltScreen. Restart runs
 // those two steps in order.
@@ -3851,19 +3844,26 @@ func consoleLifecycle(req console.LifecycleRequest) error {
 }
 
 // consoleUp launches the configured team profile via the installed amq-squad
-// `up` (#19). It pins NO --session: amq-squad derives the workstream from the
-// team config (#22's lesson). The detached new-session target mirrors
-// consoleResume so the launch never writes into the NOC AltScreen; the
-// operator attaches via the published attach_control action when ready.
+// `start` (#19, 2.28's replacement for the removed `up` verb). It pins NO
+// --session: amq-squad derives the workstream from the team config (#22's
+// lesson). The detached new-session target mirrors consoleResume so the
+// launch never writes into the NOC AltScreen; the operator attaches via the
+// published attach_control action when ready.
 func consoleUp(dir, profile string) error {
 	return delegateSquad(dir, consoleUpArgs(dir, profile)...)
 }
 
-// consoleUpArgs builds the `amq-squad up` argv for a confirmed up action. It
-// mirrors lifecycleOp.command()'s lifecycleUp case so the confirmed preview
-// and the executed argv stay in lockstep.
+// consoleUpArgs builds the `amq-squad start` argv for a confirmed up action.
+// It mirrors lifecycleOp.command()'s lifecycleUp case so the confirmed
+// preview and the executed argv stay in lockstep. `start` is preview-first
+// and interactively confirms (default No) unless --yes; the NOC's own confirm
+// overlay already gated this call, and delegateSquad execs captured/
+// non-interactive (no stdin attached), so --yes is required here or a
+// confirmed NOC action would silently decline. The copy-only command variants
+// shown outside the confirm overlay (e.g. kickRecoverActions) deliberately
+// omit --yes so a human running them by hand answers start's own prompt.
 func consoleUpArgs(dir, profile string) []string {
-	args := []string{"up"}
+	args := []string{"start"}
 	if dir := strings.TrimSpace(dir); dir != "" {
 		args = append(args, "--project", dir)
 	}
@@ -3871,6 +3871,7 @@ func consoleUpArgs(dir, profile string) []string {
 		args = append(args, "--profile", profile)
 	}
 	return append(args,
+		"--yes",
 		"--target", "new-session",
 		"--terminal-session", nocTerminalSessionName(dir, ""),
 	)
@@ -3963,10 +3964,11 @@ func consoleStop(dir, profile, session string) error {
 }
 
 // consoleStopArgs mirrors the previous in-process stop (target every configured
-// member, optionally scoped to one session) as an installed `amq-squad stop`
-// invocation.
+// member, optionally scoped to one session) as an installed `amq-squad down`
+// invocation (2.28's replacement for the removed `stop` verb; same --all
+// selector semantics).
 func consoleStopArgs(dir, profile, session string) []string {
-	args := []string{"stop", "--all"}
+	args := []string{"down", "--all"}
 	if dir := strings.TrimSpace(dir); dir != "" {
 		args = append(args, "--project", dir)
 	}
@@ -4016,14 +4018,14 @@ func consoleAgentResumeArgs(req console.AgentResumeRequest) ([]string, error) {
 	if role == "" {
 		return nil, fmt.Errorf("role cannot be empty")
 	}
-	args := []string{"agent", "resume", role}
+	args := []string{"resume"}
 	if dir := strings.TrimSpace(req.ProjectDir); dir != "" {
 		args = append(args, "--project", dir)
 	}
 	if session := strings.TrimSpace(req.Session); session != "" {
 		args = append(args, "--session", session)
 	}
-	return args, nil
+	return append(args, "--role", role, "--exec"), nil
 }
 
 func consoleSessionCleanup(req console.SessionCleanupRequest) error {
@@ -4748,20 +4750,6 @@ func consoleProjectDoctor(req console.ProjectDoctorRequest) (console.ProjectDoct
 		}
 	}
 	return console.ProjectDoctorResult{ProjectDir: projectDir, Output: out.String()}, nil
-}
-
-func consoleProjectHistory(req console.ProjectHistoryRequest) (console.ProjectHistoryResult, error) {
-	projectDir := strings.TrimSpace(req.ProjectDir)
-	if projectDir == "" {
-		return console.ProjectHistoryResult{}, fmt.Errorf("project dir cannot be empty")
-	}
-	entries := scanHistoryEntries([]string{projectDir})
-	sortRestorableEntries(entries)
-	var out bytes.Buffer
-	if err := writeHistoryTable(&out, historyRecordsFromEntries(entries)); err != nil {
-		return console.ProjectHistoryResult{}, err
-	}
-	return console.ProjectHistoryResult{ProjectDir: projectDir, Output: out.String()}, nil
 }
 
 func consoleTeamRules(req console.TeamRulesRequest) (console.TeamRulesResult, error) {

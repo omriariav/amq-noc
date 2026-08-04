@@ -274,7 +274,7 @@ func boardUnresolvedNotice(err error) string {
 			"(is `amq` installed and on PATH?): " + err.Error()
 	}
 	return "amq-squad: the AMQ base root resolved empty; no sessions to show. " +
-		"Run 'amq-squad up' to launch your team, or 'amq-squad doctor' to check setup."
+		"Run 'amq-squad start' to launch your team, or 'amq-squad doctor' to check setup."
 }
 
 // defaultBaseRootName is the basename of the conventional AMQ base root
@@ -296,7 +296,7 @@ const defaultBaseRootName = ".agent-mail"
 func renderBoardTable(out io.Writer, baseRoot string, rows []sessionBoardRow, now time.Time) error {
 	if len(rows) == 0 {
 		fmt.Fprintf(out, "amq-squad: no sessions found under %s.\n", baseRoot)
-		fmt.Fprintln(out, "Run 'amq-squad up' to launch your team, or 'amq-squad doctor' to check setup.")
+		fmt.Fprintln(out, "Run 'amq-squad start' to launch your team, or 'amq-squad doctor' to check setup.")
 		return nil
 	}
 

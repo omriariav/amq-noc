@@ -14,7 +14,7 @@ import (
 
 func TestUpCommandShape(t *testing.T) {
 	op := lifecycleOp{Verb: lifecycleUp, ProjectDir: "/tmp/team home"}
-	want := "amq-squad up --project '/tmp/team home' --target new-session --terminal-session amq-squad-team-home"
+	want := "amq-squad start --project '/tmp/team home' --yes --target new-session --terminal-session amq-squad-team-home"
 	if got := op.command(); got != want {
 		t.Fatalf("up command = %q, want %q", got, want)
 	}
@@ -40,7 +40,8 @@ func TestBeginUpForProjectPreview(t *testing.T) {
 	if m.pending.life.Session != "" {
 		t.Fatalf("up op pinned session %q; must stay empty", m.pending.life.Session)
 	}
-	if !strings.Contains(m.pending.preview, "amq-squad up --project") ||
+	if !strings.Contains(m.pending.preview, "amq-squad start --project") ||
+		!strings.Contains(m.pending.preview, "--yes") ||
 		!strings.Contains(m.pending.preview, "--target new-session") {
 		t.Fatalf("preview = %q", m.pending.preview)
 	}

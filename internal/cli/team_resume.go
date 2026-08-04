@@ -81,9 +81,9 @@ Per-member action labels:
   live          Matching agent appears live; command suppressed unless
                 --force-duplicate is set.
   restore       Restorable launch.json exists for this workstream; emits
-                'amq-squad agent up ...' that replays the saved record.
+                the launcher invocation that replays the saved record.
   launch fresh  No matching launch history; emits the same command shape
-                'amq-squad up' would use for this member.
+                'amq-squad start' would use for this member.
   blocked       Live signals present but no clear safe action; user must
                 pick --force-duplicate or narrow the workstream.
 
@@ -97,7 +97,7 @@ Modes:
                        --force-duplicate is set.
 
 team resume is plan-only. Run the printed commands in their own panes, or
-use 'amq-squad up' to open them in tmux from team intent.
+use 'amq-squad start' to open them in tmux from team intent.
 
 Examples:
   amq-squad team resume

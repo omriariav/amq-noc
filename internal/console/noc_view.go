@@ -110,9 +110,6 @@ func (m *NOCModel) View() string {
 	if m.projectDoctorResult != nil {
 		return m.overlayFrame(m.projectDoctorResultOverlayView())
 	}
-	if m.projectHistoryResult != nil {
-		return m.overlayFrame(m.projectHistoryResultOverlayView())
-	}
 	if m.teamRulesResult != nil {
 		return m.overlayFrame(m.teamRulesResultOverlayView())
 	}
@@ -1155,7 +1152,7 @@ func kickRecoverActionsForProfile(ps noc.ProjectSnapshot, sessionName, amqRoot, 
 			wsNote := resolvedWorkstreamNote(ps, profileName)
 			actions = append(actions,
 				commandAction("resume preview", "amq-squad resume --project "+dir+profile, "print the project recovery plan"+wsNote),
-				commandAction("up", "amq-squad up --project "+dir+profile, "start the configured team profile"+wsNote),
+				commandAction("up", "amq-squad start --project "+dir+profile, "start the configured team profile"+wsNote),
 			)
 		}
 		return actions
@@ -1224,7 +1221,7 @@ func agentCommandActions(ps noc.ProjectSnapshot, sess state.Session, ag state.Ag
 		commandAction("send message", "amq send --root "+rt+" --me "+shellToken(operatorHandleForProject(ps))+" --to "+me+" --thread THREAD_ID", "send an operator message to this agent"),
 	}
 	if ps.TeamConfigured && strings.TrimSpace(ag.Role) != "" && strings.TrimSpace(ps.Dir) != "" && strings.TrimSpace(sess.Name) != "" {
-		actions = append(actions, commandAction("resume agent", "amq-squad agent resume "+shellToken(ag.Role)+" --project "+shellToken(ps.Dir)+" --session "+shellToken(sess.Name), "resume this agent from its saved launch record"))
+		actions = append(actions, commandAction("resume agent", "amq-squad resume --project "+shellToken(ps.Dir)+" --session "+shellToken(sess.Name)+" --role "+shellToken(ag.Role)+" --exec", "resume this agent from its saved launch record"))
 	}
 	return actions
 }

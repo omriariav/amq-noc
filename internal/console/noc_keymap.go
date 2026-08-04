@@ -76,7 +76,7 @@ var nocKeyMap = []nocKeyBinding{
 	{Keys: []string{"S"}, HelpDisplay: "S", Label: "stop the selected squad (preview + confirm)", Footer: "S stop", FooterAscii: "S stop", Group: keyGroupAction, Mutating: true, Scopes: []nocNodeKind{nodeProject, nodeSession}},
 	{Keys: []string{"R"}, HelpDisplay: "R", Label: "resume the selected squad (preview + confirm)", Footer: "R resume", FooterAscii: "R resume", Group: keyGroupAction, Mutating: true, Scopes: []nocNodeKind{nodeProject, nodeSession}},
 	{Keys: []string{"X"}, HelpDisplay: "X", Label: "restart the selected squad (preview + confirm)", Footer: "X restart", FooterAscii: "X restart", Group: keyGroupAction, Mutating: true, Scopes: []nocNodeKind{nodeProject, nodeSession}},
-	{Keys: []string{"U"}, HelpDisplay: "U", Label: "launch the configured team profile (amq-squad up; preview + confirm)", Footer: "U up", FooterAscii: "U up", Group: keyGroupAction, Mutating: true, Scopes: []nocNodeKind{nodeProject, nodeSession, nodeAgent}},
+	{Keys: []string{"U"}, HelpDisplay: "U", Label: "launch the configured team profile (amq-squad start; preview + confirm)", Footer: "U up", FooterAscii: "U up", Group: keyGroupAction, Mutating: true, Scopes: []nocNodeKind{nodeProject, nodeSession, nodeAgent}},
 	{Keys: []string{"N"}, HelpDisplay: "N", Label: "start a new workstream session (rejects existing names)", Footer: "N new-session", FooterAscii: "N new-session", Group: keyGroupAction, Mutating: true, Scopes: []nocNodeKind{nodeProject, nodeSession, nodeAgent}},
 	{Keys: []string{"T"}, HelpDisplay: "T", Label: "create a team profile + pointer stubs", Footer: "T new-team", FooterAscii: "T new-team", Group: keyGroupAction, Mutating: true, Scopes: []nocNodeKind{nodeProject, nodeSession, nodeAgent}},
 }

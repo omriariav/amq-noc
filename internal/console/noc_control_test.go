@@ -36,7 +36,7 @@ func TestControlCommandPreviewsDelegateToAMQSquad(t *testing.T) {
 	if got := session.command(); !strings.HasPrefix(got, "amq-squad new session ") {
 		t.Fatalf("new-session preview should delegate to amq-squad, got %q", got)
 	}
-	if got := life.command(); !strings.HasPrefix(got, "amq-squad stop ") {
+	if got := life.command(); !strings.HasPrefix(got, "amq-squad down ") {
 		t.Fatalf("lifecycle preview should delegate to amq-squad, got %q", got)
 	}
 
@@ -49,7 +49,7 @@ func TestControlCommandPreviewsDelegateToAMQSquad(t *testing.T) {
 	if got := session.command(); !strings.HasPrefix(got, "/tmp/amq2 new session ") {
 		t.Fatalf("override should redirect new-session preview, got %q", got)
 	}
-	if got := life.command(); !strings.HasPrefix(got, "/tmp/amq2 stop ") {
+	if got := life.command(); !strings.HasPrefix(got, "/tmp/amq2 down ") {
 		t.Fatalf("override should redirect lifecycle preview, got %q", got)
 	}
 }
@@ -864,7 +864,7 @@ func TestLifecycleCommandScopesProjectDir(t *testing.T) {
 
 func TestLifecycleCommandCarriesProfile(t *testing.T) {
 	op := lifecycleOp{Verb: lifecycleRestart, ProjectDir: "/tmp/team home", Profile: "review", Session: "issue-1"}
-	want := "amq-squad stop --project '/tmp/team home' --all --profile review --session issue-1 && amq-squad resume --project '/tmp/team home' --profile review --exec --target new-session --terminal-session amq-squad-team-home-issue-1 --session issue-1"
+	want := "amq-squad down --project '/tmp/team home' --all --profile review --session issue-1 && amq-squad resume --project '/tmp/team home' --profile review --exec --target new-session --terminal-session amq-squad-team-home-issue-1 --session issue-1"
 	if got := op.command(); got != want {
 		t.Fatalf("lifecycle command = %q, want %q", got, want)
 	}
@@ -1296,24 +1296,6 @@ func TestAdaptProjectDoctorCarriesProjectDir(t *testing.T) {
 	}
 }
 
-func TestAdaptProjectHistoryCarriesProjectDir(t *testing.T) {
-	var got ProjectHistoryRequest
-	fn := adaptProjectHistory(func(req ProjectHistoryRequest) (ProjectHistoryResult, error) {
-		got = req
-		return ProjectHistoryResult{ProjectDir: req.ProjectDir, Output: "history"}, nil
-	})
-	res, err := fn(projectHistoryOp{ProjectDir: "/tmp/team"})
-	if err != nil {
-		t.Fatalf("adaptProjectHistory: %v", err)
-	}
-	if got.ProjectDir != "/tmp/team" {
-		t.Fatalf("ProjectHistoryRequest mismatch: %+v", got)
-	}
-	if res.ProjectDir != "/tmp/team" || res.Output != "history" {
-		t.Fatalf("project history result mismatch: %+v", res)
-	}
-}
-
 func TestAdaptTeamRulesCarriesProjectDir(t *testing.T) {
 	var got TeamRulesRequest
 	fn := adaptTeamRules(func(req TeamRulesRequest) (TeamRulesResult, error) {
@@ -1483,7 +1465,7 @@ func TestControl_StopConfirmGate(t *testing.T) {
 		if m.pending == nil {
 			t.Fatal("S on a session should open the confirm overlay")
 		}
-		if !strings.Contains(m.pending.preview, "amq-squad stop --project /fake/proj/beta --all --session beta") {
+		if !strings.Contains(m.pending.preview, "amq-squad down --project /fake/proj/beta --all --session beta") {
 			t.Errorf("stop overlay should preview the exact lifecycle command: %q", m.pending.preview)
 		}
 		m, _ = nocPress(m, "esc")
@@ -1603,7 +1585,7 @@ func TestControl_StopConfirmGate(t *testing.T) {
 
 		m, _ = nocPress(m, "X")
 		if m.pending == nil ||
-			!strings.Contains(m.pending.preview, "amq-squad stop --project /fake/proj/beta --all --session beta && amq-squad resume --project /fake/proj/beta --exec --target new-session --terminal-session amq-squad-beta --session beta") {
+			!strings.Contains(m.pending.preview, "amq-squad down --project /fake/proj/beta --all --session beta && amq-squad resume --project /fake/proj/beta --exec --target new-session --terminal-session amq-squad-beta --session beta") {
 			t.Fatalf("X should preview stop plus live resume, got %+v", m.pending)
 		}
 		m, _ = nocPress(m, "y")

@@ -123,9 +123,6 @@ type NOCConfig struct {
 	// overlay, including failing checks as data rather than treating them as a
 	// failed overlay open.
 	ProjectDoctor func(ProjectDoctorRequest) (ProjectDoctorResult, error)
-	// ProjectHistory is the cli-injected amq-squad history seam for a read-only
-	// launch-record inspection.
-	ProjectHistory func(ProjectHistoryRequest) (ProjectHistoryResult, error)
 	// TeamRules is the cli-injected team-rules.md seam for a read-only
 	// team-home norms inspection.
 	TeamRules func(TeamRulesRequest) (TeamRulesResult, error)
@@ -470,19 +467,6 @@ type ProjectDoctorRequest struct {
 // ProjectDoctorResult is the public output returned by the cli project-doctor
 // seam.
 type ProjectDoctorResult struct {
-	ProjectDir string
-	Output     string
-}
-
-// ProjectHistoryRequest is the public, cli-facing shape of a read-only NOC
-// project launch-history inspection.
-type ProjectHistoryRequest struct {
-	ProjectDir string
-}
-
-// ProjectHistoryResult is the public output returned by the cli project-history
-// seam.
-type ProjectHistoryResult struct {
 	ProjectDir string
 	Output     string
 }
@@ -1029,19 +1013,6 @@ func adaptProjectDoctor(fn func(ProjectDoctorRequest) (ProjectDoctorResult, erro
 	}
 }
 
-func adaptProjectHistory(fn func(ProjectHistoryRequest) (ProjectHistoryResult, error)) func(projectHistoryOp) (projectHistoryResult, error) {
-	if fn == nil {
-		return nil
-	}
-	return func(op projectHistoryOp) (projectHistoryResult, error) {
-		res, err := fn(ProjectHistoryRequest{ProjectDir: op.ProjectDir})
-		if err != nil {
-			return projectHistoryResult{}, err
-		}
-		return projectHistoryResult{ProjectDir: res.ProjectDir, Output: res.Output}, nil
-	}
-}
-
 func adaptTeamRules(fn func(TeamRulesRequest) (TeamRulesResult, error)) func(teamRulesOp) (teamRulesResult, error) {
 	if fn == nil {
 		return nil
@@ -1252,7 +1223,6 @@ func runNOCLive(cfg NOCConfig) error {
 	m.amqEnv = adaptAMQEnv(cfg.AMQEnv)
 	m.presence = adaptPresence(cfg.Presence)
 	m.projectDoctor = adaptProjectDoctor(cfg.ProjectDoctor)
-	m.projectHistory = adaptProjectHistory(cfg.ProjectHistory)
 	m.teamRules = adaptTeamRules(cfg.TeamRules)
 	m.projectResumePlan = adaptProjectResumePlan(cfg.ProjectResumePlan)
 	m.forkPlan = adaptForkPlan(cfg.ForkPlan)

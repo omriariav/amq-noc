@@ -131,9 +131,6 @@ func TestExecuteNOC_PassesRootsAndThresholds(t *testing.T) {
 	if cap.cfg.ProjectDoctor == nil {
 		t.Error("ProjectDoctor seam should be wired")
 	}
-	if cap.cfg.ProjectHistory == nil {
-		t.Error("ProjectHistory seam should be wired")
-	}
 	if cap.cfg.TeamRules == nil {
 		t.Error("TeamRules seam should be wired")
 	}
@@ -191,16 +188,6 @@ func TestNOCTerminalSessionNameScopesProjectAndWorkstream(t *testing.T) {
 	want := "amq-squad-my-project-api-issue-200"
 	if got != want {
 		t.Fatalf("nocTerminalSessionName = %q, want %q", got, want)
-	}
-}
-
-func TestConsoleProjectHistoryRejectsEmptyProject(t *testing.T) {
-	_, err := consoleProjectHistory(console.ProjectHistoryRequest{})
-	if err == nil {
-		t.Fatal("empty project history request should fail")
-	}
-	if !strings.Contains(err.Error(), "project dir cannot be empty") {
-		t.Fatalf("empty project history error = %v", err)
 	}
 }
 
@@ -390,9 +377,11 @@ func TestConsoleAgentResumeArgsProjectScoped(t *testing.T) {
 		t.Fatalf("consoleAgentResumeArgs: %v", err)
 	}
 	want := []string{
-		"agent", "resume", "qa",
+		"resume",
 		"--project", "/tmp/team home",
 		"--session", "issue-1",
+		"--role", "qa",
+		"--exec",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("consoleAgentResumeArgs = %#v, want %#v", got, want)
@@ -4715,7 +4704,6 @@ func TestNOCJSONActionsExposeControlCommands(t *testing.T) {
 		t.Fatalf("flat action index counts = %d/%d, want nonzero", env.ActionCount, env.MutatingActionCount)
 	}
 	if !hasNOCActionID(env.Actions, "project|/root/api service|action|new_session") ||
-		!hasNOCActionID(env.Actions, "project|/root/api service|action|history") ||
 		!hasNOCActionID(env.Actions, "project|/root/api service|action|resume_plan") ||
 		!hasNOCActionID(env.Actions, "project|/root/api service|action|team_rules") ||
 		!hasNOCActionID(env.Actions, "project|/root/api service|action|delete_team") ||
@@ -4824,13 +4812,6 @@ func TestNOCJSONActionsExposeControlCommands(t *testing.T) {
 	}
 	if !strings.Contains(doctor.Command, "amq-squad doctor --project '/root/api service' --all-profiles") {
 		t.Fatalf("doctor command should check every profile: %q", doctor.Command)
-	}
-	history := requireNOCAction(t, project.Actions, "history")
-	if history.Mutates || history.RequiresConfirmation {
-		t.Fatalf("history should be read-only: %+v", history)
-	}
-	if !strings.Contains(history.Command, "amq-squad history --project '/root/api service'") {
-		t.Fatalf("history command should read launch records: %q", history.Command)
 	}
 	amqWho := requireNOCAction(t, project.Actions, "amq_who")
 	if amqWho.Mutates || amqWho.RequiresConfirmation || amqWho.Template {
@@ -4945,7 +4926,7 @@ func TestNOCJSONActionsExposeControlCommands(t *testing.T) {
 		t.Fatalf("brief_seed force var should be optional with choices: %+v", forceVar)
 	}
 	stop := requireNOCAction(t, session.Actions, "stop")
-	if !strings.Contains(stop.Command, "amq-squad stop --project '/root/api service' --all --session issue-96") {
+	if !strings.Contains(stop.Command, "amq-squad down --project '/root/api service' --all --session issue-96") {
 		t.Fatalf("stop command = %q, want project-scoped stop", stop.Command)
 	}
 	restart := requireNOCAction(t, session.Actions, "restart")
@@ -5193,7 +5174,7 @@ func TestNOCJSONActionsExposeControlCommands(t *testing.T) {
 		agentResume.ID != session.Agents[0].ID+"|action|agent_resume" {
 		t.Fatalf("agent_resume action identity = %+v, agent id %q", agentResume, session.Agents[0].ID)
 	}
-	if !strings.Contains(agentResume.Command, "amq-squad agent resume cto --project '/root/api service' --session issue-96") {
+	if !strings.Contains(agentResume.Command, "amq-squad resume --project '/root/api service' --session issue-96 --role cto --exec") {
 		t.Fatalf("agent_resume command = %q", agentResume.Command)
 	}
 }

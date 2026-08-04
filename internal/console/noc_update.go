@@ -149,7 +149,7 @@ func (m *NOCModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	}
-	if m.readResult != nil || m.drainResult != nil || m.inboxResult != nil || m.dlqResult != nil || m.dlqReadResult != nil || m.dlqRetryResult != nil || m.dlqPurgeResult != nil || m.dlqRetryAllResult != nil || m.receiptsResult != nil || m.receiptsWaitResult != nil || m.messageWaitResult != nil || m.amqCleanupResult != nil || m.threadContextResult != nil || m.amqOpsResult != nil || m.amqWhoResult != nil || m.amqEnvResult != nil || m.presenceResult != nil || m.projectDoctorResult != nil || m.projectHistoryResult != nil || m.teamRulesResult != nil || m.projectResumePlanResult != nil || m.forkPlanResult != nil || m.briefResult != nil || m.statusResult != nil || m.threadsResult != nil || m.roleMarket != nil || m.teamProfiles != nil {
+	if m.readResult != nil || m.drainResult != nil || m.inboxResult != nil || m.dlqResult != nil || m.dlqReadResult != nil || m.dlqRetryResult != nil || m.dlqPurgeResult != nil || m.dlqRetryAllResult != nil || m.receiptsResult != nil || m.receiptsWaitResult != nil || m.messageWaitResult != nil || m.amqCleanupResult != nil || m.threadContextResult != nil || m.amqOpsResult != nil || m.amqWhoResult != nil || m.amqEnvResult != nil || m.presenceResult != nil || m.projectDoctorResult != nil || m.teamRulesResult != nil || m.projectResumePlanResult != nil || m.forkPlanResult != nil || m.briefResult != nil || m.statusResult != nil || m.threadsResult != nil || m.roleMarket != nil || m.teamProfiles != nil {
 		return m.handleResultKey(msg.String())
 	}
 

@@ -1337,7 +1337,7 @@ func (m NOCModel) commandActionsSection(actions []nocCommandAction) string {
 	}
 	var b strings.Builder
 	b.WriteString(m.detailRule() + "\n")
-	b.WriteString(m.th.paint(m.th.dim, "actions (C copies command)") + "\n")
+	b.WriteString(m.th.paint(m.th.dim, "commands (C copies command)") + "\n")
 	width := m.commandDisplayWidth()
 	for _, action := range actions {
 		label := strings.TrimSpace(action.Label)

@@ -13,9 +13,9 @@ func TestFetchProjectHealthChecksToolchainAndDoctor(t *testing.T) {
 		key := name + " " + strings.Join(args, " ")
 		switch key {
 		case "amq version":
-			return []byte("0.38.0\n"), nil
+			return []byte("0.51.1\n"), nil
 		case "amq-squad version":
-			return []byte("amq-squad v2.5.0\n"), nil
+			return []byte("amq-squad v2.28.0\n"), nil
 		case "amq-squad doctor --json":
 			return []byte(`{"schema_version":1,"kind":"doctor","data":{"checks":[{"name":"amq","status":"ok"},{"name":"team-rules roster","status":"warn"}]}}`), nil
 		default:
@@ -28,7 +28,7 @@ func TestFetchProjectHealthChecksToolchainAndDoctor(t *testing.T) {
 	if h.Status != healthStatusWarn {
 		t.Fatalf("status = %q, want warn: %+v", h.Status, h)
 	}
-	if len(h.Toolchain) != 2 || h.Toolchain[0].Version != "0.38.0" || h.Toolchain[1].Version != "2.5.0" {
+	if len(h.Toolchain) != 2 || h.Toolchain[0].Version != "0.51.1" || h.Toolchain[1].Version != "2.28.0" {
 		t.Fatalf("toolchain = %+v", h.Toolchain)
 	}
 	if h.Doctor.Status != healthStatusWarn || !strings.Contains(h.Doctor.Detail, "1 warnings") {

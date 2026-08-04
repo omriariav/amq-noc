@@ -14,9 +14,9 @@ import (
 )
 
 const (
-	amqMinimumVersion         = "0.37.1"
-	amqPreferredVersion       = "0.38.0"
-	amqSquadMinimumVersion    = "2.5.0"
+	amqMinimumVersion         = "0.51.1"
+	amqPreferredVersion       = ""
+	amqSquadMinimumVersion    = "2.28.0"
 	healthStatusOK            = "ok"
 	healthStatusWarn          = "warn"
 	healthStatusError         = "error"

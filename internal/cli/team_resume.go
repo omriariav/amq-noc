@@ -81,7 +81,7 @@ Per-member action labels:
   live          Matching agent appears live; command suppressed unless
                 --force-duplicate is set.
   restore       Restorable launch.json exists for this workstream; emits
-                the launcher invocation that replays the saved record.
+                'amq-squad agent up ...' that replays the saved record.
   launch fresh  No matching launch history; emits the same command shape
                 'amq-squad start' would use for this member.
   blocked       Live signals present but no clear safe action; user must

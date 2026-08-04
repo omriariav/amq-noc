@@ -425,7 +425,6 @@ func executeNOC(s nocExecution) error {
 	// non-interactive, so the seams are never invoked there even though set.
 	cfg.Lifecycle = consoleLifecycle
 	cfg.AgentResume = consoleAgentResume
-	cfg.SessionCleanup = consoleSessionCleanup
 	cfg.NewSession = consoleNewSession
 	cfg.NewTeam = consoleNewTeam
 	cfg.TeamDelete = consoleTeamDelete
@@ -2763,21 +2762,13 @@ func nocSessionActions(ps noc.ProjectSnapshot, sess state.Session, sessionID str
 			"Resume this workstream in a detached tmux session.",
 			true, true, template), "profile", profileChoices),
 	}
-	if strings.TrimSpace(sess.Name) != "" {
-		actions = append(actions,
-			nocAction("session", sessionID, "brief",
-				nocSquadProfileCommand("brief", ps.Dir, profile, "--session", sess.Name),
-				"Show this session's full workstream brief.",
-				false, false, false),
-			withNOCActionVarChoices(nocAction("session", sessionID, "brief_seed",
-				nocBriefSeedCommand(ps.Dir, profile, sess.Name),
-				"Seed or overwrite this session's workstream brief from file, issue, or GitHub issue source.",
-				true, true, true), "force", []string{"false", "true"}),
-			withNOCActionVarChoices(nocAction("session", sessionID, "fork_plan",
-				nocForkPlanCommand(ps.Dir, profile, sess.Name),
-				"Plan a fresh target workstream branched from this session without launching it.",
-				false, false, true), "profile", profileChoices))
-	}
+	// amq-squad 2.28 removed the top-level `brief` and `fork` verbs with no
+	// replacement primitive (amq-noc addendum A2/A3): the "brief", "brief_seed",
+	// and "fork_plan" composed-command actions that used to shell them are
+	// removed rather than pointed at a dead verb. The underlying NOC features
+	// (brief read/seed overlays are local file I/O; fork-plan is a local
+	// executeResume(resumeModeFresh) reimplementation) are untouched and stay
+	// reachable through the live TUI, which never shelled these verbs itself.
 	if th, ok := nocTopNeedsYouThread(sess, ""); ok {
 		actions = append(actions, nocNeedsYouActions("session", sessionID, sess.Root, th, nocOperatorHandle(ps))...)
 	}
@@ -2798,17 +2789,6 @@ func nocSessionActions(ps noc.ProjectSnapshot, sess state.Session, sessionID str
 			nocStopCommand(ps.Dir, profile, sess.Name)+" && "+nocResumeCommand(ps.Dir, profile, sess.Name),
 			"Stop and then resume this session.",
 			true, true, template), "profile", profileChoices))
-	}
-	if strings.TrimSpace(sess.Name) != "" {
-		actions = append(actions,
-			nocAction("session", sessionID, "archive",
-				nocSquadProfileCommand("archive", ps.Dir, profile, "--yes", sess.Name),
-				"Move this session aside into the project archive without deleting it.",
-				true, true, false),
-			nocAction("session", sessionID, "remove",
-				nocSquadProfileCommand("rm", ps.Dir, profile, "--yes", sess.Name),
-				"Permanently remove this session root and brief.",
-				true, true, false))
 	}
 	return actions
 }
@@ -3188,24 +3168,6 @@ func nocResumePlanCommand(projectDir, profile string) string {
 	return shellCommand("amq-squad", args...)
 }
 
-func nocForkPlanCommand(projectDir, profile, fromSession string) string {
-	args := []string{"fork", "--project", projectDir}
-	if profile := strings.TrimSpace(profile); profile != "" && profile != team.DefaultProfile {
-		args = append(args, "--profile", profile)
-	}
-	args = append(args, "--from", fromSession, "--as", "<session>")
-	return shellCommand("amq-squad", args...)
-}
-
-func nocBriefSeedCommand(projectDir, profile, session string) string {
-	args := []string{"brief", "seed", "--project", projectDir}
-	if profile := nocProfileOrDefault(profile); profile != team.DefaultProfile {
-		args = append(args, "--profile", profile)
-	}
-	args = append(args, "--session", session, "--seed-from", "<seed-from>", "<force>")
-	return shellCommand("amq-squad", args...)
-}
-
 func nocAMQCleanupCommand(root string) string {
 	return shellCommand("amq", "cleanup",
 		"--root", root,
@@ -3434,11 +3396,11 @@ func nocStopCommand(projectDir, profile, session string) string {
 }
 
 func nocAgentResumeCommand(projectDir, profile, role, session string) string {
-	args := []string{"resume", "--project", projectDir}
+	args := []string{"agent", "resume", role, "--project", projectDir}
 	if profile := nocProfileOrDefault(profile); profile != team.DefaultProfile {
 		args = append(args, "--profile", profile)
 	}
-	args = append(args, "--session", session, "--role", role, "--exec")
+	args = append(args, "--session", session)
 	return shellCommand("amq-squad", args...)
 }
 
@@ -4018,38 +3980,14 @@ func consoleAgentResumeArgs(req console.AgentResumeRequest) ([]string, error) {
 	if role == "" {
 		return nil, fmt.Errorf("role cannot be empty")
 	}
-	args := []string{"resume"}
+	args := []string{"agent", "resume", role}
 	if dir := strings.TrimSpace(req.ProjectDir); dir != "" {
 		args = append(args, "--project", dir)
 	}
 	if session := strings.TrimSpace(req.Session); session != "" {
 		args = append(args, "--session", session)
 	}
-	return append(args, "--role", role, "--exec"), nil
-}
-
-func consoleSessionCleanup(req console.SessionCleanupRequest) error {
-	args, err := consoleSessionCleanupArgs(req)
-	if err != nil {
-		return err
-	}
-	return delegateSquad(req.ProjectDir, args...)
-}
-
-func consoleSessionCleanupArgs(req console.SessionCleanupRequest) ([]string, error) {
-	session := strings.TrimSpace(req.Session)
-	if session == "" {
-		return nil, fmt.Errorf("session name cannot be empty")
-	}
-	verb := "rm"
-	if req.Archive {
-		verb = "archive"
-	}
-	args := []string{verb}
-	if dir := strings.TrimSpace(req.ProjectDir); dir != "" {
-		args = append(args, "--project", dir)
-	}
-	return append(args, "--yes", session), nil
+	return args, nil
 }
 
 func resolvedNOCProfile(profile string) string {
@@ -4855,7 +4793,7 @@ func consoleBrief(req console.BriefRequest) (console.BriefResult, error) {
 	if session == "" {
 		return console.BriefResult{}, fmt.Errorf("session cannot be empty")
 	}
-	data, err := readBriefData(projectDir, session)
+	data, err := readBriefData(projectDir, req.Profile, session)
 	if err != nil {
 		return console.BriefResult{}, err
 	}
@@ -4878,7 +4816,7 @@ func consoleBriefSeed(req console.BriefSeedRequest) error {
 	if session == "" {
 		return fmt.Errorf("session cannot be empty")
 	}
-	_, err := seedBriefData(projectDir, session, req.SeedFrom, req.Force, false)
+	_, err := seedBriefData(projectDir, req.Profile, session, req.SeedFrom, req.Force, false)
 	return err
 }
 

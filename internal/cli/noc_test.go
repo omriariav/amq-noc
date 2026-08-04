@@ -68,9 +68,6 @@ func TestExecuteNOC_PassesRootsAndThresholds(t *testing.T) {
 	if cap.cfg.Lifecycle == nil {
 		t.Error("Lifecycle seam should be wired")
 	}
-	if cap.cfg.SessionCleanup == nil {
-		t.Error("SessionCleanup seam should be wired")
-	}
 	if cap.cfg.NewSession == nil {
 		t.Error("NewSession seam should be wired")
 	}
@@ -377,11 +374,9 @@ func TestConsoleAgentResumeArgsProjectScoped(t *testing.T) {
 		t.Fatalf("consoleAgentResumeArgs: %v", err)
 	}
 	want := []string{
-		"resume",
+		"agent", "resume", "qa",
 		"--project", "/tmp/team home",
 		"--session", "issue-1",
-		"--role", "qa",
-		"--exec",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("consoleAgentResumeArgs = %#v, want %#v", got, want)
@@ -395,45 +390,6 @@ func TestConsoleAgentResumeArgsRejectsEmptyRole(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "role cannot be empty") {
 		t.Fatalf("consoleAgentResumeArgs error = %v", err)
-	}
-}
-
-func TestConsoleSessionCleanupArgs(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		req  console.SessionCleanupRequest
-		want []string
-	}{
-		{
-			name: "archive",
-			req:  console.SessionCleanupRequest{ProjectDir: "/tmp/team home", Session: "issue-1", Archive: true},
-			want: []string{"archive", "--project", "/tmp/team home", "--yes", "issue-1"},
-		},
-		{
-			name: "remove",
-			req:  console.SessionCleanupRequest{ProjectDir: "/tmp/team home", Session: "issue-1"},
-			want: []string{"rm", "--project", "/tmp/team home", "--yes", "issue-1"},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := consoleSessionCleanupArgs(tc.req)
-			if err != nil {
-				t.Fatalf("consoleSessionCleanupArgs: %v", err)
-			}
-			if !reflect.DeepEqual(got, tc.want) {
-				t.Fatalf("consoleSessionCleanupArgs = %#v, want %#v", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestConsoleSessionCleanupArgsRejectsEmptySession(t *testing.T) {
-	_, err := consoleSessionCleanupArgs(console.SessionCleanupRequest{Session: " "})
-	if err == nil {
-		t.Fatal("consoleSessionCleanupArgs should reject empty session")
-	}
-	if !strings.Contains(err.Error(), "session name cannot be empty") {
-		t.Fatalf("consoleSessionCleanupArgs error = %v", err)
 	}
 }
 
@@ -1423,47 +1379,6 @@ func TestExecuteNOCRunActionRequiresConfirmationForMutatingAction(t *testing.T) 
 	}
 	if !strings.Contains(out.String(), "no command executed") {
 		t.Fatalf("declined mutating action should report abort:\n%s", out.String())
-	}
-}
-
-func TestExecuteNOCRunActionFillsSessionCleanupCommands(t *testing.T) {
-	root := t.TempDir()
-	proj := filepath.Join(root, "p")
-	base := filepath.Join(proj, noc.AgentMailDirName)
-	seedAgentRecord(t, base, "issue-96", "cto", launch.Record{
-		Binary:  "codex",
-		Role:    "cto",
-		Handle:  "cto",
-		Session: "issue-96",
-		Root:    filepath.Join(base, "issue-96"),
-	})
-
-	for _, tc := range []struct {
-		name string
-		want string
-	}{
-		{name: "archive", want: "amq-squad archive --project " + proj + " --yes issue-96"},
-		{name: "remove", want: "amq-squad rm --project " + proj + " --yes issue-96"},
-	} {
-		var ran string
-		err := executeNOC(nocExecution{
-			Cwd:         root,
-			Roots:       []string{root},
-			Depth:       noc.DefaultDepth,
-			RunActionID: "session|" + proj + "|issue-96|action|" + tc.name,
-			Yes:         true,
-			Out:         &bytes.Buffer{},
-			RunActionCommand: func(command string) error {
-				ran = command
-				return nil
-			},
-		})
-		if err != nil {
-			t.Fatalf("executeNOC --run-action %s: %v", tc.name, err)
-		}
-		if ran != tc.want {
-			t.Fatalf("%s command = %q, want %q", tc.name, ran, tc.want)
-		}
 	}
 }
 
@@ -3603,38 +3518,6 @@ func TestRunNOCActionsCommandsOnlyCandidateProjectActions(t *testing.T) {
 	}
 }
 
-func TestRunNOCActionsCommandsOnlySessionCleanupActions(t *testing.T) {
-	root := t.TempDir()
-	proj := filepath.Join(root, "p")
-	base := filepath.Join(proj, noc.AgentMailDirName)
-	seedAgentRecord(t, base, "issue-96", "cto", launch.Record{
-		Binary:  "codex",
-		Role:    "cto",
-		Handle:  "cto",
-		Session: "issue-96",
-		Root:    filepath.Join(base, "issue-96"),
-	})
-
-	stdout, _, err := captureOutput(t, func() error {
-		return runNOC([]string{"--actions", "--root", root, "--filter", "session:issue-96", "--action", "archive,remove", "--commands"})
-	})
-	if err != nil {
-		t.Fatalf("runNOC --actions archive,remove --commands: %v", err)
-	}
-	lines := strings.Split(strings.TrimSpace(stdout), "\n")
-	if len(lines) != 2 {
-		t.Fatalf("commands-only cleanup lines = %d, want 2:\n%s", len(lines), stdout)
-	}
-	for _, want := range []string{
-		"amq-squad archive --project " + proj + " --yes issue-96",
-		"amq-squad rm --project " + proj + " --yes issue-96",
-	} {
-		if !stringInSlice(lines, want) {
-			t.Fatalf("cleanup commands missing %q in:\n%s", want, stdout)
-		}
-	}
-}
-
 func TestRunNOCActionsCommandsOnlyInboxAction(t *testing.T) {
 	root := t.TempDir()
 	proj := filepath.Join(root, "p")
@@ -4713,9 +4596,6 @@ func TestNOCJSONActionsExposeControlCommands(t *testing.T) {
 		!hasNOCActionID(env.Actions, "session|/root/api service|issue-96|action|resume") ||
 		!hasNOCActionID(env.Actions, "session|/root/api service|issue-96|action|threads") ||
 		!hasNOCActionID(env.Actions, "session|/root/api service|issue-96|action|thread_context_any") ||
-		!hasNOCActionID(env.Actions, "session|/root/api service|issue-96|action|brief") ||
-		!hasNOCActionID(env.Actions, "session|/root/api service|issue-96|action|brief_seed") ||
-		!hasNOCActionID(env.Actions, "session|/root/api service|issue-96|action|fork_plan") ||
 		!hasNOCActionID(env.Actions, "session|/root/api service|issue-96|action|amq_ops") ||
 		!hasNOCActionID(env.Actions, "session|/root/api service|issue-96|action|amq_cleanup") ||
 		!hasNOCActionID(env.Actions, "session|/root/api service|issue-96|action|presence") ||
@@ -4725,8 +4605,6 @@ func TestNOCJSONActionsExposeControlCommands(t *testing.T) {
 		!hasNOCActionID(env.Actions, "session|/root/api service|issue-96|action|approve") ||
 		!hasNOCActionID(env.Actions, "session|/root/api service|issue-96|action|deny") ||
 		!hasNOCActionID(env.Actions, "session|/root/api service|issue-96|action|broadcast") ||
-		!hasNOCActionID(env.Actions, "session|/root/api service|issue-96|action|archive") ||
-		!hasNOCActionID(env.Actions, "session|/root/api service|issue-96|action|remove") ||
 		!hasNOCActionID(env.Actions, "agent|/root/api service|issue-96|cto|action|inbox") ||
 		!hasNOCActionID(env.Actions, "agent|/root/api service|issue-96|cto|action|dlq") ||
 		!hasNOCActionID(env.Actions, "agent|/root/api service|issue-96|cto|action|receipts") ||
@@ -4872,22 +4750,6 @@ func TestNOCJSONActionsExposeControlCommands(t *testing.T) {
 	if !strings.Contains(resume.Command, "amq-squad resume --project '/root/api service' --exec --target new-session") {
 		t.Fatalf("resume command = %q, want project-scoped detached resume", resume.Command)
 	}
-	forkPlan := requireNOCAction(t, session.Actions, "fork_plan")
-	if forkPlan.Mutates || forkPlan.RequiresConfirmation || !forkPlan.Template {
-		t.Fatalf("fork_plan should be read-only template action: %+v", forkPlan)
-	}
-	for _, want := range []string{"amq-squad fork", "--project '/root/api service'", "--from issue-96", "--as '<session>'"} {
-		if !strings.Contains(forkPlan.Command, want) {
-			t.Fatalf("fork_plan command missing %q: %s", want, forkPlan.Command)
-		}
-	}
-	brief := requireNOCAction(t, session.Actions, "brief")
-	if brief.Mutates || brief.RequiresConfirmation || brief.Template {
-		t.Fatalf("brief should be read-only concrete action: %+v", brief)
-	}
-	if !strings.Contains(brief.Command, "amq-squad brief --project '/root/api service' --session issue-96") {
-		t.Fatalf("brief command should read the workstream brief: %q", brief.Command)
-	}
 	threads := requireNOCAction(t, session.Actions, "threads")
 	if threads.Mutates || threads.RequiresConfirmation || threads.Template {
 		t.Fatalf("threads should be read-only concrete action: %+v", threads)
@@ -4908,23 +4770,6 @@ func TestNOCJSONActionsExposeControlCommands(t *testing.T) {
 	if !threadIDVar.Required || len(threadIDVar.Examples) == 0 {
 		t.Fatalf("thread_context_any thread-id var should be required with examples: %+v", threadIDVar)
 	}
-	briefSeed := requireNOCAction(t, session.Actions, "brief_seed")
-	if !briefSeed.Mutates || !briefSeed.RequiresConfirmation || !briefSeed.Template {
-		t.Fatalf("brief_seed should be confirm-required template mutation: %+v", briefSeed)
-	}
-	for _, want := range []string{"amq-squad brief seed", "--project '/root/api service'", "--session issue-96", "--seed-from '<seed-from>'", "'<force>'"} {
-		if !strings.Contains(briefSeed.Command, want) {
-			t.Fatalf("brief_seed command missing %q: %s", want, briefSeed.Command)
-		}
-	}
-	briefSeedFromVar := requireNOCActionVar(t, briefSeed.Vars, "seed-from")
-	if !briefSeedFromVar.Required || !reflect.DeepEqual(briefSeedFromVar.Examples, []string{"issue:31", "file:./brief.md", "gh:owner/repo#31"}) {
-		t.Fatalf("brief_seed seed-from var should be required with examples: %+v", briefSeedFromVar)
-	}
-	forceVar := requireNOCActionVar(t, briefSeed.Vars, "force")
-	if forceVar.Required || !reflect.DeepEqual(forceVar.Choices, []string{"false", "true"}) {
-		t.Fatalf("brief_seed force var should be optional with choices: %+v", forceVar)
-	}
 	stop := requireNOCAction(t, session.Actions, "stop")
 	if !strings.Contains(stop.Command, "amq-squad down --project '/root/api service' --all --session issue-96") {
 		t.Fatalf("stop command = %q, want project-scoped stop", stop.Command)
@@ -4932,20 +4777,6 @@ func TestNOCJSONActionsExposeControlCommands(t *testing.T) {
 	restart := requireNOCAction(t, session.Actions, "restart")
 	if !strings.Contains(restart.Command, " && ") {
 		t.Fatalf("restart command should compose stop and resume: %s", restart.Command)
-	}
-	archive := requireNOCAction(t, session.Actions, "archive")
-	if !archive.Mutates || !archive.RequiresConfirmation || archive.Template {
-		t.Fatalf("archive should be confirm-required non-template mutation: %+v", archive)
-	}
-	if !strings.Contains(archive.Command, "amq-squad archive --project '/root/api service' --yes issue-96") {
-		t.Fatalf("archive command = %q", archive.Command)
-	}
-	remove := requireNOCAction(t, session.Actions, "remove")
-	if !remove.Mutates || !remove.RequiresConfirmation || remove.Template {
-		t.Fatalf("remove should be confirm-required non-template mutation: %+v", remove)
-	}
-	if !strings.Contains(remove.Command, "amq-squad rm --project '/root/api service' --yes issue-96") {
-		t.Fatalf("remove command = %q", remove.Command)
 	}
 	amqOps := requireNOCAction(t, session.Actions, "amq_ops")
 	if amqOps.Mutates || amqOps.RequiresConfirmation {
@@ -5174,7 +5005,7 @@ func TestNOCJSONActionsExposeControlCommands(t *testing.T) {
 		agentResume.ID != session.Agents[0].ID+"|action|agent_resume" {
 		t.Fatalf("agent_resume action identity = %+v, agent id %q", agentResume, session.Agents[0].ID)
 	}
-	if !strings.Contains(agentResume.Command, "amq-squad resume --project '/root/api service' --session issue-96 --role cto --exec") {
+	if !strings.Contains(agentResume.Command, "amq-squad agent resume cto --project '/root/api service' --session issue-96") {
 		t.Fatalf("agent_resume command = %q", agentResume.Command)
 	}
 }
@@ -5341,17 +5172,6 @@ func TestNOCJSONMixedProfileSessionActionsExposeProfileVar(t *testing.T) {
 	}
 	if want := []string{team.DefaultProfile, "review"}; !reflect.DeepEqual(profileVar.Choices, want) {
 		t.Fatalf("profile choices = %+v, want %+v", profileVar.Choices, want)
-	}
-	forkPlan := requireNOCAction(t, project.Sessions[0].Actions, "fork_plan")
-	if !forkPlan.Template || forkPlan.Mutates || forkPlan.RequiresConfirmation {
-		t.Fatalf("mixed-profile fork_plan should be a read-only template action: %+v", forkPlan)
-	}
-	forkProfileVar := requireNOCActionVar(t, forkPlan.Vars, "profile")
-	if !forkProfileVar.Required {
-		t.Fatalf("fork_plan profile var should be required: %+v", forkProfileVar)
-	}
-	if want := []string{team.DefaultProfile, "review"}; !reflect.DeepEqual(forkProfileVar.Choices, want) {
-		t.Fatalf("fork_plan profile choices = %+v, want %+v", forkProfileVar.Choices, want)
 	}
 }
 

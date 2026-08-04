@@ -60,8 +60,6 @@ const (
 	ctlRestart
 	ctlUp
 	ctlAgentResume
-	ctlArchive
-	ctlRemove
 	ctlNewSession
 	ctlNewTeam
 	ctlDeleteTeam
@@ -115,10 +113,6 @@ func (k controlKind) label() string {
 		return "UP"
 	case ctlAgentResume:
 		return "AGENT RESUME"
-	case ctlArchive:
-		return "ARCHIVE"
-	case ctlRemove:
-		return "REMOVE"
 	case ctlNewSession:
 		return "NEW SESSION"
 	case ctlNewTeam:
@@ -167,8 +161,11 @@ type lifecycleOp struct {
 
 // agentResumeOp is the exact single-agent launch effect a confirmed palette
 // agent-resume action runs. It resumes one saved launch record by role via
-// `amq-squad resume --role <role> --exec` (2.28 removed the `agent` subtree
-// that used to carry this as `amq-squad agent resume <role>`).
+// `amq-squad agent resume <role>`. amq-squad 2.28 hides the `agent` subtree
+// from --help/completion but keeps it dispatchable as an internal child
+// launch/restore boundary, so this exec seam is unchanged; only operator-
+// facing COPY suggestions (agentCommandActions in noc_view.go) point at the
+// public `resume --role <role> --exec` form instead.
 type agentResumeOp struct {
 	ProjectDir string
 	Role       string
@@ -176,14 +173,13 @@ type agentResumeOp struct {
 }
 
 func (op agentResumeOp) command() string {
-	parts := []string{squadCommandToken(), "resume"}
+	parts := []string{squadCommandToken(), "agent", "resume", shellToken(op.Role)}
 	if strings.TrimSpace(op.ProjectDir) != "" {
 		parts = append(parts, "--project", shellToken(op.ProjectDir))
 	}
 	if strings.TrimSpace(op.Session) != "" {
 		parts = append(parts, "--session", shellToken(op.Session))
 	}
-	parts = append(parts, "--role", shellToken(op.Role), "--exec")
 	return strings.Join(parts, " ")
 }
 
@@ -222,27 +218,6 @@ func (op sendPromptOp) command() string {
 		parts = append(parts, "--role", shellToken(op.Role))
 	}
 	parts = append(parts, "--body-file", "-")
-	return strings.Join(parts, " ")
-}
-
-// sessionCleanupOp is the exact archive/remove effect a confirmed NOC action
-// runs for one workstream session.
-type sessionCleanupOp struct {
-	ProjectDir string
-	Session    string
-	Archive    bool
-}
-
-func (op sessionCleanupOp) command() string {
-	verb := "rm"
-	if op.Archive {
-		verb = "archive"
-	}
-	parts := []string{squadCommandToken(), verb}
-	if strings.TrimSpace(op.ProjectDir) != "" {
-		parts = append(parts, "--project", shellToken(op.ProjectDir))
-	}
-	parts = append(parts, "--yes", shellToken(op.Session))
 	return strings.Join(parts, " ")
 }
 
@@ -904,8 +879,11 @@ type projectResumePlanResultOverlay struct {
 	result  projectResumePlanResult
 }
 
-// forkPlanOp is the exact amq-squad fork effect a NOC session fork-plan action
-// runs. It is read-only because fork prints a plan and does not launch.
+// forkPlanOp is the exact fork-plan effect a NOC session fork-plan action
+// runs. amq-squad 2.28 removed the top-level `fork` verb with no replacement
+// primitive, so this is a local NOC reimplementation
+// (executeResume(resumeModeFresh) in cli), never a shelled amq-squad command;
+// it is read-only because it prints a plan and does not launch.
 type forkPlanOp struct {
 	ProjectDir  string
 	Profile     string
@@ -914,7 +892,7 @@ type forkPlanOp struct {
 }
 
 func (op forkPlanOp) command() string {
-	parts := []string{squadCommandToken(), "fork"}
+	parts := []string{"amq-noc (local)", "fork-plan"}
 	if strings.TrimSpace(op.ProjectDir) != "" {
 		parts = append(parts, "--project", shellToken(op.ProjectDir))
 	}
@@ -938,17 +916,24 @@ type forkPlanResultOverlay struct {
 	result  forkPlanResult
 }
 
-// briefOp is the exact amq-squad brief effect a NOC session brief action runs.
-// It is read-only and reports the full workstream brief for one session.
+// briefOp is the exact brief-read effect a NOC session brief action runs.
+// amq-squad 2.28 removed the top-level `brief` verb with no replacement
+// (briefs are seeded by `new session`/`start` internally); this reads the
+// workstream brief file directly (readBriefData in cli), never a shelled
+// amq-squad command.
 type briefOp struct {
 	ProjectDir string
+	Profile    string
 	Session    string
 }
 
 func (op briefOp) command() string {
-	parts := []string{squadCommandToken(), "brief"}
+	parts := []string{"amq-noc (local)", "brief"}
 	if strings.TrimSpace(op.ProjectDir) != "" {
 		parts = append(parts, "--project", shellToken(op.ProjectDir))
+	}
+	if profile := strings.TrimSpace(op.Profile); profile != "" && profile != team.DefaultProfile {
+		parts = append(parts, "--profile", shellToken(profile))
 	}
 	parts = append(parts, "--session", shellToken(op.Session))
 	return strings.Join(parts, " ")
@@ -968,19 +953,25 @@ type briefResultOverlay struct {
 	result  briefResult
 }
 
-// briefSeedOp is the exact amq-squad brief seed effect a confirmed NOC action
-// runs. It writes or overwrites one workstream brief after preview.
+// briefSeedOp is the exact brief-seed effect a confirmed NOC action runs.
+// amq-squad 2.28 removed the top-level `brief` verb (and `brief seed` with
+// it) with no replacement; this writes the workstream brief file directly
+// (seedBriefData in cli), never a shelled amq-squad command.
 type briefSeedOp struct {
 	ProjectDir string
+	Profile    string
 	Session    string
 	SeedFrom   string
 	Force      bool
 }
 
 func (op briefSeedOp) command() string {
-	parts := []string{squadCommandToken(), "brief", "seed"}
+	parts := []string{"amq-noc (local)", "brief", "seed"}
 	if strings.TrimSpace(op.ProjectDir) != "" {
 		parts = append(parts, "--project", shellToken(op.ProjectDir))
+	}
+	if profile := strings.TrimSpace(op.Profile); profile != "" && profile != team.DefaultProfile {
+		parts = append(parts, "--profile", shellToken(profile))
 	}
 	parts = append(parts, "--session", shellToken(op.Session), "--seed-from", shellToken(op.SeedFrom))
 	if op.Force {
@@ -1197,11 +1188,10 @@ type pendingAction struct {
 	op         act.OpMessage   // set for approve/reply/deny/message/broadcast
 	life       *lifecycleOp    // set for stop/resume/restart
 	agent      *agentResumeOp  // set for single-agent resume
-	cleanup    *sessionCleanupOp
-	session    *newSessionOp  // set for new-session
-	team       *newTeamOp     // set for new-team
-	delTeam    *teamDeleteOp  // set for delete-team
-	sync       *pointerSyncOp // set for pointer sync
+	session    *newSessionOp   // set for new-session
+	team       *newTeamOp      // set for new-team
+	delTeam    *teamDeleteOp   // set for delete-team
+	sync       *pointerSyncOp  // set for pointer sync
 	brief      *briefSeedOp
 	sendPrompt *sendPromptOp // set for send-prompt (amq-squad send, body via stdin)
 	// affected lists the agents the action touches, shown under the preview so
@@ -1296,18 +1286,20 @@ func (m *NOCModel) handleControlKey(key string) (tea.Cmd, bool) {
 	return nil, false
 }
 
+// beginDelete deletes a configured team profile. amq-squad 2.28 removed
+// `archive`/`rm` with no replacement primitive, so session-row deletion (the
+// NOC used to offer both) is no longer available; Del is scoped to project
+// rows only (see noc_keymap.go) and a session row explains why rather than
+// opening a confirm overlay for a command that would fail against amq-squad.
 func (m *NOCModel) beginDelete() tea.Cmd {
 	n, ok := m.selectedNode()
 	if !ok || (n.kind != nodeProject && n.kind != nodeSession) {
-		m.actNote = "delete applies to a project or session row"
+		m.actNote = "delete applies to a project row"
 		return nil
 	}
 	if n.kind == nodeSession {
-		if isBaseRootSession(n.session) {
-			m.actNote = "delete: (root) is the AMQ base mailbox, not a removable session"
-			return nil
-		}
-		return m.beginSessionCleanupFor(n.project.Dir, n.session.Name, false)
+		m.actNote = "delete: session archive/remove has no amq-squad 2.28 equivalent (archive/rm were removed); select the project row to delete a team profile instead"
+		return nil
 	}
 	return m.beginDeleteTeamForProject(n.project)
 }
@@ -1884,7 +1876,7 @@ func (m *NOCModel) beginForkPlanFor(projectDir, profile, fromSession, toSession 
 	return nil
 }
 
-func (m *NOCModel) beginBriefFor(projectDir, session string) tea.Cmd {
+func (m *NOCModel) beginBriefFor(projectDir, profile, session string) tea.Cmd {
 	projectDir = strings.TrimSpace(projectDir)
 	session = strings.TrimSpace(session)
 	if projectDir == "" {
@@ -1895,7 +1887,7 @@ func (m *NOCModel) beginBriefFor(projectDir, session string) tea.Cmd {
 		m.actNote = "brief: selected session has no name"
 		return nil
 	}
-	op := briefOp{ProjectDir: projectDir, Session: session}
+	op := briefOp{ProjectDir: projectDir, Profile: profile, Session: session}
 	if m.brief == nil {
 		m.actNote = "brief unavailable in this context (no brief backend)"
 		return nil
@@ -1916,7 +1908,7 @@ func (m *NOCModel) beginBriefFor(projectDir, session string) tea.Cmd {
 	return nil
 }
 
-func (m *NOCModel) beginBriefSeedFor(projectDir, session string) tea.Cmd {
+func (m *NOCModel) beginBriefSeedFor(projectDir, profile, session string) tea.Cmd {
 	projectDir = strings.TrimSpace(projectDir)
 	session = strings.TrimSpace(session)
 	if projectDir == "" {
@@ -1932,7 +1924,7 @@ func (m *NOCModel) beginBriefSeedFor(projectDir, session string) tea.Cmd {
 		hint: "seed source: file:./brief.md, issue:31, gh:owner/repo#31, plus optional force=true",
 		build: func(_, body, _ string) pendingAction {
 			seedFrom, force, _ := parseNOCBriefSeedInput(body)
-			op := briefSeedOp{ProjectDir: projectDir, Session: session, SeedFrom: seedFrom, Force: force}
+			op := briefSeedOp{ProjectDir: projectDir, Profile: profile, Session: session, SeedFrom: seedFrom, Force: force}
 			return pendingAction{kind: ctlBriefSeed, preview: op.command(), brief: &op, affected: []string{session}}
 		},
 	}
@@ -2828,33 +2820,6 @@ func (m *NOCModel) beginAgentResumeFor(projectDir, role, session string) tea.Cmd
 	return nil
 }
 
-func (m *NOCModel) beginSessionCleanupFor(projectDir, session string, archive bool) tea.Cmd {
-	projectDir = strings.TrimSpace(projectDir)
-	session = strings.TrimSpace(session)
-	label := "remove"
-	kind := ctlRemove
-	if archive {
-		label = "archive"
-		kind = ctlArchive
-	}
-	if projectDir == "" {
-		m.actNote = label + ": selected project has no directory"
-		return nil
-	}
-	if session == "" {
-		m.actNote = label + ": (root) is the AMQ base mailbox, not a removable session"
-		return nil
-	}
-	op := sessionCleanupOp{ProjectDir: projectDir, Session: session, Archive: archive}
-	m.pending = &pendingAction{
-		kind:     kind,
-		preview:  op.command(),
-		cleanup:  &op,
-		affected: []string{session},
-	}
-	return nil
-}
-
 func namedTeamProfiles(project noc.ProjectSnapshot) []string {
 	out := make([]string, 0, len(project.Profiles))
 	for _, profile := range project.Profiles {
@@ -3363,17 +3328,6 @@ func (m *NOCModel) runPending(p *pendingAction) bool {
 			return false
 		}
 		m.actNote = "AGENT RESUME sent: " + p.preview
-		return true
-	case p.cleanup != nil:
-		if m.sessionCleanup == nil {
-			m.actNote = strings.ToLower(p.kind.label()) + " unavailable in this context (no session cleanup backend)"
-			return false
-		}
-		if err := m.sessionCleanup(*p.cleanup); err != nil {
-			m.actNote = strings.ToLower(p.kind.label()) + " failed: " + err.Error()
-			return false
-		}
-		m.actNote = p.kind.label() + " sent: " + p.preview
 		return true
 	case p.sync != nil:
 		if m.pointerSync == nil {
@@ -4924,7 +4878,7 @@ func (m NOCModel) roleMarketOverlayView() string {
 			b.WriteString("\n")
 		}
 	}
-	b.WriteString(m.th.paint(m.th.dim, "ran: amq-squad roles"))
+	b.WriteString(m.th.paint(m.th.dim, "amq-noc's built-in catalog of amq-squad roles"))
 	b.WriteString("\n")
 	b.WriteString(m.th.paint(m.th.dim, "select roles with IDs, numbers, all, or role=binary overrides"))
 	b.WriteString("\n")

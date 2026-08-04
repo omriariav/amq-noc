@@ -285,7 +285,6 @@ type NOCModel struct {
 	lifecycle         func(lifecycleOp) error
 	sendPrompt        func(sendPromptOp) error
 	agentResume       func(agentResumeOp) error
-	sessionCleanup    func(sessionCleanupOp) error
 	newSession        func(newSessionOp) error
 	newTeam           func(newTeamOp) error
 	teamDelete        func(teamDeleteOp) error

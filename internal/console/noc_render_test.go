@@ -964,14 +964,13 @@ func TestKickRecoverLines(t *testing.T) {
 		"old-session",
 		"/repo/app/.agent-mail/old-session",
 	), "\n")
-	for _, want := range []string{
-		"amq-squad archive --project /repo/app --yes old-session",
-		"amq-squad rm --project /repo/app --yes old-session",
-		"amq who --root /repo/app/.agent-mail/old-session",
-	} {
-		if !strings.Contains(plainSession, want) {
-			t.Fatalf("plain AMQ session commands missing %q:\n%s", want, plainSession)
-		}
+	if !strings.Contains(plainSession, "amq who --root /repo/app/.agent-mail/old-session") {
+		t.Fatalf("plain AMQ session commands missing amq who:\n%s", plainSession)
+	}
+	// amq-squad 2.28 removed archive/rm with no replacement primitive
+	// (addendum A1): no session cleanup suggestion is offered anymore.
+	if strings.Contains(plainSession, "amq-squad archive") || strings.Contains(plainSession, "amq-squad rm") {
+		t.Fatalf("plain AMQ session commands must not suggest removed archive/rm verbs:\n%s", plainSession)
 	}
 }
 

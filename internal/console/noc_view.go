@@ -1163,14 +1163,9 @@ func kickRecoverActionsForProfile(ps noc.ProjectSnapshot, sessionName, amqRoot, 
 		}
 		rt := shellToken(root)
 		out := []nocCommandAction{}
-		if strings.TrimSpace(sessionName) != "" && strings.TrimSpace(ps.Dir) != "" {
-			dir := shellToken(strings.TrimSpace(ps.Dir))
-			s := shellToken(strings.TrimSpace(sessionName))
-			out = append(out,
-				commandAction("archive session", "amq-squad archive --project "+dir+" --yes "+s, "move this AMQ session into the project archive"),
-				commandAction("remove session", "amq-squad rm --project "+dir+" --yes "+s, "permanently remove this AMQ session root"),
-			)
-		}
+		// amq-squad 2.28 removed archive/rm with no replacement primitive
+		// (amq-noc addendum A1): no session cleanup suggestion is offered here
+		// anymore rather than printing a command that would fail.
 		// Plain AMQ: the resolved root is known; AGENT / MESSAGE_ID / THREAD_ID are
 		// placeholders the operator fills in. Covers inspect (who/list/drain),
 		// read/thread, and send.

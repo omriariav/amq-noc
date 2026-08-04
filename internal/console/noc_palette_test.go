@@ -42,8 +42,6 @@ func TestPalette_IncludesProjectAndCreationActions(t *testing.T) {
 		"beta/beta/action/amq-ops",
 		"beta/beta/action/amq-cleanup",
 		"beta/beta/action/presence",
-		"beta/beta/action/archive",
-		"beta/beta/action/remove",
 		"beta/beta/qa/action/thread-context",
 		"beta/beta/qa/action/read-needs-you",
 		"beta/beta/qa/action/reply",
@@ -133,8 +131,6 @@ func TestPalette_ActionAliasesFindCreationRows(t *testing.T) {
 		{query: "beta qa message", label: "beta/beta/qa/action/message", tag: "message"},
 		{query: "beta qa wait message", label: "beta/beta/qa/action/message-wait", tag: "wait message"},
 		{query: "beta qa resume agent", label: "beta/beta/qa/action/agent-resume", tag: "resume agent"},
-		{query: "beta archive session", label: "beta/beta/action/archive", tag: "archive session"},
-		{query: "beta remove session", label: "beta/beta/action/remove", tag: "remove session"},
 	}
 	for _, tc := range cases {
 		p := paletteState{query: tc.query, items: items}

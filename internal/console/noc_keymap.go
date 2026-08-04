@@ -62,7 +62,7 @@ var nocKeyMap = []nocKeyBinding{
 
 	// Control (mutating; every key previews + confirms before it touches a squad).
 	// Scopes mirror each begin* handler's "applies to ..." guard in noc_control.go.
-	{Keys: []string{"delete"}, HelpDisplay: "Del", Label: "delete selected session or team profile (preview + confirm)", Footer: "Del delete", FooterAscii: "Del delete", Group: keyGroupAction, Mutating: true, Scopes: []nocNodeKind{nodeProject, nodeSession}},
+	{Keys: []string{"delete"}, HelpDisplay: "Del", Label: "delete selected team profile (preview + confirm)", Footer: "Del delete", FooterAscii: "Del delete", Group: keyGroupAction, Mutating: true, Scopes: []nocNodeKind{nodeProject}},
 	{Keys: []string{"d"}, HelpDisplay: "d", Label: "drain the selected agent inbox with bodies (preview + confirm)", Footer: "d drain", FooterAscii: "d drain", Group: keyGroupAction, Mutating: true, Scopes: []nocNodeKind{nodeAgent}},
 	{Keys: []string{"v"}, HelpDisplay: "v", Label: "view the selected agent's latest output (read-only: live pane tail, else newest AMQ message)", Footer: "v output", FooterAscii: "v output", Group: keyGroupAction, Scopes: []nocNodeKind{nodeAgent}},
 	{Keys: []string{"o"}, HelpDisplay: "o", Label: "open/focus the selected online agent's tmux pane (read-only; confirm first)", Footer: "o focus", FooterAscii: "o focus", Group: keyGroupAction, Scopes: []nocNodeKind{nodeAgent}},

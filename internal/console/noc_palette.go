@@ -78,8 +78,6 @@ const (
 	palMessageWait
 	palDrain
 	palAgentResume
-	palArchive
-	palRemove
 	palNewSession
 	palNewTeam
 	palSyncPointers
@@ -446,28 +444,6 @@ func appendSessionBusActionItems(items []paletteItem, ps noc.ProjectSnapshot, se
 			sessionRoot: common.sessionRoot,
 		})
 	}
-	items = append(items, paletteItem{
-		kind:        common.kind,
-		label:       ps.Project + "/" + sessLabel + "/action/archive",
-		search:      ps.Project + " " + sessLabel + " archive session cleanup stale finished move recoverable",
-		action:      palArchive,
-		project:     common.project,
-		projectDir:  common.projectDir,
-		snapshot:    common.snapshot,
-		session:     common.session,
-		sessionRoot: common.sessionRoot,
-	})
-	items = append(items, paletteItem{
-		kind:        common.kind,
-		label:       ps.Project + "/" + sessLabel + "/action/remove",
-		search:      ps.Project + " " + sessLabel + " remove rm delete session cleanup stale finished destructive",
-		action:      palRemove,
-		project:     common.project,
-		projectDir:  common.projectDir,
-		snapshot:    common.snapshot,
-		session:     common.session,
-		sessionRoot: common.sessionRoot,
-	})
 	return items
 }
 
@@ -1092,9 +1068,9 @@ func (m *NOCModel) paletteAction(it paletteItem) tea.Cmd {
 	case palThreads:
 		return m.beginThreadsFor(it.projectDir, it.session)
 	case palBrief:
-		return m.beginBriefFor(it.projectDir, it.session)
+		return m.beginBriefFor(it.projectDir, statusProfileForSession(it), it.session)
 	case palBriefSeed:
-		return m.beginBriefSeedFor(it.projectDir, it.session)
+		return m.beginBriefSeedFor(it.projectDir, statusProfileForSession(it), it.session)
 	case palStop:
 		return m.beginPaletteLifecycle(it, ctlStop)
 	case palResume:
@@ -1104,7 +1080,7 @@ func (m *NOCModel) paletteAction(it paletteItem) tea.Cmd {
 	case palRoles:
 		m.selectPaletteProject(it)
 		m.roleMarket = &roleMarketOverlay{project: it.project, projectDir: it.projectDir}
-		m.actNote = "ROLE MARKET read: amq-squad roles"
+		m.actNote = "ROLE MARKET: amq-noc's built-in catalog of amq-squad roles"
 		return nil
 	case palTeamProfiles:
 		m.selectPaletteProject(it)
@@ -1167,10 +1143,6 @@ func (m *NOCModel) paletteAction(it paletteItem) tea.Cmd {
 		return m.beginDrainAgentFor(it.sessionRoot, it.agent.Handle)
 	case palAgentResume:
 		return m.beginAgentResumeFor(it.projectDir, it.agent.Role, it.session)
-	case palArchive:
-		return m.beginSessionCleanupFor(it.projectDir, it.session, true)
-	case palRemove:
-		return m.beginSessionCleanupFor(it.projectDir, it.session, false)
 	case palNewSession:
 		return m.beginNewSessionForProject(it.snapshot)
 	case palNewTeam:
@@ -1456,10 +1428,6 @@ func paletteActionLabel(it paletteItem) string {
 		return "drain"
 	case palAgentResume:
 		return "resume agent"
-	case palArchive:
-		return "archive session"
-	case palRemove:
-		return "remove session"
 	case palNewSession:
 		return "start session"
 	case palNewTeam:

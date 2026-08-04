@@ -50,9 +50,6 @@ type NOCConfig struct {
 	// AgentResume is the cli-injected single-agent resume seam for a confirmed
 	// palette action.
 	AgentResume func(AgentResumeRequest) error
-	// SessionCleanup is the cli-injected archive/remove seam for a confirmed
-	// NOC session cleanup action.
-	SessionCleanup func(SessionCleanupRequest) error
 	// NewSession is the cli-injected launch seam for a confirmed NOC new-session
 	// action. It starts a detached tmux workstream for a selected team-home.
 	NewSession func(NewSessionRequest) error
@@ -129,14 +126,15 @@ type NOCConfig struct {
 	// ProjectResumePlan is the cli-injected amq-squad resume seam for a
 	// read-only recovery-plan inspection.
 	ProjectResumePlan func(ProjectResumePlanRequest) (ProjectResumePlanResult, error)
-	// ForkPlan is the cli-injected amq-squad fork seam for a read-only plan that
-	// branches one existing workstream into a new target workstream.
+	// ForkPlan is the cli-injected local (amq-squad's `fork` verb was removed
+	// in 2.28) fork-plan seam for a read-only plan that branches one existing
+	// workstream into a new target workstream.
 	ForkPlan func(ForkPlanRequest) (ForkPlanResult, error)
-	// Brief is the cli-injected amq-squad brief seam for a read-only workstream
-	// brief inspection.
+	// Brief is the cli-injected local (amq-squad's `brief` verb was removed in
+	// 2.28) brief seam for a read-only workstream brief inspection.
 	Brief func(BriefRequest) (BriefResult, error)
-	// BriefSeed is the cli-injected amq-squad brief seed seam for a confirmed
-	// workstream brief write.
+	// BriefSeed is the cli-injected local (amq-squad's `brief` verb was
+	// removed in 2.28) brief-seed seam for a confirmed workstream brief write.
 	BriefSeed func(BriefSeedRequest) error
 	// SendPrompt is the cli-injected amq-squad send seam for a confirmed
 	// send-prompt action. It delivers a typed prompt to one agent's tmux pane
@@ -170,14 +168,6 @@ type AgentResumeRequest struct {
 	ProjectDir string
 	Role       string
 	Session    string
-}
-
-// SessionCleanupRequest is the public, cli-facing shape of a confirmed
-// archive/remove action.
-type SessionCleanupRequest struct {
-	ProjectDir string
-	Session    string
-	Archive    bool
 }
 
 // NewSessionRequest is the public, cli-facing shape of a confirmed NOC
@@ -517,9 +507,11 @@ type ForkPlanResult struct {
 }
 
 // BriefRequest is the public, cli-facing shape of a read-only NOC workstream
-// brief inspection.
+// brief inspection. Profile resolves the profile-nested brief path for named
+// profiles (empty/"default" keeps the un-nested path).
 type BriefRequest struct {
 	ProjectDir string
+	Profile    string
 	Session    string
 }
 
@@ -534,9 +526,11 @@ type BriefResult struct {
 }
 
 // BriefSeedRequest is the public, cli-facing shape of a confirmed NOC
-// workstream brief seed action.
+// workstream brief seed action. Profile resolves the profile-nested brief
+// path for named profiles (empty/"default" keeps the un-nested path).
 type BriefSeedRequest struct {
 	ProjectDir string
+	Profile    string
 	Session    string
 	SeedFrom   string
 	Force      bool
@@ -626,19 +620,6 @@ func adaptAgentResume(fn func(AgentResumeRequest) error) func(agentResumeOp) err
 			ProjectDir: op.ProjectDir,
 			Role:       op.Role,
 			Session:    op.Session,
-		})
-	}
-}
-
-func adaptSessionCleanup(fn func(SessionCleanupRequest) error) func(sessionCleanupOp) error {
-	if fn == nil {
-		return nil
-	}
-	return func(op sessionCleanupOp) error {
-		return fn(SessionCleanupRequest{
-			ProjectDir: op.ProjectDir,
-			Session:    op.Session,
-			Archive:    op.Archive,
 		})
 	}
 }
@@ -1068,7 +1049,7 @@ func adaptBrief(fn func(BriefRequest) (BriefResult, error)) func(briefOp) (brief
 		return nil
 	}
 	return func(op briefOp) (briefResult, error) {
-		res, err := fn(BriefRequest{ProjectDir: op.ProjectDir, Session: op.Session})
+		res, err := fn(BriefRequest{ProjectDir: op.ProjectDir, Profile: op.Profile, Session: op.Session})
 		if err != nil {
 			return briefResult{}, err
 		}
@@ -1090,6 +1071,7 @@ func adaptBriefSeed(fn func(BriefSeedRequest) error) func(briefSeedOp) error {
 	return func(op briefSeedOp) error {
 		return fn(BriefSeedRequest{
 			ProjectDir: op.ProjectDir,
+			Profile:    op.Profile,
 			Session:    op.Session,
 			SeedFrom:   op.SeedFrom,
 			Force:      op.Force,
@@ -1200,7 +1182,6 @@ func runNOCLive(cfg NOCConfig) error {
 	// after the operator confirms the preview overlay.
 	m.lifecycle = adaptLifecycle(cfg.Lifecycle)
 	m.agentResume = adaptAgentResume(cfg.AgentResume)
-	m.sessionCleanup = adaptSessionCleanup(cfg.SessionCleanup)
 	m.newSession = adaptNewSession(cfg.NewSession)
 	m.newTeam = adaptNewTeam(cfg.NewTeam)
 	m.teamDelete = adaptTeamDelete(cfg.TeamDelete)

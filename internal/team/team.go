@@ -15,6 +15,14 @@ import (
 func sortStrings(s []string) { sort.Strings(s) }
 
 const (
+	// SchemaVersion is decorative: WriteProfile stamps it into the Schema
+	// field of any team.json this package writes (test fixtures only in
+	// practice - production amq-noc never calls Write/WriteProfile; team
+	// creation is delegated to the installed amq-squad CLI). Nothing in this
+	// package reads or gates on Schema. It is NOT kept in lockstep with
+	// amq-squad's own on-disk schema version (amq-squad 2.28 writes schema 5)
+	// and does not need to be; amq-noc's Read/ReadProfile parse team.json
+	// structurally and tolerate whatever schema amq-squad wrote.
 	SchemaVersion         = 3
 	DirName               = ".amq-squad"
 	FileName              = "team.json"

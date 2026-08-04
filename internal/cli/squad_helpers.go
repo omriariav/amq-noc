@@ -528,7 +528,7 @@ type briefSeedEnvelopeData struct {
 	Content     string `json:"content"`
 }
 
-func readBriefData(projectDir, session string) (briefEnvelopeData, error) {
+func readBriefData(projectDir, profile, session string) (briefEnvelopeData, error) {
 	projectDir = strings.TrimSpace(projectDir)
 	session = strings.TrimSpace(session)
 	if projectDir == "" {
@@ -540,7 +540,7 @@ func readBriefData(projectDir, session string) (briefEnvelopeData, error) {
 	if err := validateWorkstreamName(session); err != nil {
 		return briefEnvelopeData{}, fmt.Errorf("invalid session: %w", err)
 	}
-	path := briefPath(projectDir, session)
+	path := briefPath(projectDir, profile, session)
 	data := briefEnvelopeData{
 		ProjectDir: projectDir,
 		Session:    session,
@@ -554,14 +554,14 @@ func readBriefData(projectDir, session string) (briefEnvelopeData, error) {
 		}
 		return briefEnvelopeData{}, fmt.Errorf("read brief %s: %w", path, err)
 	}
-	_, kind := classifyBrief(projectDir, session)
+	_, kind := classifyBrief(projectDir, profile, session)
 	data.Kind = briefKindString(kind)
 	data.Exists = true
 	data.Content = string(content)
 	return data, nil
 }
 
-func seedBriefData(projectDir, session, source string, force, dryRun bool) (briefSeedEnvelopeData, error) {
+func seedBriefData(projectDir, profile, session, source string, force, dryRun bool) (briefSeedEnvelopeData, error) {
 	projectDir = strings.TrimSpace(projectDir)
 	session = strings.TrimSpace(session)
 	source = strings.TrimSpace(source)
@@ -583,7 +583,7 @@ func seedBriefData(projectDir, session, source string, force, dryRun bool) (brie
 	}
 	now := seedNow()
 	content := buildSeedBrief(source, body, now)
-	path := briefPath(projectDir, session)
+	path := briefPath(projectDir, profile, session)
 	data := briefSeedEnvelopeData{
 		ProjectDir:  projectDir,
 		Session:     session,
@@ -598,7 +598,7 @@ func seedBriefData(projectDir, session, source string, force, dryRun bool) (brie
 	if dryRun {
 		return data, nil
 	}
-	writtenPath, err := writeSeedBrief(projectDir, session, content, force)
+	writtenPath, err := writeSeedBrief(projectDir, profile, session, content, force)
 	if err != nil {
 		return briefSeedEnvelopeData{}, err
 	}
@@ -621,12 +621,16 @@ func briefKindString(kind briefKind) string {
 // briefsDirName is the per-team-home directory holding workstream briefs.
 const briefsDirName = "briefs"
 
-// briefPath returns the absolute path to the brief for a (teamHome, session)
-// pair. teamHome is normalized to an absolute path so callers passing a
-// relative argument (e.g. "." from a current-cwd fallback) still produce
-// the absolute path bootstrap names in the priming prompt. Returns "" when
-// either input is empty.
-func briefPath(teamHome, session string) string {
+// briefPath returns the absolute path to the brief for a (teamHome, profile,
+// session) triple, matching amq-squad's own BriefPath: the default profile
+// keeps the un-nested <team-home>/.amq-squad/briefs/<session>.md layout, and
+// any named profile nests under a <profile> subdirectory (see
+// internal/noc/namespace.go's namespaceBriefPath, which mirrors the same
+// contract for the read-only NOC snapshot side). teamHome is normalized to
+// an absolute path so callers passing a relative argument (e.g. "." from a
+// current-cwd fallback) still produce the absolute path bootstrap names in
+// the priming prompt. Returns "" when teamHome or session is empty.
+func briefPath(teamHome, profile, session string) string {
 	teamHome = strings.TrimSpace(teamHome)
 	session = strings.TrimSpace(session)
 	if teamHome == "" || session == "" {
@@ -636,7 +640,11 @@ func briefPath(teamHome, session string) string {
 	if err != nil {
 		abs = filepath.Clean(teamHome)
 	}
-	return filepath.Join(abs, ".amq-squad", briefsDirName, session+".md")
+	dir := filepath.Join(abs, ".amq-squad", briefsDirName)
+	if profile := nocProfileOrDefault(profile); profile != team.DefaultProfile {
+		dir = filepath.Join(dir, profile)
+	}
+	return filepath.Join(dir, session+".md")
 }
 
 // briefStubFirstLine is the first meaningful (non-heading, non-blank) line of
@@ -859,9 +867,7 @@ func removeContiguousSubsequence(args, sub []string) []string {
 }
 
 // emitCommandOptions controls extra flags injected into the emitted
-// 'agent up' launcher invocation (retained dead-code vocabulary predating
-// amq-squad 2.28's removal of the `agent` subtree; see the package comment).
-// Force adds --force-duplicate so a
+// 'amq-squad agent up' invocation. Force adds --force-duplicate so a
 // planner (e.g. resume) can emit a command that matches the plan when a
 // live agent has been overridden. NoBootstrap lets an operator force the
 // emitted command to skip bootstrap even for a seat that would otherwise

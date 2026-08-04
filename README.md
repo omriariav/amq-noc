@@ -336,6 +336,12 @@ go install github.com/omriariav/amq-squad/cmd/amq-squad@v2.28.0
 
 Older `amq-squad` builds keep deterministic fallback copy commands.
 
+`amq-squad` 2.28 also changed the default `--trust` posture for fresh Codex
+launches from `sandboxed` to `approve-for-me`. amq-noc does not pin `--trust`
+in any composed command, so this is a behavior change for operators launching
+through amq-noc's copy commands or the live TUI, not something amq-noc
+controls or should paper over.
+
 Recommended health check:
 
 ```sh

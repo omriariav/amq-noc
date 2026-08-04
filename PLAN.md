@@ -4,29 +4,60 @@
 
 Updated: 2026-08-05. Status: 0.13.0 is in progress on `feat/v0.13.0`.
 
-This release keeps amq-noc truthful against amq-squad 2.28's Simple Mode CLI,
-which removed the `up`, `stop`, `agent`, `history`, `notify`, `collect`,
-`receipt`, and prepare/go-wizard verbs in favor of `start` (launcher, preview-
-first with an interactive default-No confirm unless `--yes`), `down` (stop),
-and `resume` (+ `--exec`):
+This release keeps amq-noc truthful against amq-squad 2.28's Simple Mode CLI.
+2.28 removed the `up`, `stop`, `history`, `archive`, `rm`, `fork`, and `brief`
+(+ `brief seed`) verbs outright, with `up`/`stop` replaced by `start` /
+`down`. The `agent` subtree (`agent up`, `agent resume <role>`) is NOT
+removed - it still dispatches, just hidden from `--help`/completion as an
+internal child launch/restore boundary:
 
 - Capability floors raised: `amq` 0.51.1 (amq-squad 2.26+ hard-requires it,
   dropping the separate preferred-version check) and `amq-squad` 2.28.0 (below
   this floor the NOC's composed fallback commands are wrong, so it is now a
   genuine error state, not a soft warning).
-- Every NOC-composed amq-squad command using a removed verb was migrated:
-  `up` -> `start` (the confirm-overlay exec seam adds `--yes` since amq-noc's
-  own confirm already gated it and the exec path is captured/non-interactive;
-  copy-only command text shown outside that seam omits `--yes` so a human
-  running it by hand answers `start`'s own prompt), `stop` -> `down`, and
-  `agent resume <role>` -> `resume --role <role> --exec` (the `agent` subtree
-  is gone). The composed "restart" flow already ran stop-then-resume, which
-  needed only the verb rename since `resume` is unchanged in 2.28.
-- The `history` project action/picker entry/overlay was removed outright: 2.28
-  has no equivalent and none was invented.
+- Verb migration: `up` -> `start` (the confirm-overlay exec seam adds `--yes`
+  since amq-noc's own confirm already gated it and `start` blocks on stdin
+  otherwise; copy-only command text shown outside that seam omits `--yes` so a
+  human running it by hand answers `start`'s own prompt) and `stop` -> `down`.
+  The composed "restart" flow already ran stop-then-resume, so it only needed
+  the verb rename. `agent resume <role>` is UNCHANGED on the real exec seam
+  (still hidden-but-functional); only operator-facing COPY suggestions were
+  repointed at the public `resume --role <role> --exec` form.
+- Removed with no replacement (2.28 has none, none invented): the `history`
+  project action; session `archive`/`remove` (Del is now project-scoped only);
+  the `fork_plan` and `brief`/`brief_seed` session actions' composed command
+  text (the underlying NOC features are local reimplementations - fork-plan
+  via `executeResume(resumeModeFresh)`, brief read/seed via local file I/O -
+  and stay fully functional; their TUI preview text no longer falsely claims
+  a shelled `amq-squad fork`/`brief` command).
+- `internal/cli/noc.go`'s hidden `--run-action`/`--commands` surfaces (kept
+  working but undocumented since v0.12.1) execute the exact JSON action
+  `Command` text via `sh -c`, so every fix above had to keep those strings
+  genuinely dispatchable, not just cosmetically renamed.
+- Pre-existing bugs fixed alongside the verb migration: `briefPath` is now
+  profile-aware (named profiles nest under `.amq-squad/briefs/<profile>/`,
+  matching amq-squad's own layout and `internal/noc/namespace.go`'s read-only
+  `namespaceBriefPath`); `fetchSquadDoctor` now parses the checks envelope
+  even when `amq-squad doctor --json` exits non-zero (2.28 always does on any
+  check failure) instead of discarding it for an opaque error blob; the
+  built-in role catalog gained `scribe`/`lead`/`agent` (live 2.28 `roles
+  --json` returns 14, catalog had 11) and the "ran: amq-squad roles" overlay
+  label no longer claims a live command ran; `doctorMinAMQVersion` raised to
+  0.51.1 to match the new floor.
+- amq-squad 2.28 also flipped the default `--trust` posture for fresh Codex
+  launches from `sandboxed` to `approve-for-me`; amq-noc does not pin `--trust`
+  anywhere, so this is a real behavior change for operators, documented in the
+  README rather than papered over.
 - amq-noc issue #54: renamed the live TUI right-pane header from
   `actions (C copies command)` to `commands (C copies command)` so it no
   longer reads as the (already-hidden, v0.12.1) public action-queue surface.
+
+Known gap surfaced but NOT fixed in this track (flagged for lead review): the
+session-scope `threads` and `thread_context_any` composed actions still shell
+`amq-squad threads`/`amq-squad thread`, both confirmed removed in live 2.28
+(`error: unknown command`). `thread_context_any` has a working replacement
+shape (`amq-squad amq thread --project DIR --session NAME ...`); `threads`
+(the collapsed multi-thread digest) has no found 1:1 equivalent.
 
 Release gates:
 

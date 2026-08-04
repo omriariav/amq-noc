@@ -148,15 +148,17 @@ operationally live agents, so fresh presence alone never promotes a wait.
 ## Install
 
 ```sh
-go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.12.1
+go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.13.0
 ```
 
 Requirements:
 
 - Go 1.25+
-- `amq` v0.38.0 or newer for the reserved human operator and exported
-  environment contracts used by amq-squad v2.10
-- `amq-squad` v2.10.0 or newer for namespace-safe visible-lead remote control
+- `amq` v0.51.1 or newer (amq-squad 2.26+ hard-requires this floor) for the
+  reserved human operator and exported environment contracts
+- `amq-squad` v2.28.0 or newer: Simple Mode's lifecycle verbs (`start` / `down`
+  / `resume`) replaced `up` / `stop` / `agent`, and `history` was removed with
+  no replacement; amq-noc's composed fallback commands target this surface
 - `tmux`
 
 ## Quick Start
@@ -329,7 +331,7 @@ published runtime metadata, the orchestrated/lead team contract, and the
 operator DIRECTIVE norm:
 
 ```sh
-go install github.com/omriariav/amq-squad/cmd/amq-squad@v2.10.0
+go install github.com/omriariav/amq-squad/cmd/amq-squad@v2.28.0
 ```
 
 Older `amq-squad` builds keep deterministic fallback copy commands.

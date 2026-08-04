@@ -1,5 +1,42 @@
 # amq-noc Release Plan
 
+## amq-squad 2.28.0 compatibility track (0.13.x)
+
+Updated: 2026-08-05. Status: 0.13.0 is in progress on `feat/v0.13.0`.
+
+This release keeps amq-noc truthful against amq-squad 2.28's Simple Mode CLI,
+which removed the `up`, `stop`, `agent`, `history`, `notify`, `collect`,
+`receipt`, and prepare/go-wizard verbs in favor of `start` (launcher, preview-
+first with an interactive default-No confirm unless `--yes`), `down` (stop),
+and `resume` (+ `--exec`):
+
+- Capability floors raised: `amq` 0.51.1 (amq-squad 2.26+ hard-requires it,
+  dropping the separate preferred-version check) and `amq-squad` 2.28.0 (below
+  this floor the NOC's composed fallback commands are wrong, so it is now a
+  genuine error state, not a soft warning).
+- Every NOC-composed amq-squad command using a removed verb was migrated:
+  `up` -> `start` (the confirm-overlay exec seam adds `--yes` since amq-noc's
+  own confirm already gated it and the exec path is captured/non-interactive;
+  copy-only command text shown outside that seam omits `--yes` so a human
+  running it by hand answers `start`'s own prompt), `stop` -> `down`, and
+  `agent resume <role>` -> `resume --role <role> --exec` (the `agent` subtree
+  is gone). The composed "restart" flow already ran stop-then-resume, which
+  needed only the verb rename since `resume` is unchanged in 2.28.
+- The `history` project action/picker entry/overlay was removed outright: 2.28
+  has no equivalent and none was invented.
+- amq-noc issue #54: renamed the live TUI right-pane header from
+  `actions (C copies command)` to `commands (C copies command)` so it no
+  longer reads as the (already-hidden, v0.12.1) public action-queue surface.
+
+Release gates:
+
+```sh
+gofmt -l .
+git diff --check
+go test ./...
+go vet ./...
+```
+
 ## Release evidence and task correlation track (0.12.x)
 
 Updated: 2026-06-28. Status: 0.12.0 is in release PR #52 after local gates

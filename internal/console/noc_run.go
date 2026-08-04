@@ -150,8 +150,9 @@ type NOCConfig struct {
 	// Status is the cli-injected amq-squad status seam for a read-only project or
 	// session status inspection.
 	Status func(StatusRequest) (StatusResult, error)
-	// Threads is the cli-injected amq-squad threads seam for a read-only session
-	// thread summary inspection.
+	// Threads is the cli-injected local (amq-squad's `threads` verb was
+	// removed in 2.28, and this never shelled it out even before 2.28) thread
+	// summary seam for a read-only session inspection.
 	Threads func(ThreadsRequest) (ThreadsResult, error)
 }
 

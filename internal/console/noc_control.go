@@ -769,15 +769,21 @@ type statusResultOverlay struct {
 	result  statusResult
 }
 
-// threadsOp is the exact amq-squad threads effect a NOC session-threads action
-// runs. It is read-only and renders collapsed thread summaries.
+// threadsOp is the exact effect a NOC session-threads action runs. It is
+// read-only and renders collapsed thread summaries. This is NOT an
+// amq-squad command - amq-squad's `threads` verb is gone in 2.28 with no
+// replacement (nocThreadsCommand and the "threads" session action were
+// removed for the same reason), and executeThreads (cli) resolves the AMQ
+// base root and reads session/message state directly; it never shelled
+// amq-squad threads even before 2.28. command() renders that honestly,
+// matching the same local-action treatment as projectHistoryOp/forkPlanOp.
 type threadsOp struct {
 	ProjectDir string
 	Session    string
 }
 
 func (op threadsOp) command() string {
-	parts := []string{squadCommandToken(), "threads"}
+	parts := []string{"amq-noc (local)", "threads"}
 	if strings.TrimSpace(op.ProjectDir) != "" {
 		parts = append(parts, "--project", shellToken(op.ProjectDir))
 	}
@@ -4911,8 +4917,8 @@ func (m NOCModel) statusResultOverlayView() string {
 	return b.String()
 }
 
-// threadsResultOverlayView renders an amq-squad threads report after a
-// read-only session threads inspection completes.
+// threadsResultOverlayView renders a local collapsed-thread-summary report
+// after a read-only session threads inspection completes.
 func (m NOCModel) threadsResultOverlayView() string {
 	p := m.threadsResult
 	var b strings.Builder

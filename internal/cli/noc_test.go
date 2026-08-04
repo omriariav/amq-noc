@@ -4456,13 +4456,13 @@ func TestNOCJSONAttentionQueueIncludesCorrelationSignals(t *testing.T) {
 	if mismatch.TaskID != "t1" || mismatch.WhoActs != "fullstack" || mismatch.Status != "warn" {
 		t.Fatalf("mismatch item = %+v", mismatch)
 	}
-	if mismatch.ActionID != "session|/root/api|review/issue-96|action|threads" || mismatch.NextAction != "threads" {
+	if mismatch.ActionID != "session|/root/api|review/issue-96|action|thread_context_any" || mismatch.NextAction != "thread_context_any" {
 		t.Fatalf("mismatch action = %+v", mismatch)
 	}
 	if blocker.WhoActs != "user" || blocker.Source != "correlation.evidence" || blocker.Why != "missing reviewed head SHA evidence" {
 		t.Fatalf("evidence blocker item = %+v", blocker)
 	}
-	if blocker.ActionID != "session|/root/api|review/issue-96|action|threads" {
+	if blocker.ActionID != "session|/root/api|review/issue-96|action|thread_context_any" {
 		t.Fatalf("evidence blocker action = %+v", blocker)
 	}
 }
@@ -4607,7 +4607,6 @@ func TestNOCJSONActionsExposeControlCommands(t *testing.T) {
 		!hasNOCActionID(env.Actions, "project|/root/api service|action|amq_who") ||
 		!hasNOCActionID(env.Actions, "project|/root/api service|action|sync_pointers") ||
 		!hasNOCActionID(env.Actions, "session|/root/api service|issue-96|action|resume") ||
-		!hasNOCActionID(env.Actions, "session|/root/api service|issue-96|action|threads") ||
 		!hasNOCActionID(env.Actions, "session|/root/api service|issue-96|action|thread_context_any") ||
 		!hasNOCActionID(env.Actions, "session|/root/api service|issue-96|action|amq_ops") ||
 		!hasNOCActionID(env.Actions, "session|/root/api service|issue-96|action|amq_cleanup") ||
@@ -4763,21 +4762,17 @@ func TestNOCJSONActionsExposeControlCommands(t *testing.T) {
 	if !strings.Contains(resume.Command, "amq-squad resume --project '/root/api service' --exec --target new-session") {
 		t.Fatalf("resume command = %q, want project-scoped detached resume", resume.Command)
 	}
-	threads := requireNOCAction(t, session.Actions, "threads")
-	if threads.Mutates || threads.RequiresConfirmation || threads.Template {
-		t.Fatalf("threads should be read-only concrete action: %+v", threads)
-	}
-	if !strings.Contains(threads.Command, "amq-squad threads --project '/root/api service' --session issue-96 --limit 20") {
-		t.Fatalf("threads command should read session thread summaries: %q", threads.Command)
-	}
 	threadContextAny := requireNOCAction(t, session.Actions, "thread_context_any")
 	if threadContextAny.Mutates || threadContextAny.RequiresConfirmation || !threadContextAny.Template {
 		t.Fatalf("thread_context_any should be read-only template action: %+v", threadContextAny)
 	}
-	for _, want := range []string{"amq-squad thread", "--project '/root/api service'", "--session issue-96", "--id '<thread-id>'", "--include-body", "--limit 20"} {
+	for _, want := range []string{"amq thread", "--root '/root/api service/.agent-mail/issue-96'", "--id '<thread-id>'", "--include-body", "--limit 20"} {
 		if !strings.Contains(threadContextAny.Command, want) {
 			t.Fatalf("thread_context_any command missing %q: %s", want, threadContextAny.Command)
 		}
+	}
+	if strings.Contains(threadContextAny.Command, "amq-squad") {
+		t.Fatalf("thread_context_any command must not shell amq-squad (thread/threads removed in 2.28): %q", threadContextAny.Command)
 	}
 	threadIDVar := requireNOCActionVar(t, threadContextAny.Vars, "thread-id")
 	if !threadIDVar.Required || len(threadIDVar.Examples) == 0 {

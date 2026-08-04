@@ -5,11 +5,11 @@
 Updated: 2026-08-05. Status: 0.13.0 is in progress on `feat/v0.13.0`.
 
 This release keeps amq-noc truthful against amq-squad 2.28's Simple Mode CLI.
-2.28 removed the `up`, `stop`, `history`, `archive`, `rm`, `fork`, and `brief`
-(+ `brief seed`) verbs outright, with `up`/`stop` replaced by `start` /
-`down`. The `agent` subtree (`agent up`, `agent resume <role>`) is NOT
-removed - it still dispatches, just hidden from `--help`/completion as an
-internal child launch/restore boundary:
+2.28 removed the `up`, `stop`, `history`, `archive`, `rm`, `fork`, `brief`
+(+ `brief seed`), `threads`, and `thread` verbs outright, with `up`/`stop`
+replaced by `start`/`down`. The `agent` subtree (`agent up`, `agent resume
+<role>`) is NOT removed - it still dispatches, just hidden from
+`--help`/completion as an internal child launch/restore boundary:
 
 - Capability floors raised: `amq` 0.51.1 (amq-squad 2.26+ hard-requires it,
   dropping the separate preferred-version check) and `amq-squad` 2.28.0 (below
@@ -65,12 +65,27 @@ internal child launch/restore boundary:
   `actions (C copies command)` to `commands (C copies command)` so it no
   longer reads as the (already-hidden, v0.12.1) public action-queue surface.
 
-Known gap surfaced but NOT fixed in this track (flagged for lead review): the
-session-scope `threads` and `thread_context_any` composed actions still shell
-`amq-squad threads`/`amq-squad thread`, both confirmed removed in live 2.28
-(`error: unknown command`). `thread_context_any` has a working replacement
-shape (`amq-squad amq thread --project DIR --session NAME ...`); `threads`
-(the collapsed multi-thread digest) has no found 1:1 equivalent.
+- `threads`/`thread` resolution (previously flagged as an open gap, now
+  resolved): `thread_context_any` (nocThreadContextAnyCommand) migrated OFF
+  amq-squad entirely, onto the AMQ-level form already proven at
+  nocThreadContextCommand for the top needs-you thread - `amq thread --root
+  <session-root> --id <thread-id> --include-body --limit 20` - rather than
+  the unverified `amq-squad amq thread` passthrough. The `threads` session
+  action (the collapsed multi-thread digest, nocThreadsCommand) was removed
+  outright: 2.28 has no thread-digest command and `amq-squad amq list` is
+  mailbox-scoped with different (`--me`-required) semantics, so there is no
+  truthful 1:1; the NOC's own thread rendering is local state and unaffected,
+  the operator only loses a dead CLI suggestion. The attention-queue
+  synthetic next-action wiring (nocCorrelationAttentionItems) now always
+  points task-report mismatches and release-evidence blockers at the
+  surviving `thread_context_any` action instead of the removed `threads`
+  digest. Session thread digest losing its CLI form in 2.28 is an upstream
+  ask candidate alongside single-agent restore's placement contract (above).
+  While auditing this, found and fixed the same false-command-claim pattern
+  in the separate, always-local session "threads" TUI overlay (threadsOp,
+  unrelated to the removed `threads` composed action - it never shelled
+  amq-squad, even before 2.28): its preview no longer claims `amq-squad
+  threads ...` ran.
 
 Release gates:
 

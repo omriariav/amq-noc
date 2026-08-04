@@ -2419,11 +2419,11 @@ func nocCorrelationAttentionItems(row nocSessionJSONData, correlation *noc.Sessi
 		if strings.TrimSpace(mismatch.Name) == "" {
 			continue
 		}
-		nextAction := "threads"
-		if strings.TrimSpace(mismatch.Thread) != "" {
-			nextAction = "thread_context_any"
-		}
-		nextAction, actionID := nocAttentionSyntheticAction(nextAction, row)
+		// thread_context_any is the only surviving thread-scoped session action
+		// (amq-squad 2.28 removed the `threads` digest with no replacement, T2);
+		// it works whether or not mismatch.Thread is known, since the thread id
+		// is an operator-filled template placeholder either way.
+		nextAction, actionID := nocAttentionSyntheticAction("thread_context_any", row)
 		out = append(out, nocAttentionItem{
 			Kind:        "task-report-mismatch",
 			Urgency:     correlationSignalUrgency(mismatch),
@@ -2445,7 +2445,7 @@ func nocCorrelationAttentionItems(row nocSessionJSONData, correlation *noc.Sessi
 		if blocker == "" {
 			continue
 		}
-		nextAction, actionID := nocAttentionSyntheticAction("threads", row)
+		nextAction, actionID := nocAttentionSyntheticAction("thread_context_any", row)
 		out = append(out, nocAttentionItem{
 			Kind:        "release-evidence-blocker",
 			Urgency:     1,
@@ -2734,12 +2734,8 @@ func nocSessionActions(ps noc.ProjectSnapshot, sess state.Session, sessionID str
 			nocSquadProfileCommand("status", ps.Dir, profile, "--session", sess.Name),
 			"Show this session's detail table.",
 			false, false, false),
-		nocAction("session", sessionID, "threads",
-			nocThreadsCommand(ps.Dir, profile, sess.Name),
-			"Show this session's collapsed AMQ thread summaries.",
-			false, false, false),
 		nocAction("session", sessionID, "thread_context_any",
-			nocThreadContextAnyCommand(ps.Dir, profile, sess.Name),
+			nocThreadContextAnyCommand(sess.Root),
 			"Read any thread transcript in this session by thread id without moving unread mail.",
 			false, false, true),
 		nocAction("session", sessionID, "amq_ops",
@@ -3304,18 +3300,15 @@ func nocThreadContextCommand(root, threadID string) string {
 		"--limit", "20")
 }
 
-func nocThreadsCommand(projectDir, profile, session string) string {
-	return nocSquadProfileCommand("threads", projectDir, profile,
-		"--session", session,
-		"--limit", fmt.Sprint(defaultThreadsLimit))
-}
-
-func nocThreadContextAnyCommand(projectDir, profile, session string) string {
-	return nocSquadProfileCommand("thread", projectDir, profile,
-		"--session", session,
-		"--id", "<thread-id>",
-		"--include-body",
-		"--limit", fmt.Sprint(defaultThreadTranscriptLimit))
+// nocThreadContextAnyCommand reads any thread transcript in a session by
+// thread id via AMQ directly. amq-squad 2.28 removed the top-level `thread`
+// verb (and `threads`) with no replacement; `amq-squad amq thread` exists but
+// its passthrough flag surface is unverified, so this reuses the same
+// amq-level form nocThreadContextCommand already composes for the top
+// needs-you thread, with the thread id left as an operator-filled template
+// placeholder.
+func nocThreadContextAnyCommand(root string) string {
+	return nocThreadContextCommand(root, "<thread-id>")
 }
 
 func nocReadNeedsYouCommand(root, messageID, operatorHandle string) string {

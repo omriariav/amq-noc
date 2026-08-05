@@ -14,9 +14,9 @@ import (
 )
 
 const (
-	amqMinimumVersion         = "0.37.1"
-	amqPreferredVersion       = "0.38.0"
-	amqSquadMinimumVersion    = "2.5.0"
+	amqMinimumVersion         = "0.51.1"
+	amqPreferredVersion       = ""
+	amqSquadMinimumVersion    = "2.28.0"
 	healthStatusOK            = "ok"
 	healthStatusWarn          = "warn"
 	healthStatusError         = "error"
@@ -193,9 +193,16 @@ func fetchVersionCapability(run HealthCommandRunner, dir, name string, args []st
 
 func fetchSquadDoctor(run HealthCommandRunner, dir string) CommandHealth {
 	ch := fetchCommandHealth(run, dir, nil, "amq-squad doctor --json", "amq-squad", "doctor", "--json")
-	if ch.Status != healthStatusOK {
-		return ch
-	}
+	// amq-squad 2.28's `doctor --json` exits non-zero whenever any check is
+	// "fail" (`error: doctor: N check(s) failed`), but it still prints the
+	// full checks JSON on stdout. fetchCommandHealth already captured that
+	// stdout into ch.Detail even on a non-zero exit (DefaultHealthCommandRunner
+	// returns stdout alongside the error), so a bare status!=ok short-circuit
+	// here would discard a real, parseable checks summary in exactly the case
+	// where the operator most needs it: a genuine failure. Try to parse
+	// ch.Detail as the doctor envelope regardless of exit status; only fall
+	// back to the opaque error/warn path when stdout truly isn't the envelope
+	// (a transport failure - amq-squad missing, wrong PATH, etc).
 	var env struct {
 		Kind string `json:"kind"`
 		Data struct {
@@ -207,10 +214,13 @@ func fetchSquadDoctor(run HealthCommandRunner, dir string) CommandHealth {
 		} `json:"data"`
 	}
 	if err := json.Unmarshal([]byte(ch.Detail), &env); err != nil || env.Kind != "doctor" {
-		ch.Status = healthStatusWarn
-		ch.Detail = "doctor output was not the expected JSON envelope"
+		if ch.Status == healthStatusOK {
+			ch.Status = healthStatusWarn
+			ch.Detail = "doctor output was not the expected JSON envelope"
+		}
 		return ch
 	}
+	wasNonZeroExit := ch.Status != healthStatusOK
 	var warn, fail int
 	for _, c := range env.Data.Checks {
 		switch strings.ToLower(strings.TrimSpace(c.Status)) {
@@ -222,13 +232,18 @@ func fetchSquadDoctor(run HealthCommandRunner, dir string) CommandHealth {
 		}
 	}
 	switch {
-	case fail > 0:
+	case fail > 0, wasNonZeroExit:
+		// A non-zero exit means amq-squad itself detected a failure even if
+		// our own per-check classification above disagreed (e.g. a status
+		// vocabulary this NOC doesn't recognize yet as "fail"); trust the
+		// process exit over a possibly-stale local classification.
 		ch.Status = healthStatusError
 	case warn > 0:
 		ch.Status = healthStatusWarn
 	default:
 		ch.Status = healthStatusOK
 	}
+	ch.Error = ""
 	ch.Detail = fmt.Sprintf("%d checks, %d warnings, %d failures", len(env.Data.Checks), warn, fail)
 	return ch
 }

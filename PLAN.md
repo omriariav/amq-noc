@@ -1,5 +1,101 @@
 # amq-noc Release Plan
 
+## amq-squad 2.28.0 compatibility track (0.13.x)
+
+Updated: 2026-08-05. Status: 0.13.0 is in progress on `feat/v0.13.0`.
+
+This release keeps amq-noc truthful against amq-squad 2.28's Simple Mode CLI.
+2.28 removed the `up`, `stop`, `history`, `archive`, `rm`, `fork`, `brief`
+(+ `brief seed`), `threads`, and `thread` verbs outright, with `up`/`stop`
+replaced by `start`/`down`. The `agent` subtree (`agent up`, `agent resume
+<role>`) is NOT removed - it still dispatches, just hidden from
+`--help`/completion as an internal child launch/restore boundary:
+
+- Capability floors raised: `amq` 0.51.1 (amq-squad 2.26+ hard-requires it,
+  dropping the separate preferred-version check) and `amq-squad` 2.28.0 (below
+  this floor the NOC's composed fallback commands are wrong, so it is now a
+  genuine error state, not a soft warning).
+- Verb migration: `up` -> `start` (the confirm-overlay exec seam adds `--yes`
+  since amq-noc's own confirm already gated it and `start` blocks on stdin
+  otherwise; copy-only command text shown outside that seam omits `--yes` so a
+  human running it by hand answers `start`'s own prompt) and `stop` -> `down`.
+  The composed "restart" flow already ran stop-then-resume, so it only needed
+  the verb rename. `agent resume <role>` is UNCHANGED on the real exec seam
+  (consoleAgentResumeArgs, agentResumeOp.command() - still hidden-but-
+  functional, and it replays into the team's own tmux session, which public
+  `resume --exec` with no `--target` cannot do safely from inside the live TUI
+  since its current-window default would hijack the NOC's own AltScreen);
+  only operator-facing COPY suggestions (nocAgentResumeCommand,
+  agentCommandActions) were repointed at the public `resume --role <role>
+  --exec` form, which is correct for a human running them from their own
+  shell. Single-agent restore staying on amq-squad's internal `agent resume`
+  boundary (2.28's public `resume` has no per-role placement contract of its
+  own) is an upstream ask candidate.
+- Removed with no replacement (2.28 has none, none invented): the `history`
+  project action's composed `amq-squad history ...` command text; session
+  `archive`/`remove` (Del is now project-scoped only); the `fork_plan` and
+  `brief`/`brief_seed` session actions' composed command text (the underlying
+  NOC features are local reimplementations - fork-plan via
+  `executeResume(resumeModeFresh)`, brief read/seed via local file I/O - and
+  stay fully functional; their TUI preview text no longer falsely claims a
+  shelled `amq-squad fork`/`brief` command). The project-history OVERLAY
+  itself (picker entry, consoleProjectHistory, the launch.json scan) was
+  never an amq-squad command even before 2.28 - it stayed, only relabeled so
+  its preview/actNote read "amq-noc (local) history ..." instead of a fake
+  `amq-squad history` invocation.
+- `internal/cli/noc.go`'s hidden `--run-action`/`--commands` surfaces (kept
+  working but undocumented since v0.12.1) execute the exact JSON action
+  `Command` text via `sh -c`, so every fix above had to keep those strings
+  genuinely dispatchable, not just cosmetically renamed.
+- Pre-existing bugs fixed alongside the verb migration: `briefPath` is now
+  profile-aware (named profiles nest under `.amq-squad/briefs/<profile>/`,
+  matching amq-squad's own layout and `internal/noc/namespace.go`'s read-only
+  `namespaceBriefPath`); `fetchSquadDoctor` now parses the checks envelope
+  even when `amq-squad doctor --json` exits non-zero (2.28 always does on any
+  check failure) instead of discarding it for an opaque error blob; the
+  built-in role catalog gained `scribe`/`lead`/`agent` (live 2.28 `roles
+  --json` returns 14, catalog had 11) and the "ran: amq-squad roles" overlay
+  label no longer claims a live command ran; `doctorMinAMQVersion` raised to
+  0.51.1 to match the new floor.
+- amq-squad 2.28 also flipped the default `--trust` posture for fresh Codex
+  launches from `sandboxed` to `approve-for-me`; amq-noc does not pin `--trust`
+  anywhere, so this is a real behavior change for operators, documented in the
+  README rather than papered over.
+- amq-noc issue #54: renamed the live TUI right-pane header from
+  `actions (C copies command)` to `commands (C copies command)` so it no
+  longer reads as the (already-hidden, v0.12.1) public action-queue surface.
+
+- `threads`/`thread` resolution (previously flagged as an open gap, now
+  resolved): `thread_context_any` (nocThreadContextAnyCommand) migrated OFF
+  amq-squad entirely, onto the AMQ-level form already proven at
+  nocThreadContextCommand for the top needs-you thread - `amq thread --root
+  <session-root> --id <thread-id> --include-body --limit 20` - rather than
+  the unverified `amq-squad amq thread` passthrough. The `threads` session
+  action (the collapsed multi-thread digest, nocThreadsCommand) was removed
+  outright: 2.28 has no thread-digest command and `amq-squad amq list` is
+  mailbox-scoped with different (`--me`-required) semantics, so there is no
+  truthful 1:1; the NOC's own thread rendering is local state and unaffected,
+  the operator only loses a dead CLI suggestion. The attention-queue
+  synthetic next-action wiring (nocCorrelationAttentionItems) now always
+  points task-report mismatches and release-evidence blockers at the
+  surviving `thread_context_any` action instead of the removed `threads`
+  digest. Session thread digest losing its CLI form in 2.28 is an upstream
+  ask candidate alongside single-agent restore's placement contract (above).
+  While auditing this, found and fixed the same false-command-claim pattern
+  in the separate, always-local session "threads" TUI overlay (threadsOp,
+  unrelated to the removed `threads` composed action - it never shelled
+  amq-squad, even before 2.28): its preview no longer claims `amq-squad
+  threads ...` ran.
+
+Release gates:
+
+```sh
+gofmt -l .
+git diff --check
+go test ./...
+go vet ./...
+```
+
 ## Release evidence and task correlation track (0.12.x)
 
 Updated: 2026-06-28. Status: 0.12.0 is in release PR #52 after local gates

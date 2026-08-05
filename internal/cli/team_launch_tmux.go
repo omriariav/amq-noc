@@ -137,7 +137,7 @@ func tmuxDryRunLines(plan tmuxLaunchPlan) []string {
 		windowTarget = "$window"
 		firstTarget = "$first_pane"
 		lines = append(lines,
-			`window=$(tmux display-message -p -t "${TMUX_PANE:?run amq-squad up from inside a tmux pane}" '#{session_name}:#{window_index}')`,
+			`window=$(tmux display-message -p -t "${TMUX_PANE:?run amq-squad start from inside a tmux pane}" '#{session_name}:#{window_index}')`,
 			`first_pane="$TMUX_PANE"`,
 		)
 	} else {

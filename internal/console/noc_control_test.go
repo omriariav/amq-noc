@@ -36,7 +36,7 @@ func TestControlCommandPreviewsDelegateToAMQSquad(t *testing.T) {
 	if got := session.command(); !strings.HasPrefix(got, "amq-squad new session ") {
 		t.Fatalf("new-session preview should delegate to amq-squad, got %q", got)
 	}
-	if got := life.command(); !strings.HasPrefix(got, "amq-squad stop ") {
+	if got := life.command(); !strings.HasPrefix(got, "amq-squad down ") {
 		t.Fatalf("lifecycle preview should delegate to amq-squad, got %q", got)
 	}
 
@@ -49,7 +49,7 @@ func TestControlCommandPreviewsDelegateToAMQSquad(t *testing.T) {
 	if got := session.command(); !strings.HasPrefix(got, "/tmp/amq2 new session ") {
 		t.Fatalf("override should redirect new-session preview, got %q", got)
 	}
-	if got := life.command(); !strings.HasPrefix(got, "/tmp/amq2 stop ") {
+	if got := life.command(); !strings.HasPrefix(got, "/tmp/amq2 down ") {
 		t.Fatalf("override should redirect lifecycle preview, got %q", got)
 	}
 }
@@ -864,7 +864,7 @@ func TestLifecycleCommandScopesProjectDir(t *testing.T) {
 
 func TestLifecycleCommandCarriesProfile(t *testing.T) {
 	op := lifecycleOp{Verb: lifecycleRestart, ProjectDir: "/tmp/team home", Profile: "review", Session: "issue-1"}
-	want := "amq-squad stop --project '/tmp/team home' --all --profile review --session issue-1 && amq-squad resume --project '/tmp/team home' --profile review --exec --target new-session --terminal-session amq-squad-team-home-issue-1 --session issue-1"
+	want := "amq-squad down --project '/tmp/team home' --all --profile review --session issue-1 && amq-squad resume --project '/tmp/team home' --profile review --exec --target new-session --terminal-session amq-squad-team-home-issue-1 --session issue-1"
 	if got := op.command(); got != want {
 		t.Fatalf("lifecycle command = %q, want %q", got, want)
 	}
@@ -898,17 +898,37 @@ func TestAdaptAgentResumeCarriesScope(t *testing.T) {
 	}
 }
 
-func TestAdaptSessionCleanupCarriesRequest(t *testing.T) {
-	var got SessionCleanupRequest
-	fn := adaptSessionCleanup(func(req SessionCleanupRequest) error {
+func TestAdaptProjectHistoryCarriesProjectDir(t *testing.T) {
+	var got ProjectHistoryRequest
+	fn := adaptProjectHistory(func(req ProjectHistoryRequest) (ProjectHistoryResult, error) {
 		got = req
-		return nil
+		return ProjectHistoryResult{ProjectDir: req.ProjectDir, Output: "history"}, nil
 	})
-	if err := fn(sessionCleanupOp{ProjectDir: "/tmp/team", Session: "issue-1", Archive: true}); err != nil {
-		t.Fatalf("adaptSessionCleanup: %v", err)
+	res, err := fn(projectHistoryOp{ProjectDir: "/tmp/team"})
+	if err != nil {
+		t.Fatalf("adaptProjectHistory: %v", err)
 	}
-	if got.ProjectDir != "/tmp/team" || got.Session != "issue-1" || !got.Archive {
-		t.Fatalf("SessionCleanupRequest mismatch: %+v", got)
+	if got.ProjectDir != "/tmp/team" {
+		t.Fatalf("ProjectHistoryRequest mismatch: %+v", got)
+	}
+	if res.ProjectDir != "/tmp/team" || res.Output != "history" {
+		t.Fatalf("project history result mismatch: %+v", res)
+	}
+}
+
+// TestProjectHistoryCommandDoesNotClaimAMQSquadRan is the F1 regression: the
+// project-history scan is local (reads launch.json directly; amq-squad's
+// `history` verb is gone in 2.28 and this never shelled it out even before
+// 2.28), so its rendered command must not claim an amq-squad invocation ran.
+func TestProjectHistoryCommandDoesNotClaimAMQSquadRan(t *testing.T) {
+	op := projectHistoryOp{ProjectDir: "/tmp/team"}
+	got := op.command()
+	if strings.Contains(got, "amq-squad") {
+		t.Fatalf("projectHistoryOp.command() = %q, must not claim an amq-squad invocation", got)
+	}
+	want := "amq-noc (local) history --project /tmp/team"
+	if got != want {
+		t.Fatalf("projectHistoryOp.command() = %q, want %q", got, want)
 	}
 }
 
@@ -1296,24 +1316,6 @@ func TestAdaptProjectDoctorCarriesProjectDir(t *testing.T) {
 	}
 }
 
-func TestAdaptProjectHistoryCarriesProjectDir(t *testing.T) {
-	var got ProjectHistoryRequest
-	fn := adaptProjectHistory(func(req ProjectHistoryRequest) (ProjectHistoryResult, error) {
-		got = req
-		return ProjectHistoryResult{ProjectDir: req.ProjectDir, Output: "history"}, nil
-	})
-	res, err := fn(projectHistoryOp{ProjectDir: "/tmp/team"})
-	if err != nil {
-		t.Fatalf("adaptProjectHistory: %v", err)
-	}
-	if got.ProjectDir != "/tmp/team" {
-		t.Fatalf("ProjectHistoryRequest mismatch: %+v", got)
-	}
-	if res.ProjectDir != "/tmp/team" || res.Output != "history" {
-		t.Fatalf("project history result mismatch: %+v", res)
-	}
-}
-
 func TestAdaptTeamRulesCarriesProjectDir(t *testing.T) {
 	var got TeamRulesRequest
 	fn := adaptTeamRules(func(req TeamRulesRequest) (TeamRulesResult, error) {
@@ -1387,11 +1389,11 @@ func TestAdaptBriefCarriesRequest(t *testing.T) {
 			Content:    "# issue-1\n",
 		}, nil
 	})
-	res, err := fn(briefOp{ProjectDir: "/tmp/team", Session: "issue-1"})
+	res, err := fn(briefOp{ProjectDir: "/tmp/team", Profile: "review", Session: "issue-1"})
 	if err != nil {
 		t.Fatalf("adaptBrief: %v", err)
 	}
-	if got.ProjectDir != "/tmp/team" || got.Session != "issue-1" {
+	if got.ProjectDir != "/tmp/team" || got.Profile != "review" || got.Session != "issue-1" {
 		t.Fatalf("BriefRequest mismatch: %+v", got)
 	}
 	if res.ProjectDir != "/tmp/team" || res.Session != "issue-1" || res.Kind != "real" || !res.Exists || res.Content != "# issue-1\n" {
@@ -1405,11 +1407,30 @@ func TestAdaptBriefSeedCarriesRequest(t *testing.T) {
 		got = req
 		return nil
 	})
-	if err := fn(briefSeedOp{ProjectDir: "/tmp/team", Session: "issue-1", SeedFrom: "issue:31", Force: true}); err != nil {
+	if err := fn(briefSeedOp{ProjectDir: "/tmp/team", Profile: "review", Session: "issue-1", SeedFrom: "issue:31", Force: true}); err != nil {
 		t.Fatalf("adaptBriefSeed: %v", err)
 	}
-	if got.ProjectDir != "/tmp/team" || got.Session != "issue-1" || got.SeedFrom != "issue:31" || !got.Force {
+	if got.ProjectDir != "/tmp/team" || got.Profile != "review" || got.Session != "issue-1" || got.SeedFrom != "issue:31" || !got.Force {
 		t.Fatalf("BriefSeedRequest mismatch: %+v", got)
+	}
+}
+
+func TestBriefOpCommandCarriesProfile(t *testing.T) {
+	op := briefOp{ProjectDir: "/tmp/team", Profile: "review", Session: "issue-1"}
+	want := "amq-noc (local) brief --project /tmp/team --profile review --session issue-1"
+	if got := op.command(); got != want {
+		t.Fatalf("briefOp.command() = %q, want %q", got, want)
+	}
+	if got := (briefOp{ProjectDir: "/tmp/team", Session: "issue-1"}).command(); strings.Contains(got, "--profile") {
+		t.Fatalf("default-profile brief command must omit --profile, got %q", got)
+	}
+}
+
+func TestBriefSeedOpCommandCarriesProfile(t *testing.T) {
+	op := briefSeedOp{ProjectDir: "/tmp/team", Profile: "review", Session: "issue-1", SeedFrom: "issue:31"}
+	want := "amq-noc (local) brief seed --project /tmp/team --profile review --session issue-1 --seed-from issue:31"
+	if got := op.command(); got != want {
+		t.Fatalf("briefSeedOp.command() = %q, want %q", got, want)
 	}
 }
 
@@ -1483,7 +1504,7 @@ func TestControl_StopConfirmGate(t *testing.T) {
 		if m.pending == nil {
 			t.Fatal("S on a session should open the confirm overlay")
 		}
-		if !strings.Contains(m.pending.preview, "amq-squad stop --project /fake/proj/beta --all --session beta") {
+		if !strings.Contains(m.pending.preview, "amq-squad down --project /fake/proj/beta --all --session beta") {
 			t.Errorf("stop overlay should preview the exact lifecycle command: %q", m.pending.preview)
 		}
 		m, _ = nocPress(m, "esc")
@@ -1603,7 +1624,7 @@ func TestControl_StopConfirmGate(t *testing.T) {
 
 		m, _ = nocPress(m, "X")
 		if m.pending == nil ||
-			!strings.Contains(m.pending.preview, "amq-squad stop --project /fake/proj/beta --all --session beta && amq-squad resume --project /fake/proj/beta --exec --target new-session --terminal-session amq-squad-beta --session beta") {
+			!strings.Contains(m.pending.preview, "amq-squad down --project /fake/proj/beta --all --session beta && amq-squad resume --project /fake/proj/beta --exec --target new-session --terminal-session amq-squad-beta --session beta") {
 			t.Fatalf("X should preview stop plus live resume, got %+v", m.pending)
 		}
 		m, _ = nocPress(m, "y")
@@ -2316,56 +2337,35 @@ func TestControl_DeleteTeamConfirmGate(t *testing.T) {
 		}
 	})
 
-	t.Run("mac delete key on session row removes that session, not the team profile", func(t *testing.T) {
+	t.Run("delete key on session row explains it has no amq-squad 2.28 equivalent", func(t *testing.T) {
+		// amq-squad 2.28 removed archive/rm with no replacement primitive
+		// (addendum A1), so session-row delete no longer opens a confirm
+		// overlay; it explains why and never touches a seam.
 		m := newControlModel(t)
 		selectKind(t, m, nodeSession, "")
 		called := false
-		m.sessionCleanup = func(sessionCleanupOp) error { called = true; return nil }
+		m.teamDelete = func(teamDeleteOp) error { called = true; return nil }
 
 		m, cmd := nocPress(m, "backspace")
 		if cmd != nil {
 			t.Fatal("delete key setup should not request a rebuild")
 		}
-		if m.input != nil {
-			t.Fatalf("session delete should not ask for mode, input=%+v", m.input)
+		if m.pending != nil {
+			t.Fatalf("session delete must not open a confirm overlay, pending=%+v", m.pending)
 		}
-		if m.pending == nil || !strings.Contains(m.pending.preview, "amq-squad rm --project /fake/proj/beta --yes beta") {
-			t.Fatalf("session delete preview mismatch: pending=%+v", m.pending)
-		}
-		if m.pending.cleanup == nil || m.pending.cleanup.Session != "beta" || m.pending.cleanup.Archive {
-			t.Fatalf("session delete should prepare remove cleanup, pending=%+v", m.pending)
+		if !strings.Contains(m.actNote, "no amq-squad 2.28 equivalent") {
+			t.Fatalf("session delete note = %q, want the archive/rm-removed explanation", m.actNote)
 		}
 		if called {
-			t.Fatal("opening delete preview must not call the cleanup seam")
+			t.Fatal("session delete must not call the team-delete seam")
 		}
 	})
 
-	t.Run("delete key on plain AMQ session does not require configured team", func(t *testing.T) {
+	t.Run("delete key on plain AMQ session also explains it has no amq-squad 2.28 equivalent", func(t *testing.T) {
 		m := newControlModel(t)
 		m.ms.Projects[0].TeamConfigured = false
 		m.ms.Projects[0].DefaultTeam = false
 		m.ms.Projects[0].Profiles = nil
-		selectKind(t, m, nodeSession, "")
-
-		m, cmd := nocPress(m, "delete")
-		if cmd != nil {
-			t.Fatal("delete key setup should not request a rebuild")
-		}
-		if m.pending == nil || !strings.Contains(m.pending.preview, "amq-squad rm --project /fake/proj/beta --yes beta") {
-			t.Fatalf("plain AMQ session delete should preview session rm, pending=%+v note=%q", m.pending, m.actNote)
-		}
-		if strings.Contains(m.actNote, "configured team") {
-			t.Fatalf("plain AMQ session delete must not require configured team, note=%q", m.actNote)
-		}
-	})
-
-	t.Run("delete key on root AMQ session explains it is not removable", func(t *testing.T) {
-		m := newControlModel(t)
-		m.ms.Projects[0].TeamConfigured = false
-		m.ms.Projects[0].DefaultTeam = false
-		m.ms.Projects[0].Profiles = nil
-		m.ms.Projects[0].Snap.Sessions[0].Name = ""
-		m.ms.Projects[0].Snap.Sessions[0].Root = "/fake/proj/beta/.agent-mail"
 		selectKind(t, m, nodeSession, "")
 
 		m, cmd := nocPress(m, "delete")
@@ -2373,10 +2373,10 @@ func TestControl_DeleteTeamConfirmGate(t *testing.T) {
 			t.Fatal("delete key setup should not request a rebuild")
 		}
 		if m.pending != nil {
-			t.Fatalf("root AMQ session delete must not open cleanup preview, pending=%+v", m.pending)
+			t.Fatalf("plain AMQ session delete must not open a confirm overlay, pending=%+v", m.pending)
 		}
-		if !strings.Contains(m.actNote, "AMQ base mailbox") || !strings.Contains(m.actNote, "not a removable session") {
-			t.Fatalf("root AMQ session delete note = %q", m.actNote)
+		if !strings.Contains(m.actNote, "no amq-squad 2.28 equivalent") {
+			t.Fatalf("plain AMQ session delete note = %q", m.actNote)
 		}
 	})
 

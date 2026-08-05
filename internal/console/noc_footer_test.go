@@ -70,7 +70,10 @@ func TestContextFooter_AvailabilityIsStateful(t *testing.T) {
 		}
 	})
 
-	t.Run("plain AMQ session shows delete", func(t *testing.T) {
+	// amq-squad 2.28 removed archive/rm with no replacement primitive
+	// (addendum A1), so Del is scoped to project rows only now; no session
+	// row - plain AMQ or team-configured - advertises it.
+	t.Run("plain AMQ session hides delete", func(t *testing.T) {
 		m := seededKeymapModel(t)
 		m.ms.Projects[0].TeamConfigured = false
 		m.ms.Projects[0].DefaultTeam = false
@@ -79,8 +82,8 @@ func TestContextFooter_AvailabilityIsStateful(t *testing.T) {
 			t.Fatal("fixture has no session row")
 		}
 		legend := m.controlFooterLegendForSelection(false)
-		if !strings.Contains(legend, "Del delete") {
-			t.Fatalf("plain AMQ session should show Del delete for session cleanup: %q", legend)
+		if strings.Contains(legend, "Del delete") {
+			t.Fatalf("plain AMQ session must not show Del delete (archive/rm have no amq-squad 2.28 equivalent): %q", legend)
 		}
 	})
 

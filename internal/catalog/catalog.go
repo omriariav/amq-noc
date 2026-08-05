@@ -119,6 +119,30 @@ var roles = []Role{
 		Skills:          []string{"/frontend-design", "/canvas-design"},
 		DefaultPeers:    []string{"cpo", "fullstack", "pm"},
 	},
+	{
+		ID:              "scribe",
+		Label:           "Technical Writer",
+		PreferredBinary: "claude",
+		Profile:         "Docs, references, guides, the written record.",
+		Description:     "Owns the written deliverable: API references, guides, READMEs, and the team's written record. The right author for a docs goal - does not implement product code.",
+		DefaultPeers:    []string{"cto", "backend-dev", "frontend-dev", "pm"},
+	},
+	{
+		ID:              "lead",
+		Label:           "Lead",
+		PreferredBinary: "codex",
+		Profile:         "Generic orchestrator for decomposition, delegation, review, gates, and final evidence.",
+		Description:     "Coordinates the workstream: breaks down goals, delegates tasks, tracks blockers, requests reviews, raises and tracks operator gates, and reports final evidence. Does not assume merge, release, or external-action authority unless the user or operator explicitly grants it.",
+		DefaultPeers:    []string{"agent"},
+	},
+	{
+		ID:              "agent",
+		Label:           "Agent",
+		PreferredBinary: "codex",
+		Profile:         "Generic individual contributor for scoped tasks and evidence-backed handoffs.",
+		Description:     "Executes assigned tasks within the current brief and team rules, asks when scope or authority is unclear, and reports concise evidence for review or handoff. Carries no domain-specific persona.",
+		DefaultPeers:    []string{"lead"},
+	},
 }
 
 // All returns a copy of the catalog in display order.

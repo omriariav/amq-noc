@@ -175,8 +175,8 @@ func buildSeedBrief(ref, body string, now time.Time) string {
 //
 // force=true: the target is replaced via a temp-file + rename so a
 // partially-written file never appears at the brief path.
-func writeSeedBrief(teamHome, session, content string, force bool) (string, error) {
-	path := briefPath(teamHome, session)
+func writeSeedBrief(teamHome, profile, session, content string, force bool) (string, error) {
+	path := briefPath(teamHome, profile, session)
 	if path == "" {
 		return "", fmt.Errorf("seed brief: team-home or session is empty (cannot resolve target path)")
 	}

@@ -1155,7 +1155,7 @@ func kickRecoverActionsForProfile(ps noc.ProjectSnapshot, sessionName, amqRoot, 
 			wsNote := resolvedWorkstreamNote(ps, profileName)
 			actions = append(actions,
 				commandAction("resume preview", "amq-squad resume --project "+dir+profile, "print the project recovery plan"+wsNote),
-				commandAction("up", "amq-squad up --project "+dir+profile, "start the configured team profile"+wsNote),
+				commandAction("up", "amq-squad start --project "+dir+profile, "start the configured team profile"+wsNote),
 			)
 		}
 		return actions
@@ -1166,14 +1166,9 @@ func kickRecoverActionsForProfile(ps noc.ProjectSnapshot, sessionName, amqRoot, 
 		}
 		rt := shellToken(root)
 		out := []nocCommandAction{}
-		if strings.TrimSpace(sessionName) != "" && strings.TrimSpace(ps.Dir) != "" {
-			dir := shellToken(strings.TrimSpace(ps.Dir))
-			s := shellToken(strings.TrimSpace(sessionName))
-			out = append(out,
-				commandAction("archive session", "amq-squad archive --project "+dir+" --yes "+s, "move this AMQ session into the project archive"),
-				commandAction("remove session", "amq-squad rm --project "+dir+" --yes "+s, "permanently remove this AMQ session root"),
-			)
-		}
+		// amq-squad 2.28 removed archive/rm with no replacement primitive
+		// (amq-noc addendum A1): no session cleanup suggestion is offered here
+		// anymore rather than printing a command that would fail.
 		// Plain AMQ: the resolved root is known; AGENT / MESSAGE_ID / THREAD_ID are
 		// placeholders the operator fills in. Covers inspect (who/list/drain),
 		// read/thread, and send.
@@ -1224,7 +1219,7 @@ func agentCommandActions(ps noc.ProjectSnapshot, sess state.Session, ag state.Ag
 		commandAction("send message", "amq send --root "+rt+" --me "+shellToken(operatorHandleForProject(ps))+" --to "+me+" --thread THREAD_ID", "send an operator message to this agent"),
 	}
 	if ps.TeamConfigured && strings.TrimSpace(ag.Role) != "" && strings.TrimSpace(ps.Dir) != "" && strings.TrimSpace(sess.Name) != "" {
-		actions = append(actions, commandAction("resume agent", "amq-squad agent resume "+shellToken(ag.Role)+" --project "+shellToken(ps.Dir)+" --session "+shellToken(sess.Name), "resume this agent from its saved launch record"))
+		actions = append(actions, commandAction("resume agent", "amq-squad resume --project "+shellToken(ps.Dir)+" --session "+shellToken(sess.Name)+" --role "+shellToken(ag.Role)+" --exec", "resume this agent from its saved launch record"))
 	}
 	return actions
 }
@@ -1337,7 +1332,7 @@ func (m NOCModel) commandActionsSection(actions []nocCommandAction) string {
 	}
 	var b strings.Builder
 	b.WriteString(m.detailRule() + "\n")
-	b.WriteString(m.th.paint(m.th.dim, "actions (C copies command)") + "\n")
+	b.WriteString(m.th.paint(m.th.dim, "commands (C copies command)") + "\n")
 	width := m.commandDisplayWidth()
 	for _, action := range actions {
 		label := strings.TrimSpace(action.Label)

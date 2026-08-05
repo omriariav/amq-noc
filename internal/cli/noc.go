@@ -165,7 +165,7 @@ detached tmux session; existing names are rejected in the editor, including
 empty AMQ session directories, so you can resume or restart instead. Press S/R/X
 to stop/resume/restart; mixed-profile sessions ask which profile to operate on.
 Press U on a project, session, or agent row to launch that project's configured
-team profile (amq-squad up; no session is pinned, the team config decides the
+team profile (amq-squad start; no session is pinned, the team config decides the
 workstream; when the workstream already exists the confirm notes that up boots
 fresh agents while R resume restores saved conversations). Press L on an
 orchestrated session or its lead row to send the lead a directive: a live lead
@@ -425,7 +425,6 @@ func executeNOC(s nocExecution) error {
 	// non-interactive, so the seams are never invoked there even though set.
 	cfg.Lifecycle = consoleLifecycle
 	cfg.AgentResume = consoleAgentResume
-	cfg.SessionCleanup = consoleSessionCleanup
 	cfg.NewSession = consoleNewSession
 	cfg.NewTeam = consoleNewTeam
 	cfg.TeamDelete = consoleTeamDelete
@@ -2420,11 +2419,11 @@ func nocCorrelationAttentionItems(row nocSessionJSONData, correlation *noc.Sessi
 		if strings.TrimSpace(mismatch.Name) == "" {
 			continue
 		}
-		nextAction := "threads"
-		if strings.TrimSpace(mismatch.Thread) != "" {
-			nextAction = "thread_context_any"
-		}
-		nextAction, actionID := nocAttentionSyntheticAction(nextAction, row)
+		// thread_context_any is the only surviving thread-scoped session action
+		// (amq-squad 2.28 removed the `threads` digest with no replacement, T2);
+		// it works whether or not mismatch.Thread is known, since the thread id
+		// is an operator-filled template placeholder either way.
+		nextAction, actionID := nocAttentionSyntheticAction("thread_context_any", row)
 		out = append(out, nocAttentionItem{
 			Kind:        "task-report-mismatch",
 			Urgency:     correlationSignalUrgency(mismatch),
@@ -2446,7 +2445,7 @@ func nocCorrelationAttentionItems(row nocSessionJSONData, correlation *noc.Sessi
 		if blocker == "" {
 			continue
 		}
-		nextAction, actionID := nocAttentionSyntheticAction("threads", row)
+		nextAction, actionID := nocAttentionSyntheticAction("thread_context_any", row)
 		out = append(out, nocAttentionItem{
 			Kind:        "release-evidence-blocker",
 			Urgency:     1,
@@ -2649,12 +2648,6 @@ func nocProjectActions(ps noc.ProjectSnapshot, projectID string, sessionCount in
 			"Check AMQ, tmux, wake, markers, and all team profile health for this team-home.",
 			false, false, false),
 	}
-	if ps.TeamConfigured || ps.SessionStore || sessionCount > 0 {
-		actions = append(actions, nocAction("project", projectID, "history",
-			shellCommand("amq-squad", "history", "--project", ps.Dir),
-			"Show restorable launch records for this team-home.",
-			false, false, false))
-	}
 	if ps.TeamConfigured {
 		resumePlan := nocAction("project", projectID, "resume_plan",
 			nocResumePlanCommand(ps.Dir, nocProjectActionProfile(ps)),
@@ -2741,12 +2734,8 @@ func nocSessionActions(ps noc.ProjectSnapshot, sess state.Session, sessionID str
 			nocSquadProfileCommand("status", ps.Dir, profile, "--session", sess.Name),
 			"Show this session's detail table.",
 			false, false, false),
-		nocAction("session", sessionID, "threads",
-			nocThreadsCommand(ps.Dir, profile, sess.Name),
-			"Show this session's collapsed AMQ thread summaries.",
-			false, false, false),
 		nocAction("session", sessionID, "thread_context_any",
-			nocThreadContextAnyCommand(ps.Dir, profile, sess.Name),
+			nocThreadContextAnyCommand(sess.Root),
 			"Read any thread transcript in this session by thread id without moving unread mail.",
 			false, false, true),
 		nocAction("session", sessionID, "amq_ops",
@@ -2770,21 +2759,13 @@ func nocSessionActions(ps noc.ProjectSnapshot, sess state.Session, sessionID str
 			"Resume this workstream in a detached tmux session.",
 			true, true, template), "profile", profileChoices),
 	}
-	if strings.TrimSpace(sess.Name) != "" {
-		actions = append(actions,
-			nocAction("session", sessionID, "brief",
-				nocSquadProfileCommand("brief", ps.Dir, profile, "--session", sess.Name),
-				"Show this session's full workstream brief.",
-				false, false, false),
-			withNOCActionVarChoices(nocAction("session", sessionID, "brief_seed",
-				nocBriefSeedCommand(ps.Dir, profile, sess.Name),
-				"Seed or overwrite this session's workstream brief from file, issue, or GitHub issue source.",
-				true, true, true), "force", []string{"false", "true"}),
-			withNOCActionVarChoices(nocAction("session", sessionID, "fork_plan",
-				nocForkPlanCommand(ps.Dir, profile, sess.Name),
-				"Plan a fresh target workstream branched from this session without launching it.",
-				false, false, true), "profile", profileChoices))
-	}
+	// amq-squad 2.28 removed the top-level `brief` and `fork` verbs with no
+	// replacement primitive (amq-noc addendum A2/A3): the "brief", "brief_seed",
+	// and "fork_plan" composed-command actions that used to shell them are
+	// removed rather than pointed at a dead verb. The underlying NOC features
+	// (brief read/seed overlays are local file I/O; fork-plan is a local
+	// executeResume(resumeModeFresh) reimplementation) are untouched and stay
+	// reachable through the live TUI, which never shelled these verbs itself.
 	if th, ok := nocTopNeedsYouThread(sess, ""); ok {
 		actions = append(actions, nocNeedsYouActions("session", sessionID, sess.Root, th, nocOperatorHandle(ps))...)
 	}
@@ -2805,17 +2786,6 @@ func nocSessionActions(ps noc.ProjectSnapshot, sess state.Session, sessionID str
 			nocStopCommand(ps.Dir, profile, sess.Name)+" && "+nocResumeCommand(ps.Dir, profile, sess.Name),
 			"Stop and then resume this session.",
 			true, true, template), "profile", profileChoices))
-	}
-	if strings.TrimSpace(sess.Name) != "" {
-		actions = append(actions,
-			nocAction("session", sessionID, "archive",
-				nocSquadProfileCommand("archive", ps.Dir, profile, "--yes", sess.Name),
-				"Move this session aside into the project archive without deleting it.",
-				true, true, false),
-			nocAction("session", sessionID, "remove",
-				nocSquadProfileCommand("rm", ps.Dir, profile, "--yes", sess.Name),
-				"Permanently remove this session root and brief.",
-				true, true, false))
 	}
 	return actions
 }
@@ -3195,24 +3165,6 @@ func nocResumePlanCommand(projectDir, profile string) string {
 	return shellCommand("amq-squad", args...)
 }
 
-func nocForkPlanCommand(projectDir, profile, fromSession string) string {
-	args := []string{"fork", "--project", projectDir}
-	if profile := strings.TrimSpace(profile); profile != "" && profile != team.DefaultProfile {
-		args = append(args, "--profile", profile)
-	}
-	args = append(args, "--from", fromSession, "--as", "<session>")
-	return shellCommand("amq-squad", args...)
-}
-
-func nocBriefSeedCommand(projectDir, profile, session string) string {
-	args := []string{"brief", "seed", "--project", projectDir}
-	if profile := nocProfileOrDefault(profile); profile != team.DefaultProfile {
-		args = append(args, "--profile", profile)
-	}
-	args = append(args, "--session", session, "--seed-from", "<seed-from>", "<force>")
-	return shellCommand("amq-squad", args...)
-}
-
 func nocAMQCleanupCommand(root string) string {
 	return shellCommand("amq", "cleanup",
 		"--root", root,
@@ -3348,18 +3300,15 @@ func nocThreadContextCommand(root, threadID string) string {
 		"--limit", "20")
 }
 
-func nocThreadsCommand(projectDir, profile, session string) string {
-	return nocSquadProfileCommand("threads", projectDir, profile,
-		"--session", session,
-		"--limit", fmt.Sprint(defaultThreadsLimit))
-}
-
-func nocThreadContextAnyCommand(projectDir, profile, session string) string {
-	return nocSquadProfileCommand("thread", projectDir, profile,
-		"--session", session,
-		"--id", "<thread-id>",
-		"--include-body",
-		"--limit", fmt.Sprint(defaultThreadTranscriptLimit))
+// nocThreadContextAnyCommand reads any thread transcript in a session by
+// thread id via AMQ directly. amq-squad 2.28 removed the top-level `thread`
+// verb (and `threads`) with no replacement; `amq-squad amq thread` exists but
+// its passthrough flag surface is unverified, so this reuses the same
+// amq-level form nocThreadContextCommand already composes for the top
+// needs-you thread, with the thread id left as an operator-filled template
+// placeholder.
+func nocThreadContextAnyCommand(root string) string {
+	return nocThreadContextCommand(root, "<thread-id>")
 }
 
 func nocReadNeedsYouCommand(root, messageID, operatorHandle string) string {
@@ -3432,7 +3381,7 @@ func nocResumeCommand(projectDir, profile, session string) string {
 }
 
 func nocStopCommand(projectDir, profile, session string) string {
-	args := []string{"stop", "--project", projectDir, "--all"}
+	args := []string{"down", "--project", projectDir, "--all"}
 	if profile := strings.TrimSpace(profile); profile != "" && profile != team.DefaultProfile {
 		args = append(args, "--profile", profile)
 	}
@@ -3822,7 +3771,7 @@ func boolPtr(v bool) *bool {
 
 // consoleLifecycle is the cli-side stop/resume/restart seam handed to the NOC.
 // It is invoked ONLY for a confirmed lifecycle action from the TUI. Stop drives
-// the same executeDown path as `amq-squad stop --all`; resume shells back into
+// the same executeDown path as `amq-squad down --all`; resume shells back into
 // the live `amq-squad resume --exec --target new-session` path so it actually
 // brings the team back without writing into the NOC AltScreen. Restart runs
 // those two steps in order.
@@ -3851,19 +3800,26 @@ func consoleLifecycle(req console.LifecycleRequest) error {
 }
 
 // consoleUp launches the configured team profile via the installed amq-squad
-// `up` (#19). It pins NO --session: amq-squad derives the workstream from the
-// team config (#22's lesson). The detached new-session target mirrors
-// consoleResume so the launch never writes into the NOC AltScreen; the
-// operator attaches via the published attach_control action when ready.
+// `start` (#19, 2.28's replacement for the removed `up` verb). It pins NO
+// --session: amq-squad derives the workstream from the team config (#22's
+// lesson). The detached new-session target mirrors consoleResume so the
+// launch never writes into the NOC AltScreen; the operator attaches via the
+// published attach_control action when ready.
 func consoleUp(dir, profile string) error {
 	return delegateSquad(dir, consoleUpArgs(dir, profile)...)
 }
 
-// consoleUpArgs builds the `amq-squad up` argv for a confirmed up action. It
-// mirrors lifecycleOp.command()'s lifecycleUp case so the confirmed preview
-// and the executed argv stay in lockstep.
+// consoleUpArgs builds the `amq-squad start` argv for a confirmed up action.
+// It mirrors lifecycleOp.command()'s lifecycleUp case so the confirmed
+// preview and the executed argv stay in lockstep. `start` is preview-first
+// and interactively confirms (default No) unless --yes; the NOC's own confirm
+// overlay already gated this call, and delegateSquad execs captured/
+// non-interactive (no stdin attached), so --yes is required here or a
+// confirmed NOC action would silently decline. The copy-only command variants
+// shown outside the confirm overlay (e.g. kickRecoverActions) deliberately
+// omit --yes so a human running them by hand answers start's own prompt.
 func consoleUpArgs(dir, profile string) []string {
-	args := []string{"up"}
+	args := []string{"start"}
 	if dir := strings.TrimSpace(dir); dir != "" {
 		args = append(args, "--project", dir)
 	}
@@ -3871,6 +3827,7 @@ func consoleUpArgs(dir, profile string) []string {
 		args = append(args, "--profile", profile)
 	}
 	return append(args,
+		"--yes",
 		"--target", "new-session",
 		"--terminal-session", nocTerminalSessionName(dir, ""),
 	)
@@ -3963,10 +3920,11 @@ func consoleStop(dir, profile, session string) error {
 }
 
 // consoleStopArgs mirrors the previous in-process stop (target every configured
-// member, optionally scoped to one session) as an installed `amq-squad stop`
-// invocation.
+// member, optionally scoped to one session) as an installed `amq-squad down`
+// invocation (2.28's replacement for the removed `stop` verb; same --all
+// selector semantics).
 func consoleStopArgs(dir, profile, session string) []string {
-	args := []string{"stop", "--all"}
+	args := []string{"down", "--all"}
 	if dir := strings.TrimSpace(dir); dir != "" {
 		args = append(args, "--project", dir)
 	}
@@ -4011,6 +3969,21 @@ func consoleAgentResume(req console.AgentResumeRequest) error {
 	return delegateSquad(req.ProjectDir, args...)
 }
 
+// consoleAgentResumeArgs builds the `amq-squad agent resume` argv for a
+// confirmed single-agent resume action. It mirrors agentResumeOp.command() so
+// the confirmed preview and the executed argv stay in lockstep. This
+// deliberately stays on the internal `agent resume <role>` verb rather than
+// the public `resume --role <role> --exec`: amq-squad 2.28 hides `agent` from
+// --help/completion but keeps it fully dispatchable, and it replays the saved
+// launch record into the TEAM's own tmux session, matching what the operator
+// expects from a single-agent restore. Public `resume --exec` with no
+// --target defaults to current-window, which from inside the live TUI would
+// spawn the restored agent into the NOC's own AltScreen instead - the exact
+// hijack consoleResumeArgs avoids by always pinning --target new-session.
+// Operator-facing COPY suggestions (nocAgentResumeCommand, and
+// agentCommandActions in noc_view.go) intentionally use the public `resume
+// --role --exec` form instead: a human running those from their own shell
+// gets amq-squad's normal current-window placement, which is correct there.
 func consoleAgentResumeArgs(req console.AgentResumeRequest) ([]string, error) {
 	role := strings.TrimSpace(req.Role)
 	if role == "" {
@@ -4024,30 +3997,6 @@ func consoleAgentResumeArgs(req console.AgentResumeRequest) ([]string, error) {
 		args = append(args, "--session", session)
 	}
 	return args, nil
-}
-
-func consoleSessionCleanup(req console.SessionCleanupRequest) error {
-	args, err := consoleSessionCleanupArgs(req)
-	if err != nil {
-		return err
-	}
-	return delegateSquad(req.ProjectDir, args...)
-}
-
-func consoleSessionCleanupArgs(req console.SessionCleanupRequest) ([]string, error) {
-	session := strings.TrimSpace(req.Session)
-	if session == "" {
-		return nil, fmt.Errorf("session name cannot be empty")
-	}
-	verb := "rm"
-	if req.Archive {
-		verb = "archive"
-	}
-	args := []string{verb}
-	if dir := strings.TrimSpace(req.ProjectDir); dir != "" {
-		args = append(args, "--project", dir)
-	}
-	return append(args, "--yes", session), nil
 }
 
 func resolvedNOCProfile(profile string) string {
@@ -4750,6 +4699,12 @@ func consoleProjectDoctor(req console.ProjectDoctorRequest) (console.ProjectDoct
 	return console.ProjectDoctorResult{ProjectDir: projectDir, Output: out.String()}, nil
 }
 
+// consoleProjectHistory scans local launch.json records for restorable
+// history. This is NOT amq-squad history (that verb no longer exists in
+// 2.28, and this NOC-side scan never shelled it out even before 2.28) - it
+// reads .agent-mail extension launch records directly via scanHistoryEntries.
+// projectHistoryOp.command() renders that honestly as a local action, not a
+// fake `amq-squad history` invocation.
 func consoleProjectHistory(req console.ProjectHistoryRequest) (console.ProjectHistoryResult, error) {
 	projectDir := strings.TrimSpace(req.ProjectDir)
 	if projectDir == "" {
@@ -4867,7 +4822,7 @@ func consoleBrief(req console.BriefRequest) (console.BriefResult, error) {
 	if session == "" {
 		return console.BriefResult{}, fmt.Errorf("session cannot be empty")
 	}
-	data, err := readBriefData(projectDir, session)
+	data, err := readBriefData(projectDir, req.Profile, session)
 	if err != nil {
 		return console.BriefResult{}, err
 	}
@@ -4890,7 +4845,7 @@ func consoleBriefSeed(req console.BriefSeedRequest) error {
 	if session == "" {
 		return fmt.Errorf("session cannot be empty")
 	}
-	_, err := seedBriefData(projectDir, session, req.SeedFrom, req.Force, false)
+	_, err := seedBriefData(projectDir, req.Profile, session, req.SeedFrom, req.Force, false)
 	return err
 }
 

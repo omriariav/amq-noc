@@ -148,15 +148,20 @@ operationally live agents, so fresh presence alone never promotes a wait.
 ## Install
 
 ```sh
-go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.12.1
+go install github.com/omriariav/amq-noc/cmd/amq-noc@v0.13.0
 ```
 
 Requirements:
 
 - Go 1.25+
-- `amq` v0.38.0 or newer for the reserved human operator and exported
-  environment contracts used by amq-squad v2.10
-- `amq-squad` v2.10.0 or newer for namespace-safe visible-lead remote control
+- `amq` v0.51.1 or newer (amq-squad 2.26+ hard-requires this floor) for the
+  reserved human operator and exported environment contracts
+- `amq-squad` v2.28.0 or newer: Simple Mode's lifecycle verbs (`start` / `down`
+  / `resume`) replaced `up` / `stop`; `history` was removed with no
+  replacement; `agent` was NOT removed - it's hidden from `--help`/completion
+  as an internal child launch/restore boundary, and amq-noc's single-agent
+  restore deliberately still executes `agent resume` on it. amq-noc's
+  composed fallback commands target this surface
 - `tmux`
 
 ## Quick Start
@@ -329,10 +334,21 @@ published runtime metadata, the orchestrated/lead team contract, and the
 operator DIRECTIVE norm:
 
 ```sh
-go install github.com/omriariav/amq-squad/cmd/amq-squad@v2.10.0
+go install github.com/omriariav/amq-squad/cmd/amq-squad@v2.28.0
 ```
 
-Older `amq-squad` builds keep deterministic fallback copy commands.
+Published runtime actions are still rendered verbatim regardless of what the
+installed `amq-squad` build advertises. The NOC's own composed fallback
+commands, however, target the 2.28 Simple Mode CLI surface (`start`/`down`,
+no `up`/`stop`/`archive`/`rm`/`fork`/`brief`); an older, below-floor
+`amq-squad` install is flagged as a capability error by health rather than
+silently handed a fallback command shape it cannot run.
+
+`amq-squad` 2.28 also changed the default `--trust` posture for fresh Codex
+launches from `sandboxed` to `approve-for-me`. amq-noc does not pin `--trust`
+in any composed command, so this is a behavior change for operators launching
+through amq-noc's copy commands or the live TUI, not something amq-noc
+controls or should paper over.
 
 Recommended health check:
 

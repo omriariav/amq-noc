@@ -881,7 +881,7 @@ func TestKickRecoverLines(t *testing.T) {
 	for _, want := range []string{
 		"amq-squad status --project /repo/app --profile testers",
 		"amq-squad resume --project /repo/app --profile testers",
-		"amq-squad up --project /repo/app --profile testers",
+		"amq-squad start --project /repo/app --profile testers",
 	} {
 		if !strings.Contains(projectNamed, want) {
 			t.Fatalf("named-profile project commands missing %q:\n%s", want, projectNamed)
@@ -964,14 +964,13 @@ func TestKickRecoverLines(t *testing.T) {
 		"old-session",
 		"/repo/app/.agent-mail/old-session",
 	), "\n")
-	for _, want := range []string{
-		"amq-squad archive --project /repo/app --yes old-session",
-		"amq-squad rm --project /repo/app --yes old-session",
-		"amq who --root /repo/app/.agent-mail/old-session",
-	} {
-		if !strings.Contains(plainSession, want) {
-			t.Fatalf("plain AMQ session commands missing %q:\n%s", want, plainSession)
-		}
+	if !strings.Contains(plainSession, "amq who --root /repo/app/.agent-mail/old-session") {
+		t.Fatalf("plain AMQ session commands missing amq who:\n%s", plainSession)
+	}
+	// amq-squad 2.28 removed archive/rm with no replacement primitive
+	// (addendum A1): no session cleanup suggestion is offered anymore.
+	if strings.Contains(plainSession, "amq-squad archive") || strings.Contains(plainSession, "amq-squad rm") {
+		t.Fatalf("plain AMQ session commands must not suggest removed archive/rm verbs:\n%s", plainSession)
 	}
 }
 
@@ -1023,7 +1022,7 @@ func TestAgentCommandActionsUseAMQFallbackAndSquadResume(t *testing.T) {
 		"list inbox => amq list --root /repo/app/.agent-mail/issue-96 --me qa --new",
 		"drain inbox => amq drain --root /repo/app/.agent-mail/issue-96 --me qa --include-body",
 		"send message => amq send --root /repo/app/.agent-mail/issue-96 --me operator --to qa --thread THREAD_ID",
-		"resume agent => amq-squad agent resume qa --project /repo/app --session issue-96",
+		"resume agent => amq-squad resume --project /repo/app --session issue-96 --role qa --exec",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("agent command actions missing %q:\n%s", want, joined)

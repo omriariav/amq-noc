@@ -13,9 +13,9 @@ func TestFetchProjectHealthChecksToolchainAndDoctor(t *testing.T) {
 		key := name + " " + strings.Join(args, " ")
 		switch key {
 		case "amq version":
-			return []byte("0.38.0\n"), nil
+			return []byte("0.51.1\n"), nil
 		case "amq-squad version":
-			return []byte("amq-squad v2.5.0\n"), nil
+			return []byte("amq-squad v2.28.0\n"), nil
 		case "amq-squad doctor --json":
 			return []byte(`{"schema_version":1,"kind":"doctor","data":{"checks":[{"name":"amq","status":"ok"},{"name":"team-rules roster","status":"warn"}]}}`), nil
 		default:
@@ -28,7 +28,7 @@ func TestFetchProjectHealthChecksToolchainAndDoctor(t *testing.T) {
 	if h.Status != healthStatusWarn {
 		t.Fatalf("status = %q, want warn: %+v", h.Status, h)
 	}
-	if len(h.Toolchain) != 2 || h.Toolchain[0].Version != "0.38.0" || h.Toolchain[1].Version != "2.5.0" {
+	if len(h.Toolchain) != 2 || h.Toolchain[0].Version != "0.51.1" || h.Toolchain[1].Version != "2.28.0" {
 		t.Fatalf("toolchain = %+v", h.Toolchain)
 	}
 	if h.Doctor.Status != healthStatusWarn || !strings.Contains(h.Doctor.Detail, "1 warnings") {
@@ -74,6 +74,55 @@ func TestFetchSessionHealthKeepsHumanOperatorOutOfAgentCount(t *testing.T) {
 	}
 	if !strings.Contains(h.Ops.Detail, "Summary: 4 ok") || !strings.Contains(h.Ops.Detail, "operator gate: none") {
 		t.Fatalf("ops detail = %q", h.Ops.Detail)
+	}
+}
+
+// TestFetchSquadDoctorParsesChecksOnNonZeroExit is the regression for
+// addendum A5: amq-squad 2.28's `doctor --json` exits non-zero
+// ("error: doctor: N check(s) failed") whenever any check fails, but still
+// prints the full checks envelope on stdout (DefaultHealthCommandRunner
+// returns stdout alongside the error, matching a real exec.Cmd). Before this
+// fix, a non-zero exit short-circuited straight to an opaque error blob
+// instead of parsing the real, available checks summary.
+func TestFetchSquadDoctorParsesChecksOnNonZeroExit(t *testing.T) {
+	doctorJSON := `{"schema_version":1,"kind":"doctor","data":{"checks":[` +
+		`{"name":"amq version","status":"fail","detail":"amq env failed"},` +
+		`{"name":"markers CLAUDE.md","status":"warn","detail":"CLAUDE.md not found"},` +
+		`{"name":"tmux","status":"ok"}` +
+		`]}}`
+	run := func(dir string, env []string, name string, args ...string) ([]byte, error) {
+		if name == "amq-squad" && len(args) == 2 && args[0] == "doctor" && args[1] == "--json" {
+			return []byte(doctorJSON), errors.New("amq-squad: exit status 2: error: doctor: 1 check(s) failed")
+		}
+		t.Fatalf("unexpected command: %s %v", name, args)
+		return nil, nil
+	}
+
+	ch := fetchSquadDoctor(run, "/repo/app")
+	if ch.Status != healthStatusError {
+		t.Fatalf("status = %q, want error (non-zero exit trusted over per-check tally)", ch.Status)
+	}
+	if !strings.Contains(ch.Detail, "3 checks, 1 warnings, 1 failures") {
+		t.Fatalf("detail = %q, want the parsed checks summary, not a raw error blob", ch.Detail)
+	}
+	if ch.Error != "" {
+		t.Fatalf("error = %q, want cleared once the checks envelope parsed", ch.Error)
+	}
+}
+
+// TestFetchSquadDoctorFallsBackOnTransportFailure keeps the pre-A5 behavior
+// for a genuine transport failure: no parseable doctor envelope on stdout at
+// all (amq-squad missing, wrong PATH, etc), so the opaque error must survive.
+func TestFetchSquadDoctorFallsBackOnTransportFailure(t *testing.T) {
+	run := func(dir string, env []string, name string, args ...string) ([]byte, error) {
+		return []byte("exec: \"amq-squad\": executable file not found in $PATH"), errors.New("amq-squad: executable file not found in $PATH")
+	}
+	ch := fetchSquadDoctor(run, "/repo/app")
+	if ch.Status != healthStatusError {
+		t.Fatalf("status = %q, want error", ch.Status)
+	}
+	if ch.Error == "" {
+		t.Fatalf("error should be preserved for a genuine transport failure, got %+v", ch)
 	}
 }
 

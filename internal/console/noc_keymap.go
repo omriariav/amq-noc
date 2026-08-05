@@ -62,7 +62,7 @@ var nocKeyMap = []nocKeyBinding{
 
 	// Control (mutating; every key previews + confirms before it touches a squad).
 	// Scopes mirror each begin* handler's "applies to ..." guard in noc_control.go.
-	{Keys: []string{"delete"}, HelpDisplay: "Del", Label: "delete selected session or team profile (preview + confirm)", Footer: "Del delete", FooterAscii: "Del delete", Group: keyGroupAction, Mutating: true, Scopes: []nocNodeKind{nodeProject, nodeSession}},
+	{Keys: []string{"delete"}, HelpDisplay: "Del", Label: "delete selected team profile (preview + confirm)", Footer: "Del delete", FooterAscii: "Del delete", Group: keyGroupAction, Mutating: true, Scopes: []nocNodeKind{nodeProject}},
 	{Keys: []string{"d"}, HelpDisplay: "d", Label: "drain the selected agent inbox with bodies (preview + confirm)", Footer: "d drain", FooterAscii: "d drain", Group: keyGroupAction, Mutating: true, Scopes: []nocNodeKind{nodeAgent}},
 	{Keys: []string{"v"}, HelpDisplay: "v", Label: "view the selected agent's latest output (read-only: live pane tail, else newest AMQ message)", Footer: "v output", FooterAscii: "v output", Group: keyGroupAction, Scopes: []nocNodeKind{nodeAgent}},
 	{Keys: []string{"o"}, HelpDisplay: "o", Label: "open/focus the selected online agent's tmux pane (read-only; confirm first)", Footer: "o focus", FooterAscii: "o focus", Group: keyGroupAction, Scopes: []nocNodeKind{nodeAgent}},
@@ -76,7 +76,7 @@ var nocKeyMap = []nocKeyBinding{
 	{Keys: []string{"S"}, HelpDisplay: "S", Label: "stop the selected squad (preview + confirm)", Footer: "S stop", FooterAscii: "S stop", Group: keyGroupAction, Mutating: true, Scopes: []nocNodeKind{nodeProject, nodeSession}},
 	{Keys: []string{"R"}, HelpDisplay: "R", Label: "resume the selected squad (preview + confirm)", Footer: "R resume", FooterAscii: "R resume", Group: keyGroupAction, Mutating: true, Scopes: []nocNodeKind{nodeProject, nodeSession}},
 	{Keys: []string{"X"}, HelpDisplay: "X", Label: "restart the selected squad (preview + confirm)", Footer: "X restart", FooterAscii: "X restart", Group: keyGroupAction, Mutating: true, Scopes: []nocNodeKind{nodeProject, nodeSession}},
-	{Keys: []string{"U"}, HelpDisplay: "U", Label: "launch the configured team profile (amq-squad up; preview + confirm)", Footer: "U up", FooterAscii: "U up", Group: keyGroupAction, Mutating: true, Scopes: []nocNodeKind{nodeProject, nodeSession, nodeAgent}},
+	{Keys: []string{"U"}, HelpDisplay: "U", Label: "launch the configured team profile (amq-squad start; preview + confirm)", Footer: "U up", FooterAscii: "U up", Group: keyGroupAction, Mutating: true, Scopes: []nocNodeKind{nodeProject, nodeSession, nodeAgent}},
 	{Keys: []string{"N"}, HelpDisplay: "N", Label: "start a new workstream session (rejects existing names)", Footer: "N new-session", FooterAscii: "N new-session", Group: keyGroupAction, Mutating: true, Scopes: []nocNodeKind{nodeProject, nodeSession, nodeAgent}},
 	{Keys: []string{"T"}, HelpDisplay: "T", Label: "create a team profile + pointer stubs", Footer: "T new-team", FooterAscii: "T new-team", Group: keyGroupAction, Mutating: true, Scopes: []nocNodeKind{nodeProject, nodeSession, nodeAgent}},
 }

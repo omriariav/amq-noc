@@ -167,7 +167,7 @@ type NOCModel struct {
 	// projectDoctorResult is a read-only result overlay for project doctor
 	// output, opened from project/action/doctor.
 	projectDoctorResult *projectDoctorResultOverlay
-	// projectHistoryResult is a read-only result overlay for project launch
+	// projectHistoryResult is a read-only result overlay for local launch
 	// history, opened from project/action/history.
 	projectHistoryResult *projectHistoryResultOverlay
 	// teamRulesResult is a read-only result overlay for durable team norms,
@@ -288,7 +288,6 @@ type NOCModel struct {
 	lifecycle         func(lifecycleOp) error
 	sendPrompt        func(sendPromptOp) error
 	agentResume       func(agentResumeOp) error
-	sessionCleanup    func(sessionCleanupOp) error
 	newSession        func(newSessionOp) error
 	newTeam           func(newTeamOp) error
 	teamDelete        func(teamDeleteOp) error

@@ -1,5 +1,7 @@
 # amq-noc Release Plan
 
+Convention: this file is newest-first. The active release track is always the first `##` section below; finished tracks move down in order of recency, back to the 0.1.0 baseline, which is kept as an archive. Add a new track at the top rather than appending at the end.
+
 ## amq-squad 2.28.0 compatibility track (0.13.x)
 
 Updated: 2026-08-05. Status: 0.13.0 is in progress on `feat/v0.13.0`.

@@ -1,0 +1,25 @@
+amq-noc NOC  command center
+--------------------------------------------------------------------------------
+2 squads - 1 online - [!] 1 needs-you - 0 blocked - 0 waiting - 12:00:00
+last activity across all squads: 11:58:00 (2m ago)
+  - [!] needs-you ship ... | SESSION  main
+>   - [!] needs-you mai... | ship
+        [run] online qa... | namespace: default/main
+  - [run] online idle s... | AMQ root: <PATH>
+    - [run] online main... | goal binding: amq_task_brief via amq-task-brief
+        [run] online ct... | brief: <PATH>
+                           | tasks: <PATH>
+                           | ----------------------------
+                           | attention queue
+                           |   WAITING         dev - ask/approve - needs-you - n
+                           |     body
+                           | ----------------------------
+                           | now
+                           |   [!] needs-you ok to proceed with deploy?  user ap
+                           |       dev paused - 2m
+                           |       ask: body
+--------------------------------------------------------------------------------
+up/down move | right/l/enter expand | left collapse | / filter | h hide-stale |
+f flow | g refresh | C copy-cmd | esc back | ? help | q quit
+a approve | r reply | x deny | m message | L direct-lead | b broadcast | S stop
+| R resume | X restart | U up | N new-session | T new-team

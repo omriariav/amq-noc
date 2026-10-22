@@ -320,3 +320,55 @@ func TestEnsureStub(t *testing.T) {
 		t.Error("EnsureStub clobbered user content")
 	}
 }
+
+// The stub is what `rules init` seeds into a new project, so it must be
+// usable guidance, not placeholders for the user to fill in.
+func TestStubContentHasNoPlaceholders(t *testing.T) {
+	for _, marker := range []string{"TODO", "TBD", "FIXME", "XXX"} {
+		if strings.Contains(StubContent, marker) {
+			t.Errorf("StubContent still contains placeholder %q", marker)
+		}
+	}
+}
+
+func TestStubContentSectionsHaveGuidance(t *testing.T) {
+	sections := map[string][]string{}
+	var current string
+	for _, line := range strings.Split(StubContent, "\n") {
+		if strings.HasPrefix(line, "## ") {
+			current = strings.TrimPrefix(line, "## ")
+			sections[current] = nil
+			continue
+		}
+		if current != "" && strings.HasPrefix(line, "- ") {
+			sections[current] = append(sections[current], line)
+		}
+	}
+	for _, name := range []string{"Workflow", "Approvals", "Communication"} {
+		bullets, ok := sections[name]
+		if !ok {
+			t.Errorf("StubContent missing %q section", name)
+			continue
+		}
+		if len(bullets) == 0 {
+			t.Errorf("StubContent %q section has no guidance bullets", name)
+		}
+	}
+}
+
+func TestEnsureStubWritesStubContent(t *testing.T) {
+	project := t.TempDir()
+	if _, err := EnsureStub(project); err != nil {
+		t.Fatalf("EnsureStub: %v", err)
+	}
+	got, err := Read(project)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if got != StubContent {
+		t.Errorf("seeded file differs from StubContent:\n%s", got)
+	}
+	if !strings.HasSuffix(got, "\n") {
+		t.Error("seeded file should end with a newline")
+	}
+}

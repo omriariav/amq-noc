@@ -40,18 +40,29 @@ this file via their priming prompt regardless of binary.
 
 ## Workflow
 
-- TODO: describe how work flows from intent to shipped (e.g. "All code
-  changes ship via a pull request").
+- Treat the current user request as the source of truth, and route each piece
+  of work to the role that owns it.
+- Make small, reviewable changes and report evidence (checks run, files
+  touched) before handing work off.
+- Code changes ship via a pull request; nothing lands on the default branch
+  directly.
 
 ## Approvals
 
-- TODO: list required approvals (e.g. "Every PR needs CTO approval before
-  merge").
+- Merging needs explicit approval from the human operator, after a review by
+  someone other than the author.
+- Irreversible actions (merge, release, tag, delete, external sends) wait for
+  that approval. An agent's own report never counts as approval.
+- Edit this section to name the specific roles that must sign off.
 
 ## Communication
 
-- TODO: describe how agents should talk to each other (channels,
-  escalation, when to page a peer).
+- Talk over the team's AMQ threads: one concern per message, replies on the
+  same thread, and progress or blockers pushed to the sender rather than
+  waiting to be polled.
+- Escalate a blocker or a decision you cannot make right away, naming the
+  decision needed and who owns it.
+- Ask the lead or operator before taking work outside your role.
 `
 
 // Read returns the team-rules.md contents. Returns os.ErrNotExist if the

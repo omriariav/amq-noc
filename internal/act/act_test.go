@@ -381,3 +381,81 @@ func anyMessageFileUnder(t *testing.T, root, recipient string) bool {
 	})
 	return found
 }
+
+func TestNonOperatorParticipants(t *testing.T) {
+	tests := []struct {
+		name         string
+		participants []string
+		want         []string
+	}{
+		{name: "nil participants", participants: nil, want: nil},
+		{name: "empty participants", participants: []string{}, want: nil},
+		{name: "only the operator", participants: []string{"user"}, want: nil},
+		{name: "operator removed and sorted", participants: []string{"cto", "user", "cpo"}, want: []string{"cpo", "cto"}},
+		{name: "duplicates collapse", participants: []string{"cto", "cpo", "cto", "cpo"}, want: []string{"cpo", "cto"}},
+		{name: "blanks and whitespace dropped", participants: []string{"", "  ", " cto ", "\tqa\n"}, want: []string{"cto", "qa"}},
+		{name: "padded operator handle still removed", participants: []string{" user ", "cto"}, want: []string{"cto"}},
+		{name: "handle match is case sensitive", participants: []string{"User", "user", "cto"}, want: []string{"User", "cto"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := nonOperatorParticipants(state.ThreadSummary{Participants: tt.participants})
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("nonOperatorParticipants(%q) = %#v, want %#v", tt.participants, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNonOperatorParticipantsDoesNotMutateInput(t *testing.T) {
+	in := []string{"cto", "user", "cpo"}
+	_ = nonOperatorParticipants(state.ThreadSummary{Participants: in})
+	if want := []string{"cto", "user", "cpo"}; !reflect.DeepEqual(in, want) {
+		t.Fatalf("participants mutated: %#v, want %#v", in, want)
+	}
+}
+
+func TestNonOperatorParticipantsAsCustomHandle(t *testing.T) {
+	th := state.ThreadSummary{Participants: []string{"boss", "user", "cto", "boss"}}
+
+	if got, want := nonOperatorParticipantsAs(th, "boss"), []string{"cto", "user"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("custom handle: got %#v, want %#v", got, want)
+	}
+	// A blank operator handle falls back to the default "user".
+	if got, want := nonOperatorParticipantsAs(th, "  "), []string{"boss", "cto"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("blank handle: got %#v, want %#v", got, want)
+	}
+}
+
+func TestSquadRecipients(t *testing.T) {
+	tests := []struct {
+		name    string
+		handles []string
+		want    []string
+	}{
+		{name: "nil handles", handles: nil, want: nil},
+		{name: "only the operator", handles: []string{"user", "user"}, want: nil},
+		{name: "operator removed and sorted", handles: []string{"qa", "user", "cpo", "cto"}, want: []string{"cpo", "cto", "qa"}},
+		{name: "duplicates collapse", handles: []string{"qa", "qa", "cto", "qa"}, want: []string{"cto", "qa"}},
+		{name: "blanks and whitespace dropped", handles: []string{"", " ", " qa ", "cto"}, want: []string{"cto", "qa"}},
+		{name: "padded operator handle still removed", handles: []string{"user ", "qa"}, want: []string{"qa"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := squadRecipients(tt.handles); !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("squadRecipients(%q) = %#v, want %#v", tt.handles, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSquadRecipientsAsCustomHandle(t *testing.T) {
+	handles := []string{"boss", "user", "qa"}
+
+	if got, want := squadRecipientsAs(handles, "boss"), []string{"qa", "user"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("custom handle: got %#v, want %#v", got, want)
+	}
+	if got, want := squadRecipientsAs(handles, ""), []string{"boss", "qa"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("empty handle: got %#v, want %#v", got, want)
+	}
+}

@@ -1,0 +1,28 @@
+Agent command center  Group: Project
+[All 5]  Needs you 1   Working 1   Ready 2   Inactive 0          tab/⇧tab filter
+────────────────────────────────────────────────────────────────────────────────
+    Tasks                                            Status              Updated
+Operator  1
+› ◌ user (operator)                                  Ready               30s ago
+
+/Users/owner/code/app  3
+  ! Release v1.2.0                                   Needs you            5m ago
+  ● Fix the parser                                   Working             30s ago
+  ◌ impl-2 (implementer)                             Ready               10m ago
+
+Waiting  1
+  ○ docs                                             fleet_cap            2m ago
+
+────────────────────────────────────────────────────────────────────────────────
+Seat details
+
+user (operator)
+● Ready  online idle
+Model: registry-default  Reasoning: -
+Project: -
+Tokens: 18.2K in · 2210 out  Prompt: idle
+Last message: -
+
+
+
+? help  esc back  ↑/↓ move  enter open  n new

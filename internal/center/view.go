@@ -74,7 +74,7 @@ func (m *Model) View() string {
 	var body []string
 	switch m.mode {
 	case modeHelp:
-		body = m.helpLines()
+		body = m.clampHelp(m.helpLines(), m.bodyHeight())
 	case modeNew:
 		body = m.newLines()
 	case modeConversation:
@@ -99,7 +99,7 @@ func (m *Model) View() string {
 
 // allWarnings lists every warning of every squad, one line each.
 func (m *Model) allWarnings() []string {
-	var out []string
+	out := append([]string{}, m.fleet.Warnings...)
 	for _, s := range m.fleet.Squads {
 		out = append(out, s.Warnings...)
 	}
@@ -139,7 +139,7 @@ func (m *Model) titleLine() string {
 }
 
 func (m *Model) warningCount() int {
-	n := 0
+	n := len(m.fleet.Warnings)
 	for _, s := range m.fleet.Squads {
 		n += len(s.Warnings)
 	}
@@ -248,7 +248,7 @@ func (m *Model) itemLine(i, w int, now time.Time) string {
 	it := m.items[i]
 	switch it.kind {
 	case itemHeader:
-		return dim.Render(clamp(fmt.Sprintf("%s  %d", DisplayPath(it.group), it.count), w))
+		return dim.Render(clamp(fmt.Sprintf("%s  %d", it.label, it.count), w))
 	case itemFold:
 		line := fmt.Sprintf("    Show more (%d)", it.count)
 		if i == m.cursor {
@@ -265,6 +265,9 @@ func (m *Model) itemLine(i, w int, now time.Time) string {
 			glyph = "●"
 		case BucketReady:
 			glyph = "◌"
+		}
+		if r.NotLive() {
+			glyph = "⊘" // the contract says the seat is not live
 		}
 		status := StatusLabel(m.fleet, r)
 		upd := RelTime(r.Updated, now)
@@ -298,6 +301,9 @@ func (m *Model) detailsLines(w int) []string {
 		}
 		return []string{bold.Render("Details")}
 	}
+	if r.Waiting != nil {
+		return m.waitingLines(r)
+	}
 	var out []string
 	if r.IsTask() {
 		out = append(out, bold.Render("Task details"))
@@ -311,6 +317,9 @@ func (m *Model) detailsLines(w int) []string {
 		status += dim.Render("  " + strings.Trim(r.State+" "+r.Reason, " "))
 	}
 	out = append(out, "● "+status)
+	if r.NotLive() {
+		out = append(out, hot.Render("⊘ not live: "+clamp("contract live=false", w-13)))
+	}
 	out = append(out, "")
 
 	model, effort := "-", "-"
@@ -360,6 +369,21 @@ func (m *Model) detailsLines(w int) []string {
 	return out
 }
 
+// waitingLines is the details pane of a squad waiting for the fleet cap.
+func (m *Model) waitingLines(r Row) []string {
+	wq := r.Waiting
+	out := []string{bold.Render("Waiting squad"), "", hot.Render(oneLine(wq.Squad)),
+		"● " + orDash(wq.WaitReason) + dim.Render("  cap "+orDash(wq.Cap)), ""}
+	out = append(out, dim.Render("Repository: ")+orDash(wq.Repository),
+		dim.Render("Project: ")+DisplayPathFull(wq.ProjectPath),
+		dim.Render("Waiting since: ")+RelTime(&wq.Since, m.now()))
+	if strings.TrimSpace(wq.Detail) != "" {
+		out = append(out, dim.Render("Detail: ")+oneLine(wq.Detail))
+	}
+	out = append(out, "", dim.Render("no squad document yet; nothing to open"))
+	return out
+}
+
 // gateFor finds the gate that the attention queue ties to the row.
 func (m *Model) gateFor(r Row) *Gate {
 	if r.Squad >= len(m.fleet.Squads) {
@@ -392,6 +416,34 @@ func (m *Model) helpLines() []string {
 	return out
 }
 
+// clampHelp fits the help overlay into h lines. When it is longer, the last
+// line is a fold, "(+N more)", and up/down/pgup/pgdn scroll the rest.
+func (m *Model) clampHelp(lines []string, h int) []string {
+	if len(lines) <= h {
+		m.helpTop = 0
+		return lines
+	}
+	room := h - 1
+	if room < 1 {
+		room = 1
+	}
+	if max := len(lines) - room; m.helpTop > max {
+		m.helpTop = max
+	}
+	if m.helpTop < 0 {
+		m.helpTop = 0
+	}
+	end := m.helpTop + room
+	fold := fmt.Sprintf("(+%d more)", len(lines)-end)
+	if m.helpTop > 0 {
+		fold = fmt.Sprintf("(%d above, +%d more)", m.helpTop, len(lines)-end)
+		if end >= len(lines) {
+			fold = fmt.Sprintf("(%d above)", m.helpTop)
+		}
+	}
+	return append(append([]string{}, lines[m.helpTop:end]...), dim.Render(fold+"  up/down scroll"))
+}
+
 func (m *Model) keyHelp() []string {
 	return []string{
 		bold.Render("Keys"), "",
@@ -401,6 +453,7 @@ func (m *Model) keyHelp() []string {
 		"  n              new task (runs the status contract's new-task action)",
 		"  esc            back; from a filter tab, back to All",
 		"  r              refresh now",
+		"  up/down pgup/pgdn  scroll this help when it is taller than the screen",
 		"  ?              this help",
 		"  q, ctrl+c      quit", "",
 		dim.Render("Status comes from `amq-squad status --json` every 5 seconds."),

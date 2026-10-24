@@ -1,6 +1,7 @@
 package center
 
 import (
+	"fmt"
 	"os"
 	"sort"
 	"strings"
@@ -32,12 +33,29 @@ type Row struct {
 	Task    *Task // nil for a seat row
 	Seat    *Seat // the lease holder of a task row (nil if unknown), or the seat itself
 
+	Section int           // sectionOperator, sectionSquad or sectionWaiting
+	Waiting *WaitingSquad // set for a row of the fleet's waiting[] list
+
 	Title   string
 	Bucket  string
 	Marker  string
 	State   string
 	Reason  string
 	Updated *time.Time
+}
+
+// Row sections, in list order: the operator's own row first, then the squads'
+// rows grouped by project, then the squads waiting for the fleet cap.
+const (
+	sectionOperator = iota
+	sectionSquad
+	sectionWaiting
+)
+
+// NotLive reports that a seat row's `live` is false while its bucket is not
+// Inactive. The contract classifies; the renderer only shows it.
+func (r Row) NotLive() bool {
+	return r.Task == nil && r.Seat != nil && r.Seat.Live != nil && !*r.Seat.Live && r.Bucket != BucketInactive
 }
 
 // IsTask reports whether the row is a task row.
@@ -60,7 +78,7 @@ func BuildRows(f Fleet) []Row {
 			taskIDs[t.ID] = true
 			u := t.UpdatedAt
 			rows = append(rows, Row{
-				Squad: si, Project: orProject(t.ProjectPath, s.ProjectPath), Task: t,
+				Squad: si, Section: sectionSquad, Project: orProject(t.ProjectPath, s.ProjectPath), Task: t,
 				Seat: seatByHandle[t.LeaseHolder], Title: t.Title,
 				Bucket: t.Bucket, Marker: t.BucketMarker, State: t.State, Reason: t.ReasonCode,
 				Updated: &u,
@@ -76,14 +94,33 @@ func BuildRows(f Fleet) []Row {
 				title = st.Handle + " (" + st.Role + ")"
 			}
 			rows = append(rows, Row{
-				Squad: si, Project: orProject(st.ProjectPath, s.ProjectPath), Seat: st, Title: title,
+				Squad: si, Section: sectionSquad, Project: orProject(st.ProjectPath, s.ProjectPath), Seat: st, Title: title,
 				Bucket: st.Bucket, Marker: st.BucketMarker, State: st.State, Reason: st.ReasonCode,
 				Updated: st.LastActivityAt,
 			})
 		}
 	}
+	// The operator row and the waiting rows belong to no squad; their Squad
+	// index is past the end so every squad lookup misses.
+	if op := f.Operator; op != nil {
+		title := op.Handle
+		if op.Role != "" {
+			title += " (" + op.Role + ")"
+		}
+		rows = append(rows, Row{Squad: len(f.Squads), Section: sectionOperator, Project: op.ProjectPath, Seat: op, Title: title,
+			Bucket: op.Bucket, Marker: op.BucketMarker, State: op.State, Reason: op.ReasonCode, Updated: op.LastActivityAt})
+	}
+	for i := range f.Waiting {
+		w := &f.Waiting[i]
+		since := w.Since
+		rows = append(rows, Row{Squad: len(f.Squads), Section: sectionWaiting, Project: w.ProjectPath, Waiting: w, Title: w.Squad,
+			State: w.WaitReason, Reason: w.Cap, Updated: &since})
+	}
 	sort.SliceStable(rows, func(i, j int) bool {
 		a, b := rows[i], rows[j]
+		if a.Section != b.Section {
+			return a.Section < b.Section
+		}
 		if a.Project != b.Project {
 			return a.Project < b.Project
 		}
@@ -156,21 +193,30 @@ func Filter(rows []Row, tab Tab) []Row {
 	return out
 }
 
-// Group is the rows of one project path.
+// Group is the rows of one project path, or the Operator or Waiting group.
 type Group struct {
-	Project string
-	Rows    []Row
+	Key   string // unique per group
+	Label string // the header text
+	Rows  []Row
 }
 
-// GroupRows groups already sorted rows by project path, keeping order.
+// GroupRows groups already sorted rows by section and project path, keeping
+// order. The operator row is a group of its own, and so are the waiting rows.
 func GroupRows(rows []Row) []Group {
 	var gs []Group
 	for _, r := range rows {
-		if n := len(gs); n > 0 && gs[n-1].Project == r.Project {
+		key, label := fmt.Sprintf("%d|%s", r.Section, r.Project), DisplayPath(r.Project)
+		switch r.Section {
+		case sectionOperator:
+			key, label = "operator", "Operator"
+		case sectionWaiting:
+			key, label = "waiting", "Waiting"
+		}
+		if n := len(gs); n > 0 && gs[n-1].Key == key {
 			gs[n-1].Rows = append(gs[n-1].Rows, r)
 			continue
 		}
-		gs = append(gs, Group{Project: r.Project, Rows: []Row{r}})
+		gs = append(gs, Group{Key: key, Label: label, Rows: []Row{r}})
 	}
 	return gs
 }
@@ -179,6 +225,9 @@ func GroupRows(rows []Row) []Group {
 // as the contract names it, with a marker for a row the contract could not
 // classify.
 func StatusLabel(f Fleet, r Row) string {
+	if r.Waiting != nil {
+		return orDash(r.Waiting.WaitReason)
+	}
 	label := bucketLabel(f, r)
 	if r.Marker != "" {
 		return label + " (" + r.Marker + ")"

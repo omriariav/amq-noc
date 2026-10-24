@@ -36,8 +36,9 @@ const (
 // item is one line of the list: a spacer, a group header, a row, or a fold.
 type item struct {
 	kind  itemKind
-	group string
-	count int // header: rows in group; fold: hidden rows
+	group string // group key
+	label string // header text
+	count int    // header: rows in group; fold: hidden rows
 	row   Row
 }
 
@@ -67,6 +68,8 @@ type Model struct {
 	form    formState
 	conv    convState
 	convGen int
+
+	helpTop int // first visible line of the help overlay
 
 	newRunning bool // a new-task call is in flight
 }
@@ -201,8 +204,17 @@ func (m *Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	switch m.mode {
 	case modeHelp:
-		if s == "esc" || s == "?" || s == "q" || s == "enter" {
+		switch s {
+		case "esc", "?", "q", "enter":
 			m.mode = modeList
+		case "up", "k":
+			m.helpTop--
+		case "down", "j":
+			m.helpTop++
+		case "pgup":
+			m.helpTop -= m.bodyHeight() - 1
+		case "pgdown":
+			m.helpTop += m.bodyHeight() - 1
 		}
 		return m, nil
 	case modeNew:
@@ -231,7 +243,7 @@ func (m *Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.setTab(TabAll)
 		}
 	case "?":
-		m.mode = modeHelp
+		m.mode, m.helpTop = modeHelp, 0
 	case "r":
 		if !m.loading {
 			m.loading = true
@@ -307,6 +319,12 @@ func (m *Model) rowKey(r Row) string {
 	if r.IsTask() {
 		return fmt.Sprintf("%s/task/%s", sq, r.Task.ID)
 	}
+	if r.Waiting != nil {
+		return "waiting/" + r.Waiting.Squad + "/" + r.Waiting.ProjectPath
+	}
+	if r.Section == sectionOperator {
+		return "operator/" + r.Seat.Handle
+	}
 	return fmt.Sprintf("%s/seat/%s", sq, r.Seat.Handle)
 }
 
@@ -336,16 +354,16 @@ func (m *Model) rebuild() {
 		if gi > 0 {
 			m.items = append(m.items, item{kind: itemBlank})
 		}
-		m.items = append(m.items, item{kind: itemHeader, group: g.Project, count: len(g.Rows)})
+		m.items = append(m.items, item{kind: itemHeader, group: g.Key, label: g.Label, count: len(g.Rows)})
 		shown := g.Rows
-		if len(shown) > FoldLimit && !m.expanded[g.Project] {
+		if len(shown) > FoldLimit && !m.expanded[g.Key] {
 			shown = shown[:FoldLimit]
 		}
 		for _, r := range shown {
-			m.items = append(m.items, item{kind: itemRow, group: g.Project, row: r})
+			m.items = append(m.items, item{kind: itemRow, group: g.Key, row: r})
 		}
 		if hidden := len(g.Rows) - len(shown); hidden > 0 {
-			m.items = append(m.items, item{kind: itemFold, group: g.Project, count: hidden})
+			m.items = append(m.items, item{kind: itemFold, group: g.Key, count: hidden})
 		}
 	}
 	if m.cursor >= len(m.items) {
@@ -390,8 +408,8 @@ func orDash(s string) string {
 	return s
 }
 
-// Lead returns the handle of the lead of a squad, if the contract names one:
-// the optional lead_handle field, else the single seat whose role is "lead".
+// Lead returns the handle of the lead of a squad: the contract's lead_handle
+// first, else (a producer that predates it) the first seat whose role is "lead".
 func Lead(s Status) string {
 	if s.LeadHandle != "" {
 		return s.LeadHandle
@@ -405,6 +423,10 @@ func Lead(s Status) string {
 }
 
 // Operator is the AMQ handle the owner speaks as in a conversation.
-func Operator(_ Status) string {
+// It is the fleet document's operator row when present, else "user".
+func Operator(f Fleet) string {
+	if f.Operator != nil && f.Operator.Handle != "" {
+		return f.Operator.Handle
+	}
 	return "user"
 }

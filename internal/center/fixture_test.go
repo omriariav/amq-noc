@@ -26,6 +26,22 @@ func TestVendoredFixtureMatchesCommittedSHA(t *testing.T) {
 	}
 }
 
+// goldenFleet is the vendored copy of amq-squad's
+// internal/status/testdata/status-fleet-v1.golden.json, byte for byte.
+//
+//go:embed testdata/status-fleet-v1.golden.json
+var goldenFleet []byte
+
+//go:embed testdata/status-fleet-v1.golden.json.sha256
+var goldenFleetSHA string
+
+func TestVendoredFleetFixtureMatchesCommittedSHA(t *testing.T) {
+	sum := sha256.Sum256(goldenFleet)
+	if got, want := hex.EncodeToString(sum[:]), strings.TrimSpace(goldenFleetSHA); got != want {
+		t.Fatalf("vendored fleet fixture sha256 = %s, committed %s", got, want)
+	}
+}
+
 func TestParseGolden(t *testing.T) {
 	f, err := Parse(goldenFixture)
 	if err != nil {
@@ -49,8 +65,17 @@ func TestParseRefusesOtherSchema(t *testing.T) {
 }
 
 func TestParseFleetForm(t *testing.T) {
-	f, err := Parse([]byte(`{"schema_version":1,"kind":"fleet","producer":"amq-squad","producer_version":"3.0.0","generated_at":"2026-10-24T12:00:00Z","squads":[` + string(goldenFixture) + `,` + string(goldenFixture) + `]}`))
-	if err != nil || len(f.Squads) != 2 {
+	f, err := Parse(goldenFleet)
+	if err != nil || len(f.Squads) != 1 {
 		t.Fatalf("fleet parse: %v %+v", err, len(f.Squads))
+	}
+	if f.Operator == nil || f.Operator.Handle != "user" || f.Operator.Role != "operator" {
+		t.Fatalf("operator = %+v", f.Operator)
+	}
+	if len(f.Waiting) != 1 || f.Waiting[0].WaitReason != "fleet_cap" || f.Waiting[0].Squad != "docs" {
+		t.Fatalf("waiting = %+v", f.Waiting)
+	}
+	if f.Squads[0].LeadHandle != "" {
+		t.Fatalf("fleet golden lead_handle is null, got %q", f.Squads[0].LeadHandle)
 	}
 }

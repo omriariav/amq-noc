@@ -65,6 +65,7 @@ type Seat struct {
 	Model          string     `json:"model"`
 	Effort         string     `json:"effort"`
 	State          string     `json:"state"`
+	Live           *bool      `json:"live"` // nil when the producer predates the field
 	ReasonCode     string     `json:"reason_code"`
 	Bucket         string     `json:"bucket"`
 	BucketMarker   string     `json:"bucket_marker"`
@@ -124,8 +125,8 @@ type Attention struct {
 	Action   *Action   `json:"action"`
 }
 
-// Status is one squad's `status --json` document. LeadHandle is an
-// optional additive field (lead ruling; amq-squad is adding it).
+// Status is one squad's `status --json` document. LeadHandle is the handle of
+// the seat whose role is lead (null in the document when none has it).
 type Status struct {
 	SchemaVersion   int          `json:"schema_version"`
 	Producer        string       `json:"producer"`
@@ -147,10 +148,25 @@ type Status struct {
 	LeadHandle string   `json:"lead_handle"`
 }
 
+// WaitingSquad is one entry of the fleet document's waiting[] list: a squad
+// the mayor held back for the fleet grant's cap, with no squad document yet.
+type WaitingSquad struct {
+	Squad       string    `json:"squad"`
+	Repository  string    `json:"repository"`
+	ProjectPath string    `json:"project_path"`
+	WaitReason  string    `json:"wait_reason"`
+	Cap         string    `json:"cap"`
+	Since       time.Time `json:"since"`
+	Detail      string    `json:"detail"`
+}
+
 // Fleet is every squad the input described. A one-squad document is a Fleet
-// of one.
+// of one. Operator and Waiting come from the fleet document only.
 type Fleet struct {
-	Squads []Status
+	Squads   []Status
+	Operator *Seat // the operator's own seat row (handle user, role operator), or nil
+	Waiting  []WaitingSquad
+	Warnings []string
 }
 
 // Parse reads the output of `status --json` or `status --fleet --json`. A
@@ -167,6 +183,8 @@ func Parse(data []byte) (Fleet, error) {
 	var probe struct {
 		SchemaVersion int               `json:"schema_version"`
 		Squads        []json.RawMessage `json:"squads"`
+		Operator      *Seat             `json:"operator"`
+		Waiting       []WaitingSquad    `json:"waiting"`
 	}
 	if err := json.Unmarshal(data, &probe); err != nil {
 		return Fleet{}, fmt.Errorf("status: %w", err)
@@ -185,6 +203,11 @@ func Parse(data []byte) (Fleet, error) {
 				return Fleet{}, fmt.Errorf("squad %d: %w", i, err)
 			}
 			f.Squads = append(f.Squads, s)
+		}
+		f.Operator, f.Waiting = probe.Operator, probe.Waiting
+		if op := f.Operator; op != nil && !validBucket(op.Bucket) {
+			f.Warnings = append(f.Warnings, fmt.Sprintf("operator %s: unknown bucket %q, shown as inactive", op.Handle, op.Bucket))
+			op.Bucket, op.BucketMarker = BucketInactive, MarkerUnknown
 		}
 		return f, nil
 	}
@@ -212,9 +235,7 @@ func parseOne(data []byte) (Status, error) {
 // naming the row and the value. The document is not refused: one bad row must
 // not blank the screen, and no row may sit under All without a tab.
 func normalizeBuckets(s *Status) {
-	ok := func(b string) bool {
-		return b == BucketNeedsYou || b == BucketWorking || b == BucketReady || b == BucketInactive
-	}
+	ok := validBucket
 	for i := range s.Tasks {
 		if t := &s.Tasks[i]; !ok(t.Bucket) {
 			s.Warnings = append(s.Warnings, fmt.Sprintf("task %s: unknown bucket %q, shown as inactive", t.ID, t.Bucket))
@@ -227,4 +248,8 @@ func normalizeBuckets(s *Status) {
 			st.Bucket, st.BucketMarker = BucketInactive, MarkerUnknown
 		}
 	}
+}
+
+func validBucket(b string) bool {
+	return b == BucketNeedsYou || b == BucketWorking || b == BucketReady || b == BucketInactive
 }

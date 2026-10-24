@@ -86,7 +86,7 @@ func TestClientRunsOnlyContractArgv(t *testing.T) {
 }
 
 func TestFleetStatusArgv(t *testing.T) {
-	logPath := fakeBin(t, string(goldenFixture))
+	logPath := fakeBin(t, string(goldenFleet))
 	if _, err := (Client{Runner: ExecRunner{}, Fleet: true}).Status(context.Background()); err != nil {
 		t.Fatal(err)
 	}

@@ -419,7 +419,7 @@ func TestEnterWithoutLead(t *testing.T) {
 // lead_handle in the status wins; the test uses a local document, not the
 // vendored fixture.
 func TestLeadHandleField(t *testing.T) {
-	doc := strings.Replace(string(goldenFixture), `"session": "squad",`, `"session": "squad", "lead_handle": "cto",`, 1)
+	doc := strings.Replace(string(goldenFixture), `"lead_handle": "lead",`, `"lead_handle": "cto",`, 1)
 	f, err := Parse([]byte(doc))
 	if err != nil {
 		t.Fatal(err)

@@ -27,7 +27,7 @@ func (f formState) current() ActionInput {
 
 func (m *Model) startNew() (tea.Model, tea.Cmd) {
 	squad := 0
-	if r, ok := m.selected(); ok {
+	if r, ok := m.selected(); ok && r.Squad < len(m.fleet.Squads) {
 		squad = r.Squad
 	}
 	if squad >= len(m.fleet.Squads) {
@@ -155,6 +155,7 @@ type convState struct {
 
 func (m *Model) startConversation(r Row) (tea.Model, tea.Cmd) {
 	if r.Squad >= len(m.fleet.Squads) {
+		m.note = "no conversation for this row: it belongs to no squad"
 		return m, nil
 	}
 	s := m.fleet.Squads[r.Squad]
@@ -168,7 +169,7 @@ func (m *Model) startConversation(r Row) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.convGen++
-	m.conv = convState{lead: lead, operator: Operator(s), root: s.Root, loading: true, gen: m.convGen}
+	m.conv = convState{lead: lead, operator: Operator(m.fleet), root: s.Root, loading: true, gen: m.convGen}
 	m.mode = modeConversation
 	return m, m.readConversation()
 }

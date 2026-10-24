@@ -23,6 +23,6 @@ Agent command center  Group: Project
                                                                            │ g-release-1 tag open
                                                                            │ raised by impl-1
                                                                            │
-                                                                           │ enter: no lead seat in status
+                                                                           │
                                                                            │
 ? help  esc back  ↑/↓ move  enter open  n new

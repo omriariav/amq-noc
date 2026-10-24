@@ -1,0 +1,10 @@
+go vet ./...
+go test ./...
+ok  	github.com/omriariav/amq-noc/cmd/amq-noc	0.346s
+ok  	github.com/omriariav/amq-noc/internal/center	(cached)
+ok  	github.com/omriariav/amq-noc/internal/cli	1.342s
+=== RUN   TestFrameTimeUnder100ms
+    ui_test.go:470: refresh + key + View per frame: 343.23µs (rows=250)
+--- PASS: TestFrameTimeUnder100ms (0.02s)
+PASS
+ok  	github.com/omriariav/amq-noc/internal/center	0.258s

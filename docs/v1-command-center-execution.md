@@ -240,3 +240,15 @@ Seven items, each with a test in `internal/center/hardening_test.go` (the three 
 ## Commit 11: warnings on screen
 
 The first warning shows in a line above the footer with "(+N more)" when there are several (the body loses one line while any warning exists); the help overlay lists every warning. TestWarningsShownInFooterAndHelp, and cli TestOnceFrameShowsBucketWarning asserts "task t1: unknown bucket" in the --once frame. A new task is also refused in startNew, before the form opens, while one is in flight (TestNewRefusedBeforeFormWhileRunning).
+
+## Commit 12: contract v3 follow-ups (lead_handle, live, operator, waiting, help clamp)
+
+Vendored from amq-squad v3 (96a76bf0) byte for byte: `status-v1.golden.json` (sha256 9dd2e35b418280ff...; now carries `lead_handle` and per-seat `live`) and `status-fleet-v1.golden.json` (sha256 6d6efa48a1a61d23...), each with its own committed digest test. The fleet golden replaces the hand-written fleet document in `TestParseFleetForm` and `TestFleetStatusArgv`; the envelope-validation cases stay on local documents because the golden does not cover them.
+
+1. `lead_handle` is read first; the first seat with role `lead` remains the fallback (`Lead`). TestLeadHandleFirstThenRoleFallback, TestLeadHandleField. Rendering the single golden now drops the "no lead seat" line from its 120-column details pane, the one golden diff.
+2. `live` (a `*bool`, nil for a producer without the field): a seat row with `live` false and a bucket other than Inactive shows a `⊘` glyph in place of the bucket glyph and a "not live" line in the details pane. The contract classifies; nothing is recomputed. TestNotLiveMarker.
+3. Fleet `operator` (handle user, role operator) renders as an "Operator" group at the top of the list, filtered by its own bucket like any seat row; enter on it opens no conversation (it belongs to no squad), `n` uses the first squad's action. The conversation's operator handle is `operator.handle` when present, else `user` (`Operator(Fleet)`). TestFleetOperatorRowAtTop.
+4. `waiting[]` rows render in a "Waiting" group after the squads: the squad name, `wait_reason` in the status column, and `repository`, `project_path`, `cap`, `since`, `detail` in the details pane. They carry no bucket, so they appear under All only and All counts them (the contract's `counts` do not). TestWaitingGroup.
+5. The help overlay is clamped to the body height. When longer, the last line is a fold, "(+N more)" (or "(M above, +N more)"), and up/down/j/k/pgup/pgdn scroll it; it reopens at the top. TestHelpClampedToTerminalHeight.
+
+Fleet snapshots `fleet-120.txt` and `fleet-80.txt` are new (TestGoldenFleetSnapshots); `fixture-120.txt` changed by one line (above); `fixture-80.txt` and the eight-projects goldens are unchanged. TestFrameTimeUnder100ms is untouched and passing. Gate output: `docs/v1-command-center-evidence/commit12-make-ci.txt` and `commit12-cross.txt`.

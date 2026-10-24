@@ -1,0 +1,3 @@
+linux build ok
+go: downloading golang.org/x/text v0.3.8
+windows build ok

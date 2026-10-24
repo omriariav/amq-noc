@@ -1,0 +1,40 @@
+Agent command center  Group: Project  8 squads
+[All 21]  Needs you 0   Working 1   Ready 0   Inactive 20        tab/⇧tab filter
+────────────────────────────────────────────────────────────────────────────────
+/p/amq-squad  7
+› ○ task t1 of /p/amq-squad                          Inactive             1m ago
+  ○ task t2 of /p/amq-squad                          Inactive             2m ago
+  ○ task t3 of /p/amq-squad                          Inactive             3m ago
+  ○ task t4 of /p/amq-squad                          Inactive             4m ago
+  ○ task t5 of /p/amq-squad                          Inactive             5m ago
+    Show more (2)
+
+/p/ios_organizer  1
+  ● task t1 of /p/ios_organizer                      Working              1m ago
+
+/p/private/notify-probe  1
+  ○ task t1 of /p/private/notify-probe               Inactive             1m ago
+
+/p/scratch  5
+  ○ task t1 of /p/scratch                            Inactive             1m ago
+  ○ task t2 of /p/scratch                            Inactive             2m ago
+  ○ task t3 of /p/scratch                            Inactive             3m ago
+  ○ task t4 of /p/scratch                            Inactive             4m ago
+  ○ task t5 of /p/scratch                            Inactive             5m ago
+
+/p/spike/main-repo  2
+  ○ task t1 of /p/spike/main-repo                    Inactive             1m ago
+  ○ task t2 of /p/spike/main-repo                    Inactive             2m ago
+────────────────────────────────────────────────────────────────────────────────
+Task details
+
+task t1 of /p/amq-squad
+● Inactive  online
+Model: -  Reasoning: -
+Project: /p/amq-squad
+Tokens: - in · - out  Prompt: -
+Last message: -
+
+
+
+? help  esc back  ↑/↓ move  enter open  n new

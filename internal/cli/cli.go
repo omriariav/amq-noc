@@ -41,7 +41,7 @@ func Run(args []string, version string) error {
 		return nil
 	}
 	if len(args) == 0 {
-		return runNOCWithVersion(nil, version)
+		return runCenter(nil, version)
 	}
 	if args[0] == "--version" || args[0] == "-v" {
 		fmt.Println("amq-noc", version)
@@ -56,7 +56,7 @@ func Run(args []string, version string) error {
 	}
 
 	if strings.HasPrefix(args[0], "-") {
-		err := runNOCWithVersion(args, version)
+		err := runCenter(args, version)
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
 		}
@@ -102,24 +102,20 @@ type versionEnvelopeData struct {
 
 func dispatch(args []string, version string) error {
 	switch args[0] {
-	case "noc":
-		return runNOCWithVersion(args[1:], version)
 	default:
 		return usageErrorf("unknown command: %q. Run 'amq-noc --help' for usage.", args[0])
 	}
 }
 
 func printUsage() {
-	fmt.Print(`amq-noc - NOC command center for AMQ and amq-squad sessions
+	fmt.Print(`amq-noc - command center for amq-squad squads
 
 Usage:
-  amq-noc [noc options]
-  amq-noc noc [noc options]
+  amq-noc [--fleet] [--once]
   amq-noc version [--json]
 
-Commands:
-  noc       Multi-root NOC TUI, snapshots, and confirm-gated operator controls.
-  version   Print the amq-noc version.
+The command center is the only view. It reads 'amq-squad status --json'
+(with --fleet: 'amq-squad status --fleet --json') and nothing else.
 
 Global flags (accepted before or after the subcommand, until a literal "--"):
   --quiet              Suppress non-data success/progress notices.
@@ -131,19 +127,7 @@ Exit codes:
   0  success
   1  usage / user error (unknown flag, bad argument, missing required input)
   2  system / runtime error (IO, process, config, environment)
-  3  partial success (some targets succeeded, some failed)
 
-Note: 'stop'/'down' without --force used to exit 2 ("graceful unavailable").
-They now perform the SIGTERM teardown and exit 0 (or 3 on a partial run).
 
-Examples:
-  amq-noc
-  amq-noc --root ~/Code
-  amq-noc --filter needs-you
-  amq-noc --once --root ~/Code
-  amq-noc --json --root ~/Code | jq .
-
-Mutating TUI controls remain preview-first and run through amq-squad.
-Run 'amq-noc noc --help' for all NOC options.
 `)
 }

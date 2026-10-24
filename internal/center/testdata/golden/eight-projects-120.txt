@@ -1,0 +1,60 @@
+Agent command center  Group: Project  8 squads
+[All 21]  Needs you 0   Working 1   Ready 0   Inactive 20                                                tab/⇧tab filter
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+/p/amq-squad  7                                                            │ Task details
+› ○ task t1 of /p/amq-squad                    Inactive             1m ago │
+  ○ task t2 of /p/amq-squad                    Inactive             2m ago │ task t1 of /p/amq-squad
+  ○ task t3 of /p/amq-squad                    Inactive             3m ago │ ● Inactive  online
+  ○ task t4 of /p/amq-squad                    Inactive             4m ago │
+  ○ task t5 of /p/amq-squad                    Inactive             5m ago │ Model: -
+    Show more (2)                                                          │ Reasoning: -
+                                                                           │
+/p/ios_organizer  1                                                        │ Project
+  ● task t1 of /p/ios_organizer                Working              1m ago │ /p/amq-squad
+                                                                           │ Tokens: - in · - out
+/p/private/notify-probe  1                                                 │
+  ○ task t1 of /p/private/notify-probe         Inactive             1m ago │ Last message
+                                                                           │ -
+/p/scratch  5                                                              │
+  ○ task t1 of /p/scratch                      Inactive             1m ago │ Prompt
+  ○ task t2 of /p/scratch                      Inactive             2m ago │ -
+  ○ task t3 of /p/scratch                      Inactive             3m ago │
+  ○ task t4 of /p/scratch                      Inactive             4m ago │
+  ○ task t5 of /p/scratch                      Inactive             5m ago │
+                                                                           │
+/p/spike/main-repo  2                                                      │
+  ○ task t1 of /p/spike/main-repo              Inactive             1m ago │
+  ○ task t2 of /p/spike/main-repo              Inactive             2m ago │
+                                                                           │
+/p/spike/wt-a  3                                                           │
+  ○ task t1 of /p/spike/wt-a                   Inactive             1m ago │
+  ○ task t2 of /p/spike/wt-a                   Inactive             2m ago │
+  ○ task t3 of /p/spike/wt-a                   Inactive             3m ago │
+                                                                           │
+/p/wt/agent-a88  1                                                         │
+  ○ task t1 of /p/wt/agent-a88                 Inactive             1m ago │
+                                                                           │
+/p/wt/agent-ac2  1                                                         │
+  ○ task t1 of /p/wt/agent-ac2                 Inactive             1m ago │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+? help  esc back  ↑/↓ move  enter open  n new

@@ -35,3 +35,59 @@ opens no file, names no `.amq-squad` path and starts processes only in
 
 Files deleted: none yet (the delete list is the halfway checkpoint).
 Behavior changes: none yet (the package is not wired in).
+
+## Commit 2: the command center view, wired as the default
+
+Built:
+
+- `internal/center/ui.go`, `view.go`, `actions.go`: the bubbletea model.
+  List grouped by project path with a count per group, one row per task (title,
+  status, relative updated time), seats without a task as their own rows, a
+  per-group "Show more (N)" fold after 5 rows (enter expands it), tabs with
+  counts (All, Needs you, Working, Ready, Inactive) cycled by tab and
+  shift-tab, the details pane (status with state and reason, model, reasoning
+  effort, project path, tokens in and out with a dash for null, last message,
+  prompt state, and the gate the attention queue ties to the row), side by side
+  at 100 columns and above and stacked in compact form below.
+- Keys: up/down (j/k), g/G, tab, shift-tab, enter, n, esc, ?, r, q, ctrl-c.
+  enter on a row opens the AMQ conversation with the lead. The exact amq argv:
+  read: `amq thread --id p2p/<a>__<b> --me <operator> --root <status root>
+  --json --include-body --limit 60`; send: `amq send --root <root> --me
+  <operator> --to <lead> --thread p2p/<a>__<b> --body <text>`, with a staged
+  confirm (the first enter shows recipient and thread, the second sends). No
+  amq-squad command is involved. The lead is the contract's optional
+  `lead_handle`, else the seat whose role is `lead`, else enter is disabled and
+  the details pane says "no lead seat in status" (lead ruling). The operator
+  handle is `operator_handle` when present, else `user`.
+  n opens a form with one field per input of `actions.new_task`, then runs the
+  contract's argv plus `--flag value` for each input; it composes nothing else.
+- `internal/cli/center.go`: `amq-noc` (no arguments, or `--fleet`, `--once`)
+  starts the command center. `cli.Run` no longer dispatches `noc`.
+- Status refresh every 5 s and on `r`; a failed status call keeps the last data
+  and says so in the header.
+
+Tests: golden snapshots at 120 and 80 columns of the vendored fixture
+(acceptance 2), eight-project grouping and the fold with snapshots (4), buckets
+(3), details fields and the dash for null tokens (5), one test per key (6),
+the lead conversation argv, the staged confirm, no-lead behavior, the
+`lead_handle` field on a local document (the vendored fixture is untouched),
+refresh selection and error handling, empty states, frame time (8).
+
+Measured (acceptance 8): 50 seats and 200 tasks over 10 projects (250 rows,
+120x40). A full frame (status refresh that rebuilds rows, counts and layout,
+one key, one View) takes 0.29 ms in `TestFrameTimeUnder100ms`; benchmark
+`BenchmarkFrame`: refresh+view 216 us/op, view alone 171 us/op (Apple M-series,
+go1.27.1). The limit is 100 ms, so the margin is more than 300 times.
+
+Files deleted in this commit: `internal/cli/noc_help_test.go` (51 lines) and
+`internal/cli/amq_noc_cli_test.go`, which tested the old board's help and its
+bare `--once` board run; they are replaced by `internal/cli/cli_test.go`
+(version text, help names only the command center, `noc` is an unknown
+command). They were the only old tests that failed once `Run` started the
+command center, so the gate stays green with the rest of the old board
+unreachable until commit 3.
+
+Behavior change: `amq-noc` now starts the command center and `amq-noc noc ...`
+is an unknown command. The old board code is still in the tree, unreachable;
+commit 3 deletes it (delete list in
+`docs/v1-command-center-evidence/delete-list.txt`, 124 files, 57610 lines).

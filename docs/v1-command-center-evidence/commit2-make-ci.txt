@@ -1,0 +1,14 @@
+go vet ./...
+go test ./...
+ok  	github.com/omriariav/amq-noc/cmd/amq-noc	(cached)
+ok  	github.com/omriariav/amq-noc/internal/act	(cached)
+ok  	github.com/omriariav/amq-noc/internal/catalog	(cached)
+ok  	github.com/omriariav/amq-noc/internal/center	(cached)
+ok  	github.com/omriariav/amq-noc/internal/cli	3.513s
+ok  	github.com/omriariav/amq-noc/internal/console	(cached)
+ok  	github.com/omriariav/amq-noc/internal/launch	(cached)
+ok  	github.com/omriariav/amq-noc/internal/noc	(cached)
+ok  	github.com/omriariav/amq-noc/internal/rules	(cached)
+ok  	github.com/omriariav/amq-noc/internal/state	(cached)
+ok  	github.com/omriariav/amq-noc/internal/team	(cached)
+make ci exit: 0

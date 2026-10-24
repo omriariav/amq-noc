@@ -29,6 +29,9 @@ func (m *Model) wide() bool { return m.width >= wideWidth }
 
 func (m *Model) bodyHeight() int {
 	h := m.height - chromeLines
+	if m.warningCount() > 0 {
+		h-- // one line above the footer for the warning
+	}
 	if h < 3 {
 		h = 3
 	}
@@ -86,8 +89,34 @@ func (m *Model) View() string {
 		}
 		b.WriteByte('\n')
 	}
+	if w := m.warningLine(); w != "" {
+		b.WriteString(w)
+		b.WriteByte('\n')
+	}
 	b.WriteString(m.footerLine())
 	return b.String()
+}
+
+// allWarnings lists every warning of every squad, one line each.
+func (m *Model) allWarnings() []string {
+	var out []string
+	for _, s := range m.fleet.Squads {
+		out = append(out, s.Warnings...)
+	}
+	return out
+}
+
+// warningLine is the first warning, with "(+N more)" when there are several.
+func (m *Model) warningLine() string {
+	ws := m.allWarnings()
+	if len(ws) == 0 {
+		return ""
+	}
+	line := "warning: " + ws[0]
+	if len(ws) > 1 {
+		line += fmt.Sprintf(" (+%d more)", len(ws)-1)
+	}
+	return hot.Render(clamp(line, m.width))
 }
 
 func (m *Model) titleLine() string {
@@ -353,6 +382,17 @@ func (m *Model) gateFor(r Row) *Gate {
 }
 
 func (m *Model) helpLines() []string {
+	out := m.keyHelp()
+	if ws := m.allWarnings(); len(ws) > 0 {
+		out = append(out, "", bold.Render(fmt.Sprintf("Warnings (%d)", len(ws))))
+		for _, w := range ws {
+			out = append(out, "  "+clamp(w, m.width-2))
+		}
+	}
+	return out
+}
+
+func (m *Model) keyHelp() []string {
 	return []string{
 		bold.Render("Keys"), "",
 		"  ↑/↓  j/k      move between rows",

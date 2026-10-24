@@ -34,6 +34,10 @@ func (m *Model) startNew() (tea.Model, tea.Cmd) {
 		m.note = "no status loaded yet"
 		return m, nil
 	}
+	if m.newRunning {
+		m.note = "a new task is already being added"
+		return m, nil
+	}
 	a := m.fleet.Squads[squad].Actions.NewTask
 	if err := validateAction(a); err != nil {
 		m.note = "new: " + err.Error()

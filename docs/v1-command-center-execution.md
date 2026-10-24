@@ -236,3 +236,7 @@ Seven items, each with a test in `internal/center/hardening_test.go` (the three 
 4. NewTaskArgv emits --flag=value so a dash-leading value is one argument. TestNewTaskArgvDashValue (the argv expectations in the older tests changed to --flag=value).
 5. PLAN.md marked superseded with a pointer to this log; RELEASING.md says only v2 and later need the /vN migration. TestRepoDocsMarkedAndFixed.
 6. printUsage double blank line removed; dispatch is a single return. TestHelpHasNoDoubleBlankLine.
+
+## Commit 11: warnings on screen
+
+The first warning shows in a line above the footer with "(+N more)" when there are several (the body loses one line while any warning exists); the help overlay lists every warning. TestWarningsShownInFooterAndHelp, and cli TestOnceFrameShowsBucketWarning asserts "task t1: unknown bucket" in the --once frame. A new task is also refused in startNew, before the form opens, while one is in flight (TestNewRefusedBeforeFormWhileRunning).

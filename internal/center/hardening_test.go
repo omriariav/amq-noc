@@ -274,3 +274,42 @@ func TestRepoDocsMarkedAndFixed(t *testing.T) {
 		t.Fatalf("RELEASING.md still says 1.x needs /vN: %v", err)
 	}
 }
+
+// The warning text is on screen: the first one in a line above the footer
+// with "(+N more)", all of them in the help overlay.
+func TestWarningsShownInFooterAndHelp(t *testing.T) {
+	s := testSquad("/p/a", BucketWorking)
+	s.Warnings = []string{"task t9: unknown bucket \"surprise\", shown as inactive", "second warning", "third warning"}
+	m, _ := newTestModel(Fleet{Squads: []Status{s}}, 120, 30)
+	v := m.View()
+	if !strings.Contains(v, "warning: task t9: unknown bucket \"surprise\"") || !strings.Contains(v, "(+2 more)") {
+		t.Fatalf("footer warning missing:\n%s", v)
+	}
+	if got := len(strings.Split(v, "\n")); got != 30 {
+		t.Fatalf("frame is %d lines, want 30", got)
+	}
+	press(m, "?")
+	hv := m.View()
+	for _, want := range []string{"Warnings (3)", "task t9: unknown bucket", "second warning", "third warning"} {
+		if !strings.Contains(hv, want) {
+			t.Errorf("help lacks %q", want)
+		}
+	}
+	one := testSquad("/p/a", BucketWorking)
+	one.Warnings = []string{"only one"}
+	m1, _ := newTestModel(Fleet{Squads: []Status{one}}, 120, 30)
+	if v := m1.View(); !strings.Contains(v, "warning: only one") || strings.Contains(v, "more)") {
+		t.Fatalf("single warning:\n%s", v)
+	}
+}
+
+// A second new task is refused before the form opens, not after typing.
+func TestNewRefusedBeforeFormWhileRunning(t *testing.T) {
+	m, fr := newTestModel(Fleet{Squads: []Status{testSquad("/p/a", BucketWorking)}}, 120, 30)
+	m.newRunning = true
+	before := len(fr.calls)
+	_, cmd := m.Update(keyMsg("n"))
+	if cmd != nil || m.mode != modeList || !strings.Contains(m.note, "already being added") || len(fr.calls) != before {
+		t.Fatalf("mode=%d note=%q cmd=%v", m.mode, m.note, cmd != nil)
+	}
+}

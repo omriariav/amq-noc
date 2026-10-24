@@ -90,3 +90,26 @@ func TestOldBoardFilesAreGone(t *testing.T) {
 		}
 	}
 }
+
+// An unknown bucket reaches the screen: the --once frame carries the warning text.
+func TestOnceFrameShowsBucketWarning(t *testing.T) {
+	dir := t.TempDir()
+	doc := `{"schema_version":1,"producer":"amq-squad","generated_at":"2026-10-24T12:00:00Z","root":"/r","session":"s","project_path":"/p","capabilities":[],"buckets":[],"seats":[],"tasks":[{"id":"t1","title":"Odd task","bucket":"surprise","state":"online","project_path":"/p","updated_at":"2026-10-24T11:59:00Z","created_at":"2026-10-24T11:00:00Z"}],"attention":[],"gates":[],"actions":{"new_task":{"id":"task.new","label":"new task","argv":["amq-squad","task","add"],"inputs":[]}},"scheduler":{},"warnings":[]}`
+	if err := os.WriteFile(filepath.Join(dir, "status.json"), []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\n/bin/cat '" + filepath.Join(dir, "status.json") + "'\n"
+	if err := os.WriteFile(filepath.Join(dir, "amq-squad"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	stdout, stderr, err := captureOutput(t, func() error { return Run([]string{"--once"}, "v-test") })
+	if err != nil {
+		t.Fatalf("%v\n%s", err, stderr)
+	}
+	for _, want := range []string{"task t1: unknown bucket", "Odd task", "Inactive (unknown)"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("frame lacks %q:\n%s", want, stdout)
+		}
+	}
+}

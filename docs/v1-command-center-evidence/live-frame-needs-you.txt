@@ -1,0 +1,34 @@
+Agent command center  Group: Project
+ All 6  [Needs you 1]  Working 3   Ready 0   Inactive 2                                                  tab/⇧tab filter
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+/tmp/noc4-live/app  1                                                      │ Task details
+› ! Review the release notes                   Needs you           37s ago │
+                                                                           │ Review the release notes
+                                                                           │ ● Needs you  needs_you gate_open
+                                                                           │
+                                                                           │ Model: -
+                                                                           │ Reasoning: -
+                                                                           │
+                                                                           │ Project
+                                                                           │ /tmp/noc4-live/app
+                                                                           │ Tokens: - in · - out
+                                                                           │
+                                                                           │ Last message
+                                                                           │ -
+                                                                           │
+                                                                           │ Prompt
+                                                                           │ -
+                                                                           │
+                                                                           │ enter: no lead seat in status
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+? help  esc back  ↑/↓ move  enter open  n new

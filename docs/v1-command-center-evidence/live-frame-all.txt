@@ -1,0 +1,34 @@
+Agent command center  Group: Project
+[All 6]  Needs you 1   Working 3   Ready 0   Inactive 2                                                  tab/⇧tab filter
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+/tmp/noc4-live  3                                                          │ Task details
+  ● Plan the migration                         Working              2s ago │
+  ○ impl-2                                     Inactive (unknown)        - │ Summarize the S6 report
+  ○ lead                                       Inactive (unknown)        - │ ● Working  waiting queued
+                                                                           │
+/tmp/noc4-live/app  2                                                      │ Model: -
+  ! Review the release notes                   Needs you           30s ago │ Reasoning: -
+  ● Fix the parser                             Working             33s ago │
+                                                                           │ Project
+/tmp/noc4-live/docs  1                                                     │ /tmp/noc4-live/docs
+› ● Summarize the S6 report                    Working             33s ago │ Tokens: - in · - out
+                                                                           │
+                                                                           │ Last message
+                                                                           │ -
+                                                                           │
+                                                                           │ Prompt
+                                                                           │ -
+                                                                           │
+                                                                           │ enter: no lead seat in status
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+? help  esc back  ↑/↓ move  enter open  n new  new task: Added t4 "Plan the migration": pending

@@ -173,3 +173,43 @@ Fleet document: `{"schema_version":1,"kind":"fleet",...,"squads":[<status>...]}`
 parsed as a fleet when `squads` is present, tested on a local document. The
 operator handle is `user`; there is no `operator_handle` field (removed from
 the parser).
+
+## Commit 5: live run on a real v3 status
+
+Built amq-squad from the v3 tip (5509f31e) to a scratch path and put it first
+on PATH for that one session only; the AMQ root and project were scratch
+directories under `/tmp/noc4-live` (no `~/.amq-squad`, `~/.claude` or `~/.codex`
+touched). Tasks were made with `amq-squad task add`, claimed and one blocked
+with `--route owner`. amq-noc, started with no arguments in a tmux pane
+(120x34), rendered the real `status --json`:
+
+- Needs you 1 (the owner-routed blocked task), Working 2, Inactive 2: the two
+  seats with no launch record or signal come through as `unknown` and render
+  "Inactive (unknown)", as ruled.
+- `n`, title typed, class chosen with the arrow keys, enter: the contract's
+  argv ran (`amq-squad task add --root /tmp/noc4-live/q --title "Plan the
+  migration" --class plan`), the footer showed amq-squad's own reply
+  (`Added t4 ... pending`), and the next refresh showed the new task (All 5 to 6).
+- The status call lists no seat role, so enter says "no lead seat in status"
+  (lead_handle is not produced yet).
+
+Evidence: `docs/v1-command-center-evidence/live-command-center.png` (the frame
+after the new task, next to the reference
+`docs/v3-research/codex-agent-command-center-2026-10-24.png` in amq-squad),
+`live-frame-all.txt`, `live-frame-needs-you.txt` (the Needs you tab). No gate
+was run while the session was up.
+
+## Open rulings and deviations
+
+- Status labels follow the contract's bucket labels. The reference shows
+  working rows with a green dot; colors here are minimal (no color in goldens).
+- Seat rows with no `project_path` fall back to the squad's `project_path`
+  (in the live run that is the directory amq-squad was started in).
+- The row's "updated" time for a seat-only row is `last_activity_at`
+  (a dash when null); for a task row it is `updated_at`.
+- Lead conversation read/write uses `amq thread` and `amq send`; there is no
+  contract field for the operator handle, so it is `user`.
+- Fleet form is tested on a local document only; `status --fleet --json` from
+  4-3 is not merged, so the live run was one-squad mode.
+- Waiting tasks (queued, not leased) land in Working per the contract table, so
+  a queued task shows a green Working dot with `waiting queued` in the details.

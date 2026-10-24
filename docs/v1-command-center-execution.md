@@ -227,3 +227,12 @@ Live screenshot retaken with the header row (same scratch root /tmp/noc4-live, v
 ## Commit 9: Codex pass fixes
 
 Seven items, each with a test in `internal/center/hardening_test.go` (the three contract and docs ones were checked to fail when reverted; items 5 and 6 reference the new conversation fields and do not compile against the old code): TestRunnerRefusesPython3DashC (exact argv python3 -c "print('executed')" is refused in the runner and the action, nothing ran), TestZeroInputActionDoesNotPanic (null and empty inputs run without a form; n then esc and a forced empty form do not panic), TestParseRejectsUnknownBucket (error names the row id and the value), TestParseFleetEnvelopeValidation (envelope schema_version checked before squads; empty squads is an error), TestStagedSendRunsOnce (an in-flight flag; a slow runner and three enters give one amq send), TestStaleConversationResultsDropped (a generation id on every conversation command and result; stale results are discarded), TestReleasingDocsSurvivingSurface (RELEASING.md no longer requires `amq-noc noc`; it and its notes describe the command center).
+
+## Commit 10: review fixes from the repository session
+
+1. Unknown bucket: maps to inactive with the unknown marker plus a warning naming the row and value; the document and the other squads are not refused (supersedes Codex item 3). TestParseMapsUnknownBucketToInactiveWithWarning.
+2. Rows are keyed by squad root and session, not fleet position; the dead squad index fields of the form and conversation are gone. TestFleetReorderKeepsSelectionAndConversation.
+3. New-task in-flight flag (also covers a zero-input action). TestZeroInputNewTaskNotDuplicated.
+4. NewTaskArgv emits --flag=value so a dash-leading value is one argument. TestNewTaskArgvDashValue (the argv expectations in the older tests changed to --flag=value).
+5. PLAN.md marked superseded with a pointer to this log; RELEASING.md says only v2 and later need the /vN migration. TestRepoDocsMarkedAndFixed.
+6. printUsage double blank line removed; dispatch is a single return. TestHelpHasNoDoubleBlankLine.

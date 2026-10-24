@@ -59,8 +59,9 @@ func TestZeroInputActionDoesNotPanic(t *testing.T) {
 	}
 }
 
-// Item 3: an unknown bucket is an error naming the row and the value.
-func TestParseRejectsUnknownBucket(t *testing.T) {
+// An unknown bucket does not refuse the document: the row is shown as
+// inactive with the unknown marker, and a warning names the row and the value.
+func TestParseMapsUnknownBucketToInactiveWithWarning(t *testing.T) {
 	doc := strings.Replace(string(goldenFixture), `"bucket": "needs_you",
       "bucket_marker": "",
       "pool": null`, `"bucket": "surprise",
@@ -69,13 +70,33 @@ func TestParseRejectsUnknownBucket(t *testing.T) {
 	if doc == string(goldenFixture) {
 		t.Fatal("test document not changed")
 	}
-	_, err := Parse([]byte(doc))
-	if err == nil || !strings.Contains(err.Error(), "t2") || !strings.Contains(err.Error(), `"surprise"`) {
-		t.Fatalf("err = %v", err)
+	doc = strings.Replace(doc, `"bucket": "ready"`, `"bucket": "later"`, 1)
+	f, err := Parse([]byte(doc))
+	if err != nil {
+		t.Fatalf("one bad row refused the document: %v", err)
 	}
-	seat := strings.Replace(string(goldenFixture), `"bucket": "ready"`, `"bucket": "later"`, 1)
-	if _, err := Parse([]byte(seat)); err == nil || !strings.Contains(err.Error(), "impl-2") {
-		t.Fatalf("seat err = %v", err)
+	s := f.Squads[0]
+	if s.Tasks[1].Bucket != BucketInactive || s.Tasks[1].BucketMarker != MarkerUnknown {
+		t.Fatalf("task t2 = %q/%q", s.Tasks[1].Bucket, s.Tasks[1].BucketMarker)
+	}
+	if s.Seats[1].Bucket != BucketInactive || s.Seats[1].BucketMarker != MarkerUnknown {
+		t.Fatalf("seat impl-2 = %q/%q", s.Seats[1].Bucket, s.Seats[1].BucketMarker)
+	}
+	w := strings.Join(s.Warnings, "\n")
+	for _, want := range []string{"task t2", `"surprise"`, "seat impl-2", `"later"`} {
+		if !strings.Contains(w, want) {
+			t.Errorf("warnings lack %q: %s", want, w)
+		}
+	}
+	// the rows land in a tab and All is still the sum
+	c := Counts(BuildRows(f))
+	if c[TabAll] != c[TabNeedsYou]+c[TabWorking]+c[TabReady]+c[TabInactive] {
+		t.Fatalf("counts %v", c)
+	}
+	// in a fleet, the bad squad does not blank the good one
+	fleet := `{"schema_version":1,"kind":"fleet","squads":[` + doc + `,` + string(goldenFixture) + `]}`
+	if ff, err := Parse([]byte(fleet)); err != nil || len(ff.Squads) != 2 {
+		t.Fatalf("fleet with a bad row: %v", err)
 	}
 }
 
@@ -177,5 +198,79 @@ func TestReleasingDocsSurvivingSurface(t *testing.T) {
 	}
 	if strings.Contains(string(b), "amq-noc noc") {
 		t.Fatal("RELEASING.md still requires `amq-noc noc`")
+	}
+}
+
+// A zero-input new_task runs once however often n is pressed before it returns.
+func TestZeroInputNewTaskNotDuplicated(t *testing.T) {
+	s := testSquad("/p/a", BucketWorking)
+	s.Actions.NewTask.Inputs = nil
+	m, fr := newTestModel(Fleet{Squads: []Status{s}}, 120, 30)
+	_, first := m.Update(keyMsg("n"))
+	_, second := m.Update(keyMsg("n"))
+	_, third := m.Update(keyMsg("n"))
+	if first == nil || second != nil || third != nil {
+		t.Fatalf("n while running must do nothing: %v %v %v", first != nil, second != nil, third != nil)
+	}
+	msg := first()
+	adds := 0
+	for _, c := range fr.calls {
+		if len(c) > 2 && c[1] == "task" && c[2] == "add" {
+			adds++
+		}
+	}
+	if adds != 1 {
+		t.Fatalf("task add ran %d times", adds)
+	}
+	m.Update(msg)
+	if _, again := m.Update(keyMsg("n")); again == nil {
+		t.Fatal("n must work again after the result")
+	}
+}
+
+// A value that starts with a dash stays one argument and cannot be read as a flag.
+func TestNewTaskArgvDashValue(t *testing.T) {
+	a := testSquad("/p").Actions.NewTask
+	argv, err := NewTaskArgv(a, map[string]string{"title": "--root=/etc", "class": "review"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"amq-squad", "task", "add", "--root", "/amq//p", "--title=--root=/etc", "--class=review"}
+	if strings.Join(argv, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("argv = %q", argv)
+	}
+}
+
+// Selection and the open conversation follow the squad's root, not its
+// position in the fleet, when the order changes between refreshes.
+func TestFleetReorderKeepsSelectionAndConversation(t *testing.T) {
+	a, b := testSquad("/p/a", BucketWorking), testSquad("/p/b", BucketWorking)
+	m, _ := newTestModel(Fleet{Squads: []Status{a, b}}, 120, 40)
+	for m.items[m.cursor].kind != itemRow || m.items[m.cursor].row.Squad != 1 {
+		press(m, "down")
+	}
+	m.Update(keyMsg("enter"))
+	if m.conv.root != "/amq//p/b" {
+		t.Fatalf("root %s", m.conv.root)
+	}
+	press(m, "esc")
+	m.Update(statusMsg{fleet: Fleet{Squads: []Status{b, a}}}) // order swapped
+	r, ok := m.selected()
+	if !ok || r.Project != "/p/b" {
+		t.Fatalf("selection jumped to %+v", r)
+	}
+	if m.conv.root != "/amq//p/b" {
+		t.Fatalf("conversation root changed to %s", m.conv.root)
+	}
+}
+
+func TestRepoDocsMarkedAndFixed(t *testing.T) {
+	plan, err := os.ReadFile("../../PLAN.md")
+	if err != nil || !strings.Contains(string(plan), "Superseded") || !strings.Contains(string(plan), "docs/v1-command-center-execution.md") {
+		t.Fatalf("PLAN.md not marked superseded: %v", err)
+	}
+	rel, err := os.ReadFile("../../RELEASING.md")
+	if err != nil || strings.Contains(string(rel), "1.x and beyond") {
+		t.Fatalf("RELEASING.md still says 1.x needs /vN: %v", err)
 	}
 }

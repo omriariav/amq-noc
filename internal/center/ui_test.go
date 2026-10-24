@@ -348,7 +348,7 @@ func TestKeyNRunsContractArgv(t *testing.T) {
 		t.Fatalf("result %#v", msg)
 	}
 	got := strings.Join(fr.calls[len(fr.calls)-1], " ")
-	if want := "amq-squad task add --root /amq//p/a --title Fix it --class review"; got != want {
+	if want := "amq-squad task add --root /amq//p/a --title=Fix it --class=review"; got != want {
 		t.Fatalf("argv = %q, want %q", got, want)
 	}
 	// the result triggers a refresh

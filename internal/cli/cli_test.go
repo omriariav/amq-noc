@@ -39,6 +39,16 @@ func TestHelpDescribesCommandCenterOnly(t *testing.T) {
 	}
 }
 
+func TestHelpHasNoDoubleBlankLine(t *testing.T) {
+	stdout, _, err := captureOutput(t, func() error { return Run([]string{"--help"}, "v-test") })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stdout, "\n\n\n") {
+		t.Fatalf("help has a double blank line:\n%s", stdout)
+	}
+}
+
 func TestOldNocSubcommandIsGone(t *testing.T) {
 	_, _, err := captureOutput(t, func() error {
 		return Run([]string{"noc", "--once"}, "v-test")

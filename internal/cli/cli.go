@@ -101,10 +101,7 @@ type versionEnvelopeData struct {
 }
 
 func dispatch(args []string, version string) error {
-	switch args[0] {
-	default:
-		return usageErrorf("unknown command: %q. Run 'amq-noc --help' for usage.", args[0])
-	}
+	return usageErrorf("unknown command: %q. Run 'amq-noc --help' for usage.", args[0])
 }
 
 func printUsage() {
@@ -127,7 +124,5 @@ Exit codes:
   0  success
   1  usage / user error (unknown flag, bad argument, missing required input)
   2  system / runtime error (IO, process, config, environment)
-
-
 `)
 }

@@ -11,7 +11,6 @@ import (
 // formState is the "new task" form: one field per input of the contract's
 // new_task action, in the action's own order.
 type formState struct {
-	squad  int
 	action Action
 	field  int
 	values map[string]string
@@ -40,7 +39,7 @@ func (m *Model) startNew() (tea.Model, tea.Cmd) {
 		m.note = "new: " + err.Error()
 		return m, nil
 	}
-	m.form = formState{squad: squad, action: a, values: map[string]string{}}
+	m.form = formState{action: a, values: map[string]string{}}
 	if len(a.Inputs) == 0 {
 		// no fields to fill: run the action as the contract gives it
 		return m, m.runNew(a, m.form.values)
@@ -57,6 +56,11 @@ func (m *Model) startNew() (tea.Model, tea.Cmd) {
 
 // runNew runs the contract's new-task argv with the given values.
 func (m *Model) runNew(a Action, vals map[string]string) tea.Cmd {
+	if m.newRunning {
+		m.note = "a new task is already being added"
+		return nil
+	}
+	m.newRunning = true
 	c := m.client
 	m.note = "running " + a.Label + "..."
 	return func() tea.Msg {
@@ -132,7 +136,6 @@ func indexOf(xs []string, s string) int {
 
 // convState is the lead conversation.
 type convState struct {
-	squad    int
 	lead     string
 	operator string
 	root     string
@@ -161,7 +164,7 @@ func (m *Model) startConversation(r Row) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.convGen++
-	m.conv = convState{squad: r.Squad, lead: lead, operator: Operator(s), root: s.Root, loading: true, gen: m.convGen}
+	m.conv = convState{lead: lead, operator: Operator(s), root: s.Root, loading: true, gen: m.convGen}
 	m.mode = modeConversation
 	return m, m.readConversation()
 }

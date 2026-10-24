@@ -203,27 +203,28 @@ func parseOne(data []byte) (Status, error) {
 	if s.SchemaVersion != SchemaVersion {
 		return Status{}, fmt.Errorf("status: schema_version %d, this amq-noc reads %d", s.SchemaVersion, SchemaVersion)
 	}
-	if err := checkBuckets(s); err != nil {
-		return Status{}, err
-	}
+	normalizeBuckets(&s)
 	return s, nil
 }
 
-// checkBuckets refuses a row whose bucket is not one of the four the contract
-// names, so no row can sit under All without a tab.
-func checkBuckets(s Status) error {
+// normalizeBuckets maps a row whose bucket is not one of the four the
+// contract names to inactive with the unknown marker, and adds a warning line
+// naming the row and the value. The document is not refused: one bad row must
+// not blank the screen, and no row may sit under All without a tab.
+func normalizeBuckets(s *Status) {
 	ok := func(b string) bool {
 		return b == BucketNeedsYou || b == BucketWorking || b == BucketReady || b == BucketInactive
 	}
-	for _, t := range s.Tasks {
-		if !ok(t.Bucket) {
-			return fmt.Errorf("status: task %s: unknown bucket %q", t.ID, t.Bucket)
+	for i := range s.Tasks {
+		if t := &s.Tasks[i]; !ok(t.Bucket) {
+			s.Warnings = append(s.Warnings, fmt.Sprintf("task %s: unknown bucket %q, shown as inactive", t.ID, t.Bucket))
+			t.Bucket, t.BucketMarker = BucketInactive, MarkerUnknown
 		}
 	}
-	for _, st := range s.Seats {
-		if !ok(st.Bucket) {
-			return fmt.Errorf("status: seat %s: unknown bucket %q", st.Handle, st.Bucket)
+	for i := range s.Seats {
+		if st := &s.Seats[i]; !ok(st.Bucket) {
+			s.Warnings = append(s.Warnings, fmt.Sprintf("seat %s: unknown bucket %q, shown as inactive", st.Handle, st.Bucket))
+			st.Bucket, st.BucketMarker = BucketInactive, MarkerUnknown
 		}
 	}
-	return nil
 }

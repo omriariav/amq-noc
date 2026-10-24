@@ -112,6 +112,6 @@ with the tag you push.
   `amq-squad status --json` only and runs only the status contract's new-task
   argv and the `amq thread`/`amq send` primitives; releasing `amq-noc` does not
   release `amq-squad`.
-- A major version bump (1.x and beyond) is out of scope for the 0.x line. When
-  it happens it requires the Go `/vN` module-path migration before the tag is
-  `go install`-able; document that path here at that time.
+- v1.0.0 needs no module-path change. Only a bump to v2 or later requires the
+  Go `/vN` module-path migration before the tag is `go install`-able; document
+  that path here at that time.

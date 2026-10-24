@@ -67,6 +67,8 @@ type Model struct {
 	form    formState
 	conv    convState
 	convGen int
+
+	newRunning bool // a new-task call is in flight
 }
 
 // New builds the model. now supplies the clock for relative times.
@@ -153,6 +155,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.SetFleet(msg.fleet)
 		}
 	case newTaskMsg:
+		m.newRunning = false
 		if msg.err != nil {
 			m.note = "new task failed: " + msg.err.Error()
 		} else {
@@ -294,11 +297,17 @@ func (m *Model) selected() (Row, bool) {
 	return Row{}, false
 }
 
+// rowKey identifies a row by its squad's root and session, not by the squad's
+// position in the fleet, so a reordered fleet keeps the selection.
 func (m *Model) rowKey(r Row) string {
-	if r.IsTask() {
-		return fmt.Sprintf("%d/task/%s", r.Squad, r.Task.ID)
+	sq := ""
+	if r.Squad < len(m.fleet.Squads) {
+		sq = m.fleet.Squads[r.Squad].Root + "|" + m.fleet.Squads[r.Squad].Session
 	}
-	return fmt.Sprintf("%d/seat/%s", r.Squad, r.Seat.Handle)
+	if r.IsTask() {
+		return fmt.Sprintf("%s/task/%s", sq, r.Task.ID)
+	}
+	return fmt.Sprintf("%s/seat/%s", sq, r.Seat.Handle)
 }
 
 func (m *Model) selectedKey() string {

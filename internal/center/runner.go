@@ -99,7 +99,7 @@ func NewTaskArgv(a Action, values map[string]string) ([]string, error) {
 		if len(in.Choices) > 0 && !contains(in.Choices, v) {
 			return nil, fmt.Errorf("%s must be one of %s", in.Name, strings.Join(in.Choices, ", "))
 		}
-		argv = append(argv, in.Flag, v)
+		argv = append(argv, in.Flag+"="+v)
 	}
 	return argv, nil
 }

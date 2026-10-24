@@ -1,5 +1,9 @@
 # amq-noc Release Plan
 
+> Superseded. This is the 0.13 release plan and describes code that amq-noc
+> 1.0 deleted (the board, the classifier and the attention queue). See
+> `docs/v1-command-center-execution.md` for the 1.0 command center.
+
 ## amq-squad 2.28.0 compatibility track (0.13.x)
 
 Updated: 2026-08-05. Status: 0.13.0 is in progress on `feat/v0.13.0`.

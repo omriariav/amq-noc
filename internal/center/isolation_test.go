@@ -76,7 +76,7 @@ func TestClientRunsOnlyContractArgv(t *testing.T) {
 	got := readLog(t, logPath)
 	want := []string{
 		"amq-squad status --json",
-		"amq-squad task add --root /Users/owner/.agent-mail/squad --title Fix it --class implement",
+		"amq-squad task add --root /Users/owner/.agent-mail/squad --title=Fix it --class=implement",
 		"amq thread --id p2p/lead__user --me user --root /root --json --include-body --limit 10",
 		"amq send --root /root --me user --to lead --thread p2p/lead__user --body ok",
 	}

@@ -165,12 +165,19 @@ func Parse(data []byte) (Fleet, error) {
 		return Fleet{}, fmt.Errorf("status: not a JSON object")
 	}
 	var probe struct {
-		Squads []json.RawMessage `json:"squads"`
+		SchemaVersion int               `json:"schema_version"`
+		Squads        []json.RawMessage `json:"squads"`
 	}
 	if err := json.Unmarshal(data, &probe); err != nil {
 		return Fleet{}, fmt.Errorf("status: %w", err)
 	}
 	if probe.Squads != nil {
+		if probe.SchemaVersion != SchemaVersion {
+			return Fleet{}, fmt.Errorf("status: fleet schema_version %d, this amq-noc reads %d", probe.SchemaVersion, SchemaVersion)
+		}
+		if len(probe.Squads) == 0 {
+			return Fleet{}, fmt.Errorf("status: fleet has no squads")
+		}
 		var f Fleet
 		for i, raw := range probe.Squads {
 			s, err := parseOne(raw)
@@ -196,5 +203,27 @@ func parseOne(data []byte) (Status, error) {
 	if s.SchemaVersion != SchemaVersion {
 		return Status{}, fmt.Errorf("status: schema_version %d, this amq-noc reads %d", s.SchemaVersion, SchemaVersion)
 	}
+	if err := checkBuckets(s); err != nil {
+		return Status{}, err
+	}
 	return s, nil
+}
+
+// checkBuckets refuses a row whose bucket is not one of the four the contract
+// names, so no row can sit under All without a tab.
+func checkBuckets(s Status) error {
+	ok := func(b string) bool {
+		return b == BucketNeedsYou || b == BucketWorking || b == BucketReady || b == BucketInactive
+	}
+	for _, t := range s.Tasks {
+		if !ok(t.Bucket) {
+			return fmt.Errorf("status: task %s: unknown bucket %q", t.ID, t.Bucket)
+		}
+	}
+	for _, st := range s.Seats {
+		if !ok(st.Bucket) {
+			return fmt.Errorf("status: seat %s: unknown bucket %q", st.Handle, st.Bucket)
+		}
+	}
+	return nil
 }

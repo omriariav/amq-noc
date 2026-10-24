@@ -17,7 +17,14 @@ type formState struct {
 	values map[string]string
 }
 
-func (f formState) current() ActionInput { return f.action.Inputs[f.field] }
+// current is the input under the cursor; the zero input when the action has
+// none (such an action never opens the form).
+func (f formState) current() ActionInput {
+	if f.field < 0 || f.field >= len(f.action.Inputs) {
+		return ActionInput{}
+	}
+	return f.action.Inputs[f.field]
+}
 
 func (m *Model) startNew() (tea.Model, tea.Cmd) {
 	squad := 0
@@ -34,6 +41,10 @@ func (m *Model) startNew() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.form = formState{squad: squad, action: a, values: map[string]string{}}
+	if len(a.Inputs) == 0 {
+		// no fields to fill: run the action as the contract gives it
+		return m, m.runNew(a, m.form.values)
+	}
 	// Pre-select the first choice of a choice input.
 	for _, in := range a.Inputs {
 		if len(in.Choices) > 0 {
@@ -44,8 +55,22 @@ func (m *Model) startNew() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// runNew runs the contract's new-task argv with the given values.
+func (m *Model) runNew(a Action, vals map[string]string) tea.Cmd {
+	c := m.client
+	m.note = "running " + a.Label + "..."
+	return func() tea.Msg {
+		out, err := c.NewTask(context.Background(), a, vals)
+		return newTaskMsg{out: out, err: err}
+	}
+}
+
 func (m *Model) keyNew(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	f := &m.form
+	if len(f.action.Inputs) == 0 {
+		m.mode = modeList
+		return m, nil
+	}
 	in := f.current()
 	switch k.String() {
 	case "esc":
@@ -62,12 +87,7 @@ func (m *Model) keyNew(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.mode = modeList
-		c, a, vals := m.client, f.action, f.values
-		m.note = "running " + a.Label + "..."
-		return m, func() tea.Msg {
-			out, err := c.NewTask(context.Background(), a, vals)
-			return newTaskMsg{out: out, err: err}
-		}
+		return m, m.runNew(f.action, f.values)
 	case "up", "shift+tab":
 		if f.field > 0 {
 			f.field--
@@ -122,6 +142,8 @@ type convState struct {
 	staged   bool
 	note     string
 	scroll   int
+	gen      int  // conversation generation; results of another one are dropped
+	sending  bool // a send is in flight; further enters do nothing
 }
 
 func (m *Model) startConversation(r Row) (tea.Model, tea.Cmd) {
@@ -138,7 +160,8 @@ func (m *Model) startConversation(r Row) (tea.Model, tea.Cmd) {
 		m.note = "status carries no AMQ root"
 		return m, nil
 	}
-	m.conv = convState{squad: r.Squad, lead: lead, operator: Operator(s), root: s.Root, loading: true}
+	m.convGen++
+	m.conv = convState{squad: r.Squad, lead: lead, operator: Operator(s), root: s.Root, loading: true, gen: m.convGen}
 	m.mode = modeConversation
 	return m, m.readConversation()
 }
@@ -153,7 +176,7 @@ func (m *Model) readConversation() tea.Cmd {
 	c, cv := m.client, m.conv
 	return func() tea.Msg {
 		msgs, err := c.Conversation(context.Background(), cv.root, cv.operator, cv.lead, conversationLimit)
-		return convMsg{msgs: msgs, err: err}
+		return convMsg{gen: cv.gen, msgs: msgs, err: err}
 	}
 }
 
@@ -171,14 +194,18 @@ func (m *Model) keyConversation(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if strings.TrimSpace(cv.body) == "" {
 			return m, nil
 		}
+		if cv.sending {
+			return m, nil
+		}
 		if !cv.staged {
 			cv.staged = true // preview first: the staged line names thread and recipient
 			return m, nil
 		}
-		c, root, op, lead, body := m.client, cv.root, cv.operator, cv.lead, cv.body
+		c, root, op, lead, body, gen := m.client, cv.root, cv.operator, cv.lead, cv.body, cv.gen
 		cv.note = "sending..."
+		cv.sending = true
 		return m, func() tea.Msg {
-			return sentMsg{err: c.Send(context.Background(), root, op, lead, body)}
+			return sentMsg{gen: gen, err: c.Send(context.Background(), root, op, lead, body)}
 		}
 	case "pgup":
 		cv.scroll += 5

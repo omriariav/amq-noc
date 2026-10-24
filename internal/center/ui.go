@@ -64,8 +64,9 @@ type Model struct {
 	loading       bool
 	statusErr     string
 
-	form formState
-	conv convState
+	form    formState
+	conv    convState
+	convGen int
 }
 
 // New builds the model. now supplies the clock for relative times.
@@ -104,10 +105,14 @@ type newTaskMsg struct {
 	err error
 }
 type convMsg struct {
+	gen  int
 	msgs []Message
 	err  error
 }
-type sentMsg struct{ err error }
+type sentMsg struct {
+	gen int
+	err error
+}
 
 // Init implements tea.Model.
 func (m *Model) Init() tea.Cmd {
@@ -156,6 +161,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = true
 		return m, m.fetch()
 	case convMsg:
+		if msg.gen != m.convGen {
+			return m, nil // a result of a conversation that is no longer open
+		}
 		m.conv.loading = false
 		if msg.err != nil {
 			m.conv.note = "thread: " + msg.err.Error()
@@ -164,6 +172,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.conv.note = ""
 		}
 	case sentMsg:
+		if msg.gen != m.convGen {
+			return m, nil
+		}
+		m.conv.sending = false
 		if msg.err != nil {
 			m.conv.note = "send failed: " + msg.err.Error()
 		} else {

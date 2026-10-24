@@ -189,11 +189,11 @@ func Parse(data []byte) (Fleet, error) {
 	if err := json.Unmarshal(data, &probe); err != nil {
 		return Fleet{}, fmt.Errorf("status: %w", err)
 	}
-	if probe.Squads != nil {
+	if probe.Squads != nil || probe.Operator != nil || probe.Waiting != nil {
 		if probe.SchemaVersion != SchemaVersion {
 			return Fleet{}, fmt.Errorf("status: fleet schema_version %d, this amq-noc reads %d", probe.SchemaVersion, SchemaVersion)
 		}
-		if len(probe.Squads) == 0 {
+		if len(probe.Squads) == 0 && probe.Operator == nil && len(probe.Waiting) == 0 {
 			return Fleet{}, fmt.Errorf("status: fleet has no squads")
 		}
 		var f Fleet

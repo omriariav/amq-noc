@@ -55,6 +55,9 @@ Its controls are three:
 - A gate that the attention queue ties to a row shows in the details pane.
   Answering a gate is not done here.
 
+Squads waiting for the fleet cap show in a "Waiting" group under All but are not
+counted in the All number, so All equals the sum of the four bucket tabs.
+
 ## Keys
 
 | key | action |

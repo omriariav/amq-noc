@@ -256,3 +256,11 @@ Fleet snapshots `fleet-120.txt` and `fleet-80.txt` are new (TestGoldenFleetSnaps
 ## Commit 13: waiting rows are not counted in All
 
 Waiting rows still show under All, but `Counts` no longer adds them to the All number, so All equals the sum of the four bucket tabs (acceptance 3) and the "Waiting N" group shows its own count. On the fleet golden All is 4, not 3: the contract's `counts.all` of 3 covers the squad's rows only, and the operator row (Ready) is counted in its bucket, so the four tabs sum to 4 (Needs you 1, Working 1, Ready 2, Inactive 0). TestWaitingGroup asserts both the value and the sum; `fleet-120.txt` and `fleet-80.txt` regenerated (the tab line only). Gate: `commit13-make-ci.txt`, `commit13-cross.txt`.
+
+## Commit 14: review fixes (new task on no-squad rows, waiting-only fleet, README)
+
+1. `n` on the operator row or a waiting row is refused with "no new task for this row: it belongs to no squad" instead of falling back to squad 0 (supersedes the commit 12 item 3 "n uses the first squad's action"); on a group fold in fleet mode it is refused with "no new task here: the fold is not a squad row". TestNewTaskRefusedOnRowsWithoutSquad (operator and waiting rows), TestNewTaskRefusedOnFleetFold; the operator assertion in TestFleetOperatorRowAtTop now expects the refusal.
+2. `Parse` refuses a fleet only when it has no squads, no waiting entries and no operator; a fleet with only waiting entries or only the operator row renders them. TestFleetWithOnlyWaitingParses (squads:[] plus one waiting entry renders a Waiting group, no error; squads:[] alone is still refused).
+3. README states that waiting rows show under All without being counted in it, so All equals the sum of the four bucket tabs.
+
+No golden changed. Gate: `commit14-make-ci.txt`, `commit14-cross.txt`.

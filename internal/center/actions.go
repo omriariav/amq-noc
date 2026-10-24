@@ -27,8 +27,15 @@ func (f formState) current() ActionInput {
 
 func (m *Model) startNew() (tea.Model, tea.Cmd) {
 	squad := 0
-	if r, ok := m.selected(); ok && r.Squad < len(m.fleet.Squads) {
+	if r, ok := m.selected(); ok {
+		if r.Squad >= len(m.fleet.Squads) {
+			m.note = "no new task for this row: it belongs to no squad"
+			return m, nil
+		}
 		squad = r.Squad
+	} else if m.cursor < len(m.items) && m.items[m.cursor].kind == itemFold && m.isFleet() {
+		m.note = "no new task here: the fold is not a squad row"
+		return m, nil
 	}
 	if squad >= len(m.fleet.Squads) {
 		m.note = "no status loaded yet"
@@ -56,6 +63,12 @@ func (m *Model) startNew() (tea.Model, tea.Cmd) {
 	}
 	m.mode = modeNew
 	return m, nil
+}
+
+// isFleet reports whether the document is a fleet one (several squads, or a
+// fleet-only operator or waiting row), where no squad is "the" squad.
+func (m *Model) isFleet() bool {
+	return len(m.fleet.Squads) > 1 || m.fleet.Operator != nil || len(m.fleet.Waiting) > 0
 }
 
 // runNew runs the contract's new-task argv with the given values.

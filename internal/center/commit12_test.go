@@ -156,10 +156,10 @@ func TestFleetOperatorRowAtTop(t *testing.T) {
 	if Operator(mustParse(t, string(goldenFixture))) != "user" {
 		t.Fatal("default operator is not user")
 	}
-	// new task from the operator row uses the first squad's action
+	// new task from the operator row is refused (commit 14)
 	mo, _ := newTestModel(f, 120, 40)
 	press(mo, "n")
-	if mo.mode != modeNew {
+	if mo.mode == modeNew {
 		t.Fatalf("n on the operator row: mode %d note %q", mo.mode, mo.note)
 	}
 }

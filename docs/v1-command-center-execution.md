@@ -91,3 +91,46 @@ Behavior change: `amq-noc` now starts the command center and `amq-noc noc ...`
 is an unknown command. The old board code is still in the tree, unreachable;
 commit 3 deletes it (delete list in
 `docs/v1-command-center-evidence/delete-list.txt`, 124 files, 57610 lines).
+
+## Commit 3: the old board is deleted
+
+Files deleted (exact list with per-file line counts:
+`docs/v1-command-center-evidence/delete-list.txt`; derived from `deadcode
+./cmd/amq-noc` after commit 2 wired the command center):
+
+| tree | files | lines |
+| --- | --- | --- |
+| internal/console (the whole board TUI) | 44 | 23776 |
+| internal/cli (noc.go, status_board.go, status.go, doctor, preflight, team_resume, threads, list, history, workstream, briefs_seed, completion, noc_runtime_actions, team_launch_tmux*, agent_args, amq_env, squad_helpers and their tests) | 26 | 18392 |
+| internal/state (the classifier and attention queue that 2b-1 ported into amq-squad: collapse, attention, attention_queue, coordination, snapshot, message, match ...) | 25 | 6538 |
+| internal/noc (collect, correlation, health, tmux, discover, runtime, namespace) | 17 | 5336 |
+| internal/team | 4 | 926 |
+| internal/launch | 2 | 895 |
+| internal/act | 2 | 783 |
+| internal/rules | 2 | 623 |
+| internal/catalog | 2 | 341 |
+| total | 124 | 57610 |
+
+Also deleted: `README.html` (186 lines, generated from the old README),
+`docs/tui-keymap.md` (69), `docs/operator-gate.md` (65),
+`docs/runtime-actions.md` (119), which described the removed board. Earlier, in
+commit 2: `internal/cli/noc_help_test.go` (27) and
+`internal/cli/amq_noc_cli_test.go` (58). `internal/cli/test_helpers_test.go`
+keeps only `captureOutput`. `go mod tidy` dropped `bubbles` and `fsnotify`
+from go.mod (no module added). Kept in `internal/cli`: cli.go, exit.go,
+output.go, json.go, center.go. The two historical evidence documents
+(`docs/0.10-operator-client-audit.md`, `docs/0.12-release-candidate-evidence.md`)
+stay as history.
+
+README.md is rewritten for the command center.
+
+Tests added: a bare `Run` renders the command center from the status call
+(acceptance 7), the old directories and files are absent, `noc` is an unknown
+command.
+
+Behavior changes: everything the old board did is gone on purpose: the
+multi-root discovery and scan, snapshot JSON (`--json`, `--once` as a board
+snapshot), tmux focus, up/stop/resume/restart controls, gate answering, the
+copy-command picker, notifications. `--once` now prints one command-center
+frame. The module path, version command and global flags (`--quiet`,
+`--verbose`, `--color`) are unchanged.

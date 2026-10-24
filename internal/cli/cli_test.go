@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -43,5 +45,38 @@ func TestOldNocSubcommandIsGone(t *testing.T) {
 	})
 	if _, ok := err.(UsageError); !ok {
 		t.Fatalf("amq-noc noc must be an unknown command, got %v", err)
+	}
+}
+
+// Acceptance 7: amq-noc starts in the command center (a bare run reads the
+// status call and renders it), and no file of the old board remains.
+func TestBareRunRendersCommandCenter(t *testing.T) {
+	dir := t.TempDir()
+	doc := `{"schema_version":1,"producer":"amq-squad","generated_at":"2026-10-24T12:00:00Z","root":"/r","session":"s","project_path":"/p","capabilities":[],"buckets":[],"seats":[],"tasks":[{"id":"t1","title":"Only task","bucket":"working","state":"online","project_path":"/p","updated_at":"2026-10-24T11:59:00Z","created_at":"2026-10-24T11:00:00Z"}],"attention":[],"gates":[],"actions":{"new_task":{"id":"task.new","label":"new task","argv":["amq-squad","task","add"],"inputs":[]}},"scheduler":{},"warnings":[]}`
+	if err := os.WriteFile(filepath.Join(dir, "status.json"), []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\nif [ \"$1 $2\" != \"status --json\" ]; then echo \"unexpected: $*\" >&2; exit 1; fi\n/bin/cat '" + filepath.Join(dir, "status.json") + "'\n"
+	if err := os.WriteFile(filepath.Join(dir, "amq-squad"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	stdout, stderr, err := captureOutput(t, func() error { return Run([]string{"--once"}, "v-test") })
+	if err != nil {
+		t.Fatalf("%v\n%s", err, stderr)
+	}
+	for _, want := range []string{"Agent command center", "All 1", "Only task", "Working"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("frame missing %q:\n%s", want, stdout)
+		}
+	}
+}
+
+func TestOldBoardFilesAreGone(t *testing.T) {
+	for _, p := range []string{"../console", "../noc", "../state", "../act", "../catalog", "../launch", "../rules", "../team",
+		"noc.go", "status_board.go", "status.go"} {
+		if _, err := os.Stat(p); err == nil {
+			t.Errorf("%s still exists", p)
+		}
 	}
 }

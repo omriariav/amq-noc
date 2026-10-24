@@ -95,6 +95,26 @@ func TestFleetStatusArgv(t *testing.T) {
 	}
 }
 
+// A status document must not choose the program: only bare amq-squad and amq
+// run, both when the argv is composed and when it is executed.
+func TestRunnerRefusesOtherPrograms(t *testing.T) {
+	logPath := fakeBin(t, string(goldenFixture))
+	for _, prog := range []string{"/tmp/x/amq-squad", "./amq-squad", "touch", "amq-squad ", "../amq"} {
+		_, err := ExecRunner{}.Run(context.Background(), []string{prog, "status", "--json"})
+		if err == nil || !strings.Contains(err.Error(), "runner: program not allowed: "+prog) {
+			t.Errorf("%q: err = %v", prog, err)
+		}
+		a := testSquad("/p").Actions.NewTask
+		a.Argv = append([]string{prog}, a.Argv[1:]...)
+		if _, err := NewTaskArgv(a, map[string]string{"title": "x", "class": "review"}); err == nil || !strings.Contains(err.Error(), "program not allowed") {
+			t.Errorf("action with %q: err = %v", prog, err)
+		}
+	}
+	if got := readLog(t, logPath); len(got) != 0 {
+		t.Fatalf("a refused program ran: %v", got)
+	}
+}
+
 func TestNewTaskArgvRefusals(t *testing.T) {
 	a := testSquad("/p").Actions.NewTask
 	if _, err := NewTaskArgv(a, map[string]string{"class": "implement"}); err == nil {

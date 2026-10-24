@@ -24,8 +24,8 @@ type ExecRunner struct {
 
 // Run implements Runner.
 func (r ExecRunner) Run(ctx context.Context, argv []string) ([]byte, error) {
-	if len(argv) == 0 || argv[0] == "" {
-		return nil, errors.New("empty argv")
+	if err := checkProgram(argv); err != nil {
+		return nil, err
 	}
 	timeout := r.Timeout
 	if timeout <= 0 {
@@ -45,6 +45,21 @@ func (r ExecRunner) Run(ctx context.Context, argv []string) ([]byte, error) {
 		return out.Bytes(), fmt.Errorf("%s: %s", filepath.Base(argv[0]), firstLine(msg))
 	}
 	return out.Bytes(), nil
+}
+
+// allowedPrograms are the only programs the command center starts.
+var allowedPrograms = map[string]bool{"amq-squad": true, "amq": true}
+
+// checkProgram admits only a bare "amq-squad" or "amq" in argv[0]. A path
+// form, a relative form or any other name is refused before exec.
+func checkProgram(argv []string) error {
+	if len(argv) == 0 || argv[0] == "" {
+		return errors.New("runner: empty argv")
+	}
+	if !allowedPrograms[argv[0]] {
+		return fmt.Errorf("runner: program not allowed: %s", argv[0])
+	}
+	return nil
 }
 
 func firstLine(s string) string {
@@ -103,6 +118,9 @@ func contains(xs []string, s string) bool {
 func validateAction(a Action) error {
 	if strings.TrimSpace(a.ID) == "" {
 		return errors.New("the status has no new-task action")
+	}
+	if err := checkProgram(a.Argv); err != nil {
+		return err
 	}
 	if len(a.Argv) == 0 || a.Argv[0] == "" || strings.ContainsAny(a.Argv[0], " \t\n;|&$`'\"<>()/\\") {
 		return fmt.Errorf("action %s: argv[0] is not a bare program name", a.ID)

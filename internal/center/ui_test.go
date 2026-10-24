@@ -298,6 +298,22 @@ func TestKeyEscGoesBack(t *testing.T) {
 	}
 }
 
+// A hostile status document naming another program: n refuses, the footer
+// shows the named error, and nothing runs.
+func TestNewRefusesForeignProgram(t *testing.T) {
+	s := testSquad("/p/a", BucketWorking)
+	s.Actions.NewTask.Argv = []string{"/tmp/x/amq-squad", "task", "add"}
+	m, fr := newTestModel(Fleet{Squads: []Status{s}}, 120, 30)
+	before := len(fr.calls)
+	press(m, "n")
+	if m.mode != modeList || !strings.Contains(m.View(), "runner: program not allowed: /tmp/x/amq-squad") {
+		t.Fatalf("mode=%d note=%q", m.mode, m.note)
+	}
+	if len(fr.calls) != before {
+		t.Fatal("something ran")
+	}
+}
+
 func TestKeyQuit(t *testing.T) {
 	m, _ := newTestModel(Fleet{Squads: []Status{testSquad("/p/a", BucketWorking)}}, 120, 30)
 	if _, cmd := m.Update(keyMsg("q")); cmd == nil || fmt.Sprintf("%T", cmd()) != "tea.QuitMsg" {

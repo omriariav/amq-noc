@@ -252,3 +252,7 @@ Vendored from amq-squad v3 (96a76bf0) byte for byte: `status-v1.golden.json` (sh
 5. The help overlay is clamped to the body height. When longer, the last line is a fold, "(+N more)" (or "(M above, +N more)"), and up/down/j/k/pgup/pgdn scroll it; it reopens at the top. TestHelpClampedToTerminalHeight.
 
 Fleet snapshots `fleet-120.txt` and `fleet-80.txt` are new (TestGoldenFleetSnapshots); `fixture-120.txt` changed by one line (above); `fixture-80.txt` and the eight-projects goldens are unchanged. TestFrameTimeUnder100ms is untouched and passing. Gate output: `docs/v1-command-center-evidence/commit12-make-ci.txt` and `commit12-cross.txt`.
+
+## Commit 13: waiting rows are not counted in All
+
+Waiting rows still show under All, but `Counts` no longer adds them to the All number, so All equals the sum of the four bucket tabs (acceptance 3) and the "Waiting N" group shows its own count. On the fleet golden All is 4, not 3: the contract's `counts.all` of 3 covers the squad's rows only, and the operator row (Ready) is counted in its bucket, so the four tabs sum to 4 (Needs you 1, Working 1, Ready 2, Inactive 0). TestWaitingGroup asserts both the value and the sum; `fleet-120.txt` and `fleet-80.txt` regenerated (the tab line only). Gate: `commit13-make-ci.txt`, `commit13-cross.txt`.

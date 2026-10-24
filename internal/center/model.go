@@ -169,7 +169,9 @@ func newer(a, b *time.Time) bool {
 func Counts(rows []Row) [tabCount]int {
 	var c [tabCount]int
 	for _, r := range rows {
-		c[TabAll]++
+		if r.Waiting == nil { // waiting rows show under All but are not counted in it
+			c[TabAll]++
+		}
 		for t := TabNeedsYou; t < tabCount; t++ {
 			if r.Bucket == tabBucket[t] {
 				c[t]++

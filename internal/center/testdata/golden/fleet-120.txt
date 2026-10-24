@@ -1,5 +1,5 @@
 Agent command center  Group: Project
-[All 5]  Needs you 1   Working 1   Ready 2   Inactive 0                                                  tab/⇧tab filter
+[All 4]  Needs you 1   Working 1   Ready 2   Inactive 0                                                  tab/⇧tab filter
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
     Tasks                                      Status              Updated │ Seat details
 Operator  1                                                                │

@@ -175,7 +175,7 @@ func TestWaitingGroup(t *testing.T) {
 	if strings.Index(v, "Waiting  1") < strings.Index(v, "/Users/owner/code/app  3") {
 		t.Fatal("Waiting group must follow the squads")
 	}
-	if m.counts[TabAll] != 5 || m.counts[TabReady] != 2 {
+	if m.counts[TabAll] != 4 || m.counts[TabReady] != 2 || m.counts[TabAll] != m.counts[TabNeedsYou]+m.counts[TabWorking]+m.counts[TabReady]+m.counts[TabInactive] {
 		t.Fatalf("counts = %v", m.counts)
 	}
 	for tab := TabNeedsYou; tab < tabCount; tab++ {

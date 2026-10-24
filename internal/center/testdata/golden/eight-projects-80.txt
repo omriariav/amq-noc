@@ -1,6 +1,7 @@
 Agent command center  Group: Project  8 squads
 [All 21]  Needs you 0   Working 1   Ready 0   Inactive 20        tab/⇧tab filter
 ────────────────────────────────────────────────────────────────────────────────
+    Tasks                                            Status              Updated
 /p/amq-squad  7
 › ○ task t1 of /p/amq-squad                          Inactive             1m ago
   ○ task t2 of /p/amq-squad                          Inactive             2m ago
@@ -24,7 +25,6 @@ Agent command center  Group: Project  8 squads
 
 /p/spike/main-repo  2
   ○ task t1 of /p/spike/main-repo                    Inactive             1m ago
-  ○ task t2 of /p/spike/main-repo                    Inactive             2m ago
 ────────────────────────────────────────────────────────────────────────────────
 Task details
 

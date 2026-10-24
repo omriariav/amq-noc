@@ -1,11 +1,11 @@
 Agent command center  Group: Project
 [All 3]  Needs you 1   Working 1   Ready 1   Inactive 0                                                  tab/⇧tab filter
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-/Users/owner/code/app  3                                                   │ Task details
-› ! Release v1.2.0                             Needs you            5m ago │
-  ● Fix the parser                             Working             30s ago │ Release v1.2.0
-  ◌ impl-2 (implementer)                       Ready               10m ago │ ● Needs you  needs_you gate_open
-                                                                           │
+    Tasks                                      Status              Updated │ Task details
+/Users/owner/code/app  3                                                   │
+› ! Release v1.2.0                             Needs you            5m ago │ Release v1.2.0
+  ● Fix the parser                             Working             30s ago │ ● Needs you  needs_you gate_open
+  ◌ impl-2 (implementer)                       Ready               10m ago │
                                                                            │ Model: -
                                                                            │ Reasoning: -
                                                                            │

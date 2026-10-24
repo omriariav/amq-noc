@@ -1,23 +1,24 @@
 Agent command center  Group: Project  8 squads
 [All 21]  Needs you 0   Working 1   Ready 0   Inactive 20                                                tab/⇧tab filter
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-/p/amq-squad  7                                                            │ Task details
-› ○ task t1 of /p/amq-squad                    Inactive             1m ago │
-  ○ task t2 of /p/amq-squad                    Inactive             2m ago │ task t1 of /p/amq-squad
-  ○ task t3 of /p/amq-squad                    Inactive             3m ago │ ● Inactive  online
-  ○ task t4 of /p/amq-squad                    Inactive             4m ago │
-  ○ task t5 of /p/amq-squad                    Inactive             5m ago │ Model: -
-    Show more (2)                                                          │ Reasoning: -
+    Tasks                                      Status              Updated │ Task details
+/p/amq-squad  7                                                            │
+› ○ task t1 of /p/amq-squad                    Inactive             1m ago │ task t1 of /p/amq-squad
+  ○ task t2 of /p/amq-squad                    Inactive             2m ago │ ● Inactive  online
+  ○ task t3 of /p/amq-squad                    Inactive             3m ago │
+  ○ task t4 of /p/amq-squad                    Inactive             4m ago │ Model: -
+  ○ task t5 of /p/amq-squad                    Inactive             5m ago │ Reasoning: -
+    Show more (2)                                                          │
+                                                                           │ Project
+/p/ios_organizer  1                                                        │ /p/amq-squad
+  ● task t1 of /p/ios_organizer                Working              1m ago │ Tokens: - in · - out
                                                                            │
-/p/ios_organizer  1                                                        │ Project
-  ● task t1 of /p/ios_organizer                Working              1m ago │ /p/amq-squad
-                                                                           │ Tokens: - in · - out
-/p/private/notify-probe  1                                                 │
-  ○ task t1 of /p/private/notify-probe         Inactive             1m ago │ Last message
-                                                                           │ -
-/p/scratch  5                                                              │
-  ○ task t1 of /p/scratch                      Inactive             1m ago │ Prompt
-  ○ task t2 of /p/scratch                      Inactive             2m ago │ -
+/p/private/notify-probe  1                                                 │ Last message
+  ○ task t1 of /p/private/notify-probe         Inactive             1m ago │ -
+                                                                           │
+/p/scratch  5                                                              │ Prompt
+  ○ task t1 of /p/scratch                      Inactive             1m ago │ -
+  ○ task t2 of /p/scratch                      Inactive             2m ago │
   ○ task t3 of /p/scratch                      Inactive             3m ago │
   ○ task t4 of /p/scratch                      Inactive             4m ago │
   ○ task t5 of /p/scratch                      Inactive             5m ago │
@@ -36,7 +37,6 @@ Agent command center  Group: Project  8 squads
                                                                            │
 /p/wt/agent-ac2  1                                                         │
   ○ task t1 of /p/wt/agent-ac2                 Inactive             1m ago │
-                                                                           │
                                                                            │
                                                                            │
                                                                            │

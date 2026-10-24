@@ -213,3 +213,7 @@ was run while the session was up.
   4-3 is not merged, so the live run was one-squad mode.
 - Waiting tasks (queued, not leased) land in Working per the contract table, so
   a queued task shows a green Working dot with `waiting queued` in the details.
+
+## Commit 6: reference polish
+
+Column header row (Tasks, Status, Updated, dim) above the first group; the selected row is reverse-video across the list width and the active tab is a reverse-video chip (both already in place since commit 2, invisible in the plain-text goldens, so the tab keeps its brackets and the row its marker). Goldens at 120 and 80 regenerated (one header line added); frame-time test unchanged and passing.

@@ -35,11 +35,21 @@ func (m *Model) bodyHeight() int {
 	return h
 }
 
+// listHeight is the number of list lines under the column header row.
 func (m *Model) listHeight() int {
 	if m.wide() {
-		return m.bodyHeight()
+		return m.bodyHeight() - 1
 	}
-	return m.bodyHeight() - narrowDetailH - 1
+	return m.bodyHeight() - narrowDetailH - 2
+}
+
+// columnHeader is the dim header row above the first group.
+func (m *Model) columnHeader(w int) string {
+	titleW := w - 2 - 2 - statusColW - 1 - updatedColW - 1
+	if titleW < 8 {
+		titleW = 8
+	}
+	return dim.Render(pad("    Tasks", 4+titleW+1) + pad("Status", statusColW) + " " + padLeft("Updated", updatedColW))
 }
 
 func (m *Model) listWidth() int {
@@ -146,11 +156,11 @@ func (m *Model) footerLine() string {
 
 // listBody is the list, with the details pane beside or below it.
 func (m *Model) listBody() []string {
-	list := m.listLines(m.listWidth(), m.listHeight())
+	list := append([]string{m.columnHeader(m.listWidth())}, m.listLines(m.listWidth(), m.listHeight())...)
 	det := m.detailsLines(m.detailsWidth())
 	if !m.wide() {
 		out := append([]string{}, list...)
-		for len(out) < m.listHeight() {
+		for len(out) < m.listHeight()+1 {
 			out = append(out, "")
 		}
 		out = append(out, dim.Render(strings.Repeat("─", m.width)))

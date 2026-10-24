@@ -23,6 +23,15 @@ Agent command center  Group: Project
 - `amq`: <https://github.com/omriariav/agent-message-queue>
 - `amq-squad`: <https://github.com/omriariav/amq-squad>
 
+## Install
+
+```sh
+go install github.com/omriariav/amq-noc/cmd/amq-noc@latest
+```
+
+Requirements: Go 1.25 or newer to build, `amq-squad` 3.0 or newer and `amq`
+on `PATH` to run.
+
 ## What it reads
 
 One input: `amq-squad status --json` (schema 1, the status contract of

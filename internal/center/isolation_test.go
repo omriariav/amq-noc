@@ -125,7 +125,12 @@ func TestPackageTouchesNoFiles(t *testing.T) {
 		"Walk": true, "WalkDir": true, "Glob": true, "DirFS": true, "OpenRoot": true,
 	}
 	fset := token.NewFileSet()
-	matches, _ := filepath.Glob("*.go")
+	// The whole binary: this package, the CLI package and the main package.
+	var matches []string
+	for _, pat := range []string{"*.go", "../cli/*.go", "../../cmd/amq-noc/*.go"} {
+		m, _ := filepath.Glob(pat)
+		matches = append(matches, m...)
+	}
 	checked := 0
 	for _, name := range matches {
 		if strings.HasSuffix(name, "_test.go") {
@@ -138,15 +143,15 @@ func TestPackageTouchesNoFiles(t *testing.T) {
 		}
 		for _, imp := range f.Imports {
 			p, _ := strconv.Unquote(imp.Path.Value)
-			if p == "io/ioutil" || p == "io/fs" {
+			if p == "io/ioutil" || p == "io/fs" || p == "os/exec" && !strings.HasSuffix(name, "runner.go") {
 				t.Errorf("%s imports %s", name, p)
 			}
 		}
 		ast.Inspect(f, func(n ast.Node) bool {
 			switch x := n.(type) {
 			case *ast.BasicLit:
-				if x.Kind == token.STRING && strings.Contains(x.Value, ".amq-squad") {
-					t.Errorf("%s names a .amq-squad path: %s", name, x.Value)
+				if x.Kind == token.STRING && (strings.Contains(x.Value, ".amq-squad") || strings.Contains(strings.ToLower(x.Value), "tmux")) {
+					t.Errorf("%s names a .amq-squad path or tmux: %s", name, x.Value)
 				}
 			case *ast.SelectorExpr:
 				id, ok := x.X.(*ast.Ident)
@@ -163,7 +168,7 @@ func TestPackageTouchesNoFiles(t *testing.T) {
 			return true
 		})
 	}
-	if checked < 4 {
+	if checked < 8 {
 		t.Fatalf("only %d source files checked", checked)
 	}
 }

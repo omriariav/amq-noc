@@ -49,7 +49,7 @@ func TestParseRefusesOtherSchema(t *testing.T) {
 }
 
 func TestParseFleetForm(t *testing.T) {
-	f, err := Parse([]byte(`{"squads":[` + string(goldenFixture) + `,` + string(goldenFixture) + `]}`))
+	f, err := Parse([]byte(`{"schema_version":1,"kind":"fleet","producer":"amq-squad","producer_version":"3.0.0","generated_at":"2026-10-24T12:00:00Z","squads":[` + string(goldenFixture) + `,` + string(goldenFixture) + `]}`))
 	if err != nil || len(f.Squads) != 2 {
 		t.Fatalf("fleet parse: %v %+v", err, len(f.Squads))
 	}

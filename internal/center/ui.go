@@ -384,9 +384,6 @@ func Lead(s Status) string {
 }
 
 // Operator is the AMQ handle the owner speaks as in a conversation.
-func Operator(s Status) string {
-	if s.OperatorHandle != "" {
-		return s.OperatorHandle
-	}
+func Operator(_ Status) string {
 	return "user"
 }

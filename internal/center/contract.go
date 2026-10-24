@@ -124,9 +124,8 @@ type Attention struct {
 	Action   *Action   `json:"action"`
 }
 
-// Status is one squad's `status --json` document. LeadHandle and
-// OperatorHandle are optional additive fields: schema 1 has no lead field yet
-// (see docs/v1-command-center-execution.md, open rulings).
+// Status is one squad's `status --json` document. LeadHandle is an
+// optional additive field (lead ruling; amq-squad is adding it).
 type Status struct {
 	SchemaVersion   int          `json:"schema_version"`
 	Producer        string       `json:"producer"`
@@ -144,9 +143,8 @@ type Status struct {
 	Actions         struct {
 		NewTask Action `json:"new_task"`
 	} `json:"actions"`
-	Warnings       []string `json:"warnings"`
-	LeadHandle     string   `json:"lead_handle"`
-	OperatorHandle string   `json:"operator_handle"`
+	Warnings   []string `json:"warnings"`
+	LeadHandle string   `json:"lead_handle"`
 }
 
 // Fleet is every squad the input described. A one-squad document is a Fleet
@@ -156,7 +154,9 @@ type Fleet struct {
 }
 
 // Parse reads the output of `status --json` or `status --fleet --json`. A
-// fleet document is an object with a "squads" array of per-squad documents;
+// fleet document (briefs lead ruling: `{"schema_version":1,"kind":"fleet","producer",
+// "producer_version","generated_at","squads":[<one status per squad>]}`) is an
+// object with a "squads" array of per-squad documents;
 // anything else is read as one squad's document. A schema_version other than 1
 // is refused.
 func Parse(data []byte) (Fleet, error) {

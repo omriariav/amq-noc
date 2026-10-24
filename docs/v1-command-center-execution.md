@@ -58,7 +58,7 @@ Built:
   amq-squad command is involved. The lead is the contract's optional
   `lead_handle`, else the seat whose role is `lead`, else enter is disabled and
   the details pane says "no lead seat in status" (lead ruling). The operator
-  handle is `operator_handle` when present, else `user`.
+  handle is `user`.
   n opens a form with one field per input of `actions.new_task`, then runs the
   contract's argv plus `--flag value` for each input; it composes nothing else.
 - `internal/cli/center.go`: `amq-noc` (no arguments, or `--fleet`, `--once`)
@@ -134,3 +134,42 @@ snapshot), tmux focus, up/stop/resume/restart controls, gate answering, the
 copy-command picker, notifications. `--once` now prints one command-center
 frame. The module path, version command and global flags (`--quiet`,
 `--verbose`, `--color`) are unchanged.
+
+### Removed verbs and where each job lives in 3.0
+
+The table the owner reads. Every verb that read `.amq-squad/`, the AMQ
+stores or tmux directly, or composed an amq-squad command, went with the board.
+
+| removed from amq-noc | where the job lives in 3.0 |
+| --- | --- |
+| `amq-noc noc` board, multi-root discovery and scan | the command center, fed by `amq-squad status --json` (`--fleet` for many squads) |
+| `noc up`, `U up`, `S stop`, `R resume`, `X restart`, team launch (`team_launch_tmux*`, `team_resume`) | `amq-squad lead --team` |
+| `doctor`, `preflight` | `amq-squad doctor` |
+| runtime and pane controls (`o focus`, `v output`, tmux focus, send-to-pane, `L direct-lead` pane delivery) | dropped (R6, no pane control); the conversation with the lead goes over AMQ (`enter` here) |
+| gate answering and the operator gate flow | shown here (details pane), answered on the signed path (brief 4-5) |
+| JSON snapshots (`--json`, `--once` as a board snapshot), `list`, `history`, `threads` | `amq-squad status --json` itself; `amq thread` for a conversation |
+| `workstream`, `briefs_seed`, completion helpers | amq-squad's own verbs (brief drafting is amq-squad's, phase 5) |
+| classifier, attention queue, correlation, health | amq-squad `internal/status` (2b-1); this renderer reads the result |
+| `--notify`, terminal bell | dropped |
+
+### go.mod after the deletion
+
+`go mod tidy` removed two modules that nothing imports now:
+`github.com/charmbracelet/bubbles` and `github.com/fsnotify/fsnotify` (and
+their go.sum lines). No module was added. Direct requirements left: bubbletea,
+lipgloss, termenv.
+
+### Acceptance 1 across the whole binary
+
+`TestPackageTouchesNoFiles` now scans `internal/center`, `internal/cli` and
+`cmd/amq-noc`: no file-system calls, no `io/fs` or `ioutil`, no string naming
+`.amq-squad` or tmux, and `os/exec` only in `internal/center/runner.go`.
+`TestClientRunsOnlyContractArgv` and `TestBareRunRendersCommandCenter` run with
+a fake PATH that logs every argv.
+
+### Rulings applied
+
+Fleet document: `{"schema_version":1,"kind":"fleet",...,"squads":[<status>...]}`,
+parsed as a fleet when `squads` is present, tested on a local document. The
+operator handle is `user`; there is no `operator_handle` field (removed from
+the parser).

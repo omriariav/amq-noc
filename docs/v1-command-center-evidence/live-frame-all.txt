@@ -1,18 +1,18 @@
 Agent command center  Group: Project
 [All 6]  Needs you 1   Working 3   Ready 0   Inactive 2                                                  tab/⇧tab filter
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-/tmp/noc4-live  3                                                          │ Task details
-  ● Plan the migration                         Working              2s ago │
-  ○ impl-2                                     Inactive (unknown)        - │ Summarize the S6 report
-  ○ lead                                       Inactive (unknown)        - │ ● Working  waiting queued
-                                                                           │
-/tmp/noc4-live/app  2                                                      │ Model: -
-  ! Review the release notes                   Needs you           30s ago │ Reasoning: -
-  ● Fix the parser                             Working             33s ago │
-                                                                           │ Project
-/tmp/noc4-live/docs  1                                                     │ /tmp/noc4-live/docs
-› ● Summarize the S6 report                    Working             33s ago │ Tokens: - in · - out
-                                                                           │
+    Tasks                                      Status              Updated │ Task details
+/tmp/noc4-live  3                                                          │
+  ● Plan the migration                         Working              4m ago │ Summarize the S6 report
+  ○ impl-2                                     Inactive (unknown)        - │ ● Working  waiting queued
+  ○ lead                                       Inactive (unknown)        - │
+                                                                           │ Model: -
+/tmp/noc4-live/app  2                                                      │ Reasoning: -
+  ! Review the release notes                   Needs you            5m ago │
+  ● Fix the parser                             Working              5m ago │ Project
+                                                                           │ /tmp/noc4-live/docs
+/tmp/noc4-live/docs  1                                                     │ Tokens: - in · - out
+› ● Summarize the S6 report                    Working              5m ago │
                                                                            │ Last message
                                                                            │ -
                                                                            │
@@ -31,4 +31,4 @@ Agent command center  Group: Project
                                                                            │
                                                                            │
                                                                            │
-? help  esc back  ↑/↓ move  enter open  n new  new task: Added t4 "Plan the migration": pending
+? help  esc back  ↑/↓ move  enter open  n new

@@ -217,3 +217,9 @@ was run while the session was up.
 ## Commit 6: reference polish
 
 Column header row (Tasks, Status, Updated, dim) above the first group; the selected row is reverse-video across the list width and the active tab is a reverse-video chip (both already in place since commit 2, invisible in the plain-text goldens, so the tab keeps its brackets and the row its marker). Goldens at 120 and 80 regenerated (one header line added); frame-time test unchanged and passing.
+
+## Commit 7 and 8: program allowlist, live screenshot retaken
+
+Runner fix (cd22be9): ExecRunner and the new-task action accept only argv[0] equal to bare `amq-squad` or `amq`, compared before exec (LookPath resolution unchanged); anything else returns "runner: program not allowed: <name>", shown in the footer. Tests cover "/tmp/x/amq-squad", "./amq-squad", "../amq", "touch" and a trailing-space name, for both the runner and the composed action, and that nothing runs.
+
+Live screenshot retaken with the header row (same scratch root /tmp/noc4-live, v3 amq-squad first on PATH for that session only, no gate run while it was up): `live-command-center.png` and `live-frame-all.txt` replaced.

@@ -1,0 +1,6 @@
+go vet ./...
+go test ./...
+ok  	github.com/omriariav/amq-noc/cmd/amq-noc	0.359s
+ok  	github.com/omriariav/amq-noc/internal/center	(cached)
+ok  	github.com/omriariav/amq-noc/internal/cli	1.036s
+make ci exit: 0

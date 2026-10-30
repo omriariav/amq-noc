@@ -1,0 +1,14 @@
+go vet ./...
+go test ./...
+ok  	github.com/omriariav/amq-noc/cmd/amq-noc	0.345s
+ok  	github.com/omriariav/amq-noc/internal/act	0.716s
+ok  	github.com/omriariav/amq-noc/internal/catalog	1.024s
+ok  	github.com/omriariav/amq-noc/internal/center	(cached)
+ok  	github.com/omriariav/amq-noc/internal/cli	4.387s
+ok  	github.com/omriariav/amq-noc/internal/console	2.513s
+ok  	github.com/omriariav/amq-noc/internal/launch	2.677s
+ok  	github.com/omriariav/amq-noc/internal/noc	1.743s
+ok  	github.com/omriariav/amq-noc/internal/rules	1.512s
+ok  	github.com/omriariav/amq-noc/internal/state	3.122s
+ok  	github.com/omriariav/amq-noc/internal/team	2.362s
+make ci exit: 0

@@ -1,0 +1,28 @@
+Agent command center  Group: Project
+[All 3]  Needs you 1   Working 1   Ready 1   Inactive 0          tab/⇧tab filter
+────────────────────────────────────────────────────────────────────────────────
+    Tasks                                            Status              Updated
+/Users/owner/code/app  3
+› ! Release v1.2.0                                   Needs you            5m ago
+  ● Fix the parser                                   Working             30s ago
+  ◌ impl-2 (implementer)                             Ready               10m ago
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+Task details
+
+Release v1.2.0
+● Needs you  needs_you gate_open
+Model: -  Reasoning: -
+Project: /Users/owner/code/app
+Tokens: - in · - out  Prompt: -
+Last message: -
+
+Gate
+g-release-1 tag open
+? help  esc back  ↑/↓ move  enter open  n new

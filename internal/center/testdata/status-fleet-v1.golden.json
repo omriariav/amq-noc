@@ -1,0 +1,258 @@
+{
+  "schema_version": 1,
+  "kind": "fleet",
+  "producer": "amq-squad",
+  "producer_version": "3.0.0-dev",
+  "generated_at": "2026-10-24T12:00:00Z",
+  "squads": [
+    {
+      "schema_version": 1,
+      "producer": "amq-squad",
+      "producer_version": "3.0.0-dev",
+      "generated_at": "2026-10-24T12:00:00Z",
+      "root": "/Users/owner/.agent-mail/squad",
+      "session": "squad",
+      "project_path": "/Users/owner/code/app",
+      "lead_handle": null,
+      "capabilities": [
+        "tasks",
+        "leases",
+        "pools",
+        "attention",
+        "gates",
+        "buckets",
+        "new_task_action",
+        "seat.last_message:amq_mailbox",
+        "seat.prompt_state:evidence_ledger",
+        "seat.tokens:evidence_ledger"
+      ],
+      "buckets": [
+        {
+          "id": "needs_you",
+          "label": "Needs you",
+          "rule": "an open typed gate, or a refusal routed to the owner"
+        },
+        {
+          "id": "working",
+          "label": "Working",
+          "rule": "a live lease with a task"
+        },
+        {
+          "id": "ready",
+          "label": "Ready",
+          "rule": "a live seat lease and no task"
+        },
+        {
+          "id": "inactive",
+          "label": "Inactive",
+          "rule": "an expired lease or an ended session; unknown lands here with a marker"
+        }
+      ],
+      "counts": {
+        "all": 3,
+        "needs_you": 1,
+        "working": 1,
+        "ready": 1,
+        "inactive": 0
+      },
+      "seats": [
+        {
+          "handle": "impl-1",
+          "role": "implementer",
+          "runtime": "claude",
+          "model": "sonnet",
+          "effort": "medium",
+          "state": "online",
+          "live": true,
+          "reason_code": "lease_claimed",
+          "bucket": "working",
+          "bucket_marker": "",
+          "task_id": "t1",
+          "project_path": "/Users/owner/code/app",
+          "last_activity_at": "2026-10-24T11:59:30Z",
+          "last_message_at": "2026-10-24T11:58:00Z",
+          "last_message": "starting t1: parser fix",
+          "prompt_state": "running",
+          "tokens_in": 18250,
+          "tokens_out": 2210
+        },
+        {
+          "handle": "impl-2",
+          "role": "implementer",
+          "runtime": "codex",
+          "model": "gpt-5.4",
+          "effort": "medium",
+          "state": "online",
+          "live": true,
+          "reason_code": "idle",
+          "bucket": "ready",
+          "bucket_marker": "",
+          "task_id": "",
+          "project_path": "/Users/owner/code/app",
+          "last_activity_at": "2026-10-24T11:50:00Z",
+          "last_message_at": null,
+          "last_message": "",
+          "prompt_state": "idle",
+          "tokens_in": null,
+          "tokens_out": null
+        }
+      ],
+      "tasks": [
+        {
+          "id": "t1",
+          "title": "Fix the parser",
+          "class": "implement",
+          "task_state": "in_progress",
+          "state": "online",
+          "reason_code": "lease_claimed",
+          "bucket": "working",
+          "bucket_marker": "",
+          "pool": {
+            "runtime": "claude",
+            "model": "sonnet",
+            "effort": "medium"
+          },
+          "lease_holder": "impl-1",
+          "lease_expires_at": "2026-10-24T12:09:30Z",
+          "lease_claimed": true,
+          "attempt": 1,
+          "wait_reason": "",
+          "block_reason": "",
+          "depends_on": [
+            "t0"
+          ],
+          "project_path": "/Users/owner/code/app",
+          "created_at": "2026-10-24T11:40:00Z",
+          "updated_at": "2026-10-24T11:59:30Z"
+        },
+        {
+          "id": "t2",
+          "title": "Release v1.2.0",
+          "class": "script",
+          "task_state": "blocked",
+          "state": "needs_you",
+          "reason_code": "gate_open",
+          "bucket": "needs_you",
+          "bucket_marker": "",
+          "pool": null,
+          "lease_holder": "",
+          "lease_expires_at": null,
+          "lease_claimed": false,
+          "attempt": 1,
+          "wait_reason": "",
+          "block_reason": "gate_open",
+          "depends_on": [],
+          "project_path": "/Users/owner/code/app",
+          "created_at": "2026-10-24T11:41:00Z",
+          "updated_at": "2026-10-24T11:55:00Z"
+        }
+      ],
+      "attention": [
+        {
+          "id": "gate:g-release-1",
+          "kind": "gate",
+          "severity": "high",
+          "subject": "gate g-release-1: tag sha256:8502",
+          "since": "2026-10-24T11:55:00Z",
+          "seat": "impl-1",
+          "task_id": "t2",
+          "gate_id": "g-release-1",
+          "bucket": "needs_you",
+          "action": {
+            "id": "gate.show",
+            "label": "show the gate",
+            "argv": [
+              "amq-squad",
+              "status",
+              "--root",
+              "/Users/owner/.agent-mail/squad",
+              "--json"
+            ],
+            "inputs": []
+          }
+        }
+      ],
+      "gates": [
+        {
+          "id": "g-release-1",
+          "action_class": "tag",
+          "target_digest": "sha256:8502aa",
+          "state": "open",
+          "raised_by": "impl-1"
+        }
+      ],
+      "actions": {
+        "new_task": {
+          "id": "task.new",
+          "label": "new task",
+          "argv": [
+            "amq-squad",
+            "task",
+            "add",
+            "--root",
+            "/Users/owner/.agent-mail/squad"
+          ],
+          "inputs": [
+            {
+              "name": "title",
+              "flag": "--title",
+              "required": true,
+              "choices": []
+            },
+            {
+              "name": "class",
+              "flag": "--class",
+              "required": true,
+              "choices": [
+                "extract",
+                "summarize",
+                "script",
+                "implement",
+                "plan",
+                "review"
+              ]
+            }
+          ]
+        }
+      },
+      "scheduler": {
+        "max_seats": 12,
+        "live_seats": 2,
+        "usage_limit_since": "2026-10-24T11:30:00Z",
+        "usage_limit_until": "2026-10-24T16:00:00Z"
+      },
+      "warnings": []
+    }
+  ],
+  "waiting": [
+    {
+      "squad": "docs",
+      "repository": "owner/docs",
+      "project_path": "/Users/owner/code/docs",
+      "wait_reason": "fleet_cap",
+      "cap": "max_squads",
+      "since": "2026-10-24T11:58:00Z",
+      "detail": "2 squads live, max_squads 2"
+    }
+  ],
+  "operator": {
+    "handle": "user",
+    "role": "operator",
+    "runtime": "pi",
+    "model": "registry-default",
+    "effort": "",
+    "state": "online",
+    "live": true,
+    "reason_code": "idle",
+    "bucket": "ready",
+    "bucket_marker": "",
+    "task_id": "",
+    "project_path": "",
+    "last_activity_at": "2026-10-24T11:59:30Z",
+    "last_message_at": "2026-10-24T11:58:00Z",
+    "last_message": "",
+    "prompt_state": "idle",
+    "tokens_in": 18250,
+    "tokens_out": 2210
+  }
+}

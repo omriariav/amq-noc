@@ -1,0 +1,191 @@
+{
+  "schema_version": 1,
+  "producer": "amq-squad",
+  "producer_version": "3.0.1-sample",
+  "generated_at": "2026-10-30T12:00:00Z",
+  "root": "/private/var/folders/gx/wg9xtfn96wx9z4gkb9mp_hxr0000gn/T/TestZZWriteStatusSample1928443840/001",
+  "session": "001",
+  "project_path": "/private/var/folders/gx/wg9xtfn96wx9z4gkb9mp_hxr0000gn/T/TestZZWriteStatusSample1928443840/001",
+  "lead_handle": null,
+  "capabilities": [
+    "tasks",
+    "leases",
+    "pools",
+    "attention",
+    "gates",
+    "buckets",
+    "new_task_action",
+    "seat.last_message:amq_mailbox",
+    "seat.prompt_state:evidence_ledger"
+  ],
+  "buckets": [
+    {
+      "id": "needs_you",
+      "label": "Needs you",
+      "rule": "an open typed gate, or a refusal routed to the owner"
+    },
+    {
+      "id": "working",
+      "label": "Working",
+      "rule": "a live lease with a task"
+    },
+    {
+      "id": "ready",
+      "label": "Ready",
+      "rule": "a live seat lease and no task"
+    },
+    {
+      "id": "inactive",
+      "label": "Inactive",
+      "rule": "an expired lease or an ended session; unknown lands here with a marker"
+    }
+  ],
+  "counts": {
+    "all": 2,
+    "needs_you": 0,
+    "working": 1,
+    "ready": 0,
+    "inactive": 1
+  },
+  "seats": [
+    {
+      "handle": "rev-1",
+      "role": "",
+      "runtime": "",
+      "model": "",
+      "effort": "",
+      "state": "unknown",
+      "live": false,
+      "reason_code": "binding_present_without_resumable_conversation",
+      "bucket": "inactive",
+      "bucket_marker": "unknown",
+      "task_id": "",
+      "project_path": "",
+      "last_activity_at": null,
+      "last_message_at": null,
+      "last_message": "",
+      "prompt_state": "unknown",
+      "tokens_in": null,
+      "tokens_out": null
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "title": "review the parser",
+      "class": "implement",
+      "task_state": "pending",
+      "state": "waiting",
+      "reason_code": "binding_present_without_resumable_conversation",
+      "bucket": "working",
+      "bucket_marker": "",
+      "pool": {
+        "runtime": "codex",
+        "model": "gpt-5.4",
+        "effort": "medium"
+      },
+      "lease_holder": "",
+      "lease_expires_at": null,
+      "lease_claimed": false,
+      "attempt": 0,
+      "wait_reason": "binding_present_without_resumable_conversation",
+      "block_reason": "",
+      "depends_on": [],
+      "project_path": "",
+      "created_at": "2026-10-30T11:00:00Z",
+      "updated_at": "2026-10-30T11:59:00Z"
+    }
+  ],
+  "attention": [
+    {
+      "id": "scheduler:usage_limit",
+      "kind": "usage_limit",
+      "severity": "medium",
+      "subject": "a usage-limit event stopped new seats",
+      "since": "2026-10-30T11:50:00Z",
+      "seat": "",
+      "task_id": "",
+      "gate_id": "",
+      "bucket": "working",
+      "action": null
+    },
+    {
+      "id": "seat:rev-1:launch_failed:codex:gpt-5.4:medium",
+      "kind": "seat_launch_failed",
+      "severity": "medium",
+      "subject": "seat rev-1 (pool codex:gpt-5.4:medium) did not launch: stage apply_failed, reason binding_present_without_resumable_conversation, 1 in a row: launch: the session binding is present",
+      "since": "2026-10-30T11:58:00Z",
+      "seat": "rev-1",
+      "task_id": "",
+      "gate_id": "",
+      "bucket": "needs_you",
+      "action": null
+    },
+    {
+      "id": "task:t1:wait:binding_present_without_resumable_conversation",
+      "kind": "task_waiting",
+      "severity": "low",
+      "subject": "t1 waits (binding_present_without_resumable_conversation): review the parser",
+      "since": "2026-10-30T11:59:00Z",
+      "seat": "",
+      "task_id": "t1",
+      "gate_id": "",
+      "bucket": "working",
+      "action": {
+        "id": "task.show",
+        "label": "show the task",
+        "argv": [
+          "amq-squad",
+          "task",
+          "show",
+          "t1",
+          "--root",
+          "/private/var/folders/gx/wg9xtfn96wx9z4gkb9mp_hxr0000gn/T/TestZZWriteStatusSample1928443840/001"
+        ],
+        "inputs": []
+      }
+    }
+  ],
+  "gates": [],
+  "actions": {
+    "new_task": {
+      "id": "task.new",
+      "label": "new task",
+      "argv": [
+        "amq-squad",
+        "task",
+        "add",
+        "--root",
+        "/private/var/folders/gx/wg9xtfn96wx9z4gkb9mp_hxr0000gn/T/TestZZWriteStatusSample1928443840/001"
+      ],
+      "inputs": [
+        {
+          "name": "title",
+          "flag": "--title",
+          "required": true,
+          "choices": []
+        },
+        {
+          "name": "class",
+          "flag": "--class",
+          "required": true,
+          "choices": [
+            "extract",
+            "summarize",
+            "script",
+            "implement",
+            "plan",
+            "review"
+          ]
+        }
+      ]
+    }
+  },
+  "scheduler": {
+    "max_seats": 2,
+    "live_seats": 1,
+    "usage_limit_since": "2026-10-30T11:50:00Z",
+    "usage_limit_until": "2026-10-30T12:50:00Z"
+  },
+  "warnings": []
+}

@@ -21,9 +21,9 @@ path round-trips the tag.
    git switch -c feat/v0.12.0
    ```
 
-2. Confirm the public command surface is still narrow: `amq-noc`, `amq-noc noc`,
-   and `amq-noc version [--json]`. Copied non-NOC lifecycle commands must stay
-   unreachable.
+2. Confirm the public command surface is still narrow: `amq-noc` (the command
+   center, with `--fleet` and `--once`) and `amq-noc version [--json]`. There is
+   no `noc` subcommand; no other command may be reachable.
 3. Update user-facing install references, usually the README `go install` tag,
    and any release notes or companion-version docs.
 4. Check the release milestone before opening the PR:
@@ -110,10 +110,10 @@ with the tag you push.
 
 ## Notes
 
-- `amq-noc` is the NOC and operator surface. Confirmed mutating controls remain
-  preview-first and confirm-gated, and squad lifecycle/config commands are
-  delegated to the installed `amq-squad` CLI; releasing `amq-noc` does not
+- `amq-noc` is the command center for amq-squad squads. It reads
+  `amq-squad status --json` only and runs only the status contract's new-task
+  argv and the `amq thread`/`amq send` primitives; releasing `amq-noc` does not
   release `amq-squad`.
-- A major version bump (1.x and beyond) is out of scope for the 0.x line. When
-  it happens it requires the Go `/vN` module-path migration before the tag is
-  `go install`-able; document that path here at that time.
+- v1.0.0 needs no module-path change. Only a bump to v2 or later requires the
+  Go `/vN` module-path migration before the tag is `go install`-able; document
+  that path here at that time.

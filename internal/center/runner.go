@@ -70,10 +70,13 @@ func firstLine(s string) string {
 }
 
 // StatusArgv is the renderer's single input call. Fleet selects the fleet
-// form (plan 16.3), which comes from amq-squad 4-3.
-func StatusArgv(fleet bool) []string {
+// form (plan 16.3); root, for one squad, passes `--root` through.
+func StatusArgv(fleet bool, root string) []string {
 	if fleet {
 		return []string{"amq-squad", "status", "--fleet", "--json"}
+	}
+	if root != "" {
+		return []string{"amq-squad", "status", "--root", root, "--json"}
 	}
 	return []string{"amq-squad", "status", "--json"}
 }

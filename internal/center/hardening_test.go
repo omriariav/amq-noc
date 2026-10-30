@@ -106,7 +106,6 @@ func TestParseFleetEnvelopeValidation(t *testing.T) {
 	for name, doc := range map[string]string{
 		"envelope schema 2":   `{"schema_version":2,"kind":"fleet","squads":[` + one + `]}`,
 		"envelope no schema":  `{"kind":"fleet","squads":[` + one + `]}`,
-		"empty squads":        `{"schema_version":1,"kind":"fleet","squads":[]}`,
 		"bare empty squads":   `{"squads":[]}`,
 		"inner schema 1 only": `{"schema_version":2,"kind":"fleet","squads":[{"schema_version":1}]}`,
 	} {

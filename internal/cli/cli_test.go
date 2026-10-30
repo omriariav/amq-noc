@@ -113,3 +113,31 @@ func TestOnceFrameShowsBucketWarning(t *testing.T) {
 		}
 	}
 }
+
+func TestRootAndFleetTogetherIsAUsageError(t *testing.T) {
+	_, _, err := captureOutput(t, func() error { return Run([]string{"--root", "/r", "--fleet", "--once"}, "v-test") })
+	if err == nil || !strings.Contains(err.Error(), "--root and --fleet cannot be used together") || ExitCode(err) != 1 {
+		t.Fatalf("err = %v (exit %d)", err, ExitCode(err))
+	}
+}
+
+// Outside a squad's shell (no AM_ROOT, no --root), a failed status read says
+// how to point amq-noc at a squad.
+func TestNoRootHint(t *testing.T) {
+	dir := t.TempDir()
+	script := "#!/bin/sh\necho 'error: status: no store root; pass --root, set AM_ROOT, or pass --session' >&2\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(dir, "amq-squad"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	t.Setenv("AM_ROOT", "")
+	_, _, err := captureOutput(t, func() error { return Run([]string{"--once"}, "v-test") })
+	if err == nil || !strings.Contains(err.Error(), "no store root") || !strings.Contains(err.Error(), "pass --root DIR, or use --fleet") {
+		t.Fatalf("err = %v", err)
+	}
+	t.Setenv("AM_ROOT", "/r")
+	_, _, err = captureOutput(t, func() error { return Run([]string{"--once"}, "v-test") })
+	if err == nil || strings.Contains(err.Error(), "use --fleet") {
+		t.Fatalf("with AM_ROOT set the hint must not show: %v", err)
+	}
+}

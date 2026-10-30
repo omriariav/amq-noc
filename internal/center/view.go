@@ -226,6 +226,8 @@ func (m *Model) listLines(w, h int) []string {
 		switch {
 		case !m.loaded:
 			return []string{dim.Render("  waiting for the first status...")}
+		case m.tab == TabAll && m.fleet.IsFleet && len(m.fleet.Squads) == 0:
+			return []string{dim.Render(clamp("  no squads in the fleet", w))}
 		case m.tab == TabAll:
 			return []string{dim.Render("  no seats or tasks in status")}
 		default:

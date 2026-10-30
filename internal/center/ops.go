@@ -17,12 +17,19 @@ type Client struct {
 	Runner Runner
 	// Fleet selects `status --fleet --json`.
 	Fleet bool
+	// Root, for one squad, is passed as `status --root ROOT`.
+	Root string
+	// Hint is appended to a failed status read (how to point amq-noc at a squad).
+	Hint string
 }
 
 // Status runs the status call and parses it.
 func (c Client) Status(ctx context.Context) (Fleet, error) {
-	out, err := c.Runner.Run(ctx, StatusArgv(c.Fleet))
+	out, err := c.Runner.Run(ctx, StatusArgv(c.Fleet, c.Root))
 	if err != nil {
+		if c.Hint != "" {
+			err = fmt.Errorf("%w (%s)", err, c.Hint)
+		}
 		return Fleet{}, err
 	}
 	return Parse(out)

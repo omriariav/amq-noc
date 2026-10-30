@@ -42,8 +42,10 @@ amq-noc 1.0 replaces the 0.x board. If you still run amq-squad 2.x, stay on
 ## What it reads
 
 One input: `amq-squad status --json` (schema 1, the status contract of
-amq-squad 3.0), or `amq-squad status --fleet --json` with `--fleet`. It runs
-the call every 5 seconds.
+amq-squad 3.0), `amq-squad status --root DIR --json` with `--root DIR`, or
+`amq-squad status --fleet --json` with `--fleet`. It runs the call every 5
+seconds. Without `--root` or `--fleet`, amq-squad reads `AM_ROOT`, which is set
+inside a squad's shell; outside one, pass `--root` or use `--fleet`.
 
 amq-noc never reads `.amq-squad/` files and never composes an amq-squad
 command. The buckets (Needs you, Working, Ready, Inactive) come from the
@@ -52,15 +54,16 @@ classify shows as Inactive with an `(unknown)` marker.
 
 Its controls are three:
 
-- `n` runs the contract's `actions.new_task` argv, adding `--flag value` for
+- `n` runs the contract's `actions.new_task` argv, adding `--flag=value` for
   each input you fill in.
 - `enter` opens the AMQ conversation with the squad's lead, read with
   `amq thread` and answered with `amq send` (a staged confirm shows the
   recipient and thread before it sends). The lead is the status's
   `lead_handle`, else the seat whose role is `lead`; with neither, the details
   pane says "no lead seat in status".
-- A gate that the attention queue ties to a row shows in the details pane.
-  Answering a gate is not done here.
+- The details pane shows the row's attention items (kind, severity, subject),
+  the squad-level items, and any gate the attention queue ties to the row.
+  Nothing there runs; answering a gate is not done here.
 
 Squads waiting for the fleet cap show in a "Waiting" group under All but are not
 counted in the All number, so All equals the sum of the four bucket tabs.
@@ -82,9 +85,10 @@ counted in the All number, so All equals the sum of the four bucket tabs.
 ## Usage
 
 ```sh
-amq-noc            # one squad: amq-squad status --json
-amq-noc --fleet    # all squads: amq-squad status --fleet --json
-amq-noc --once     # print one frame and exit (COLUMNS and LINES set the size)
+amq-noc                 # one squad from AM_ROOT: amq-squad status --json
+amq-noc --root DIR      # one squad: amq-squad status --root DIR --json
+amq-noc --fleet         # all squads: amq-squad status --fleet --json
+amq-noc --once          # print one frame and exit (COLUMNS and LINES set the size)
 amq-noc version
 ```
 

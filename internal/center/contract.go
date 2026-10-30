@@ -167,6 +167,7 @@ type Fleet struct {
 	Operator *Seat // the operator's own seat row (handle user, role operator), or nil
 	Waiting  []WaitingSquad
 	Warnings []string
+	IsFleet  bool // the input was a fleet document
 }
 
 // Parse reads the output of `status --json` or `status --fleet --json`. A
@@ -193,10 +194,9 @@ func Parse(data []byte) (Fleet, error) {
 		if probe.SchemaVersion != SchemaVersion {
 			return Fleet{}, fmt.Errorf("status: fleet schema_version %d, this amq-noc reads %d", probe.SchemaVersion, SchemaVersion)
 		}
-		if len(probe.Squads) == 0 && probe.Operator == nil && len(probe.Waiting) == 0 {
-			return Fleet{}, fmt.Errorf("status: fleet has no squads")
-		}
-		var f Fleet
+		// An empty fleet (no squads in fleet.yaml) is a normal producer
+		// output: it renders as an empty board, not an error.
+		f := Fleet{IsFleet: true}
 		for i, raw := range probe.Squads {
 			s, err := parseOne(raw)
 			if err != nil {

@@ -43,7 +43,7 @@ func TestFleetWithOnlyWaitingParses(t *testing.T) {
 	if !strings.Contains(v, "Waiting  1") || strings.Contains(strings.ToLower(v), "error") {
 		t.Fatalf("frame:\n%s", v)
 	}
-	if _, err := Parse([]byte(`{"schema_version":1,"kind":"fleet","squads":[]}`)); err == nil {
-		t.Fatal("empty fleet parsed")
+	if _, err := Parse([]byte(`{"squads":[]}`)); err == nil {
+		t.Fatal("a fleet without schema_version parsed")
 	}
 }

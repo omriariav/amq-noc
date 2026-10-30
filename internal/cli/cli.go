@@ -108,11 +108,12 @@ func printUsage() {
 	fmt.Print(`amq-noc - command center for amq-squad squads
 
 Usage:
-  amq-noc [--fleet] [--once]
+  amq-noc [--root DIR | --fleet] [--once]
   amq-noc version [--json]
 
 The command center is the only view. It reads 'amq-squad status --json'
-(with --fleet: 'amq-squad status --fleet --json') and nothing else.
+(with --root DIR: 'status --root DIR --json'; with --fleet: 'status --fleet
+--json') and nothing else. Without --root or --fleet, amq-squad uses AM_ROOT.
 
 Global flags (accepted before or after the subcommand, until a literal "--"):
   --quiet              Suppress non-data success/progress notices.

@@ -49,7 +49,9 @@ path round-trips the tag.
 
 6. Commit the release candidate, push the release branch, and open a PR against
    `main`.
-7. Review the PR before merging or tagging:
+7. Review the PR before merging or tagging. The `CI` workflow
+   (`.github/workflows/ci.yml`) runs gofmt, `go vet` and `go test` on pull
+   requests and pushes to `main`:
 
    ```sh
    gh pr diff <number> --name-only

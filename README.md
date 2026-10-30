@@ -26,11 +26,18 @@ Agent command center  Group: Project
 ## Install
 
 ```sh
-go install github.com/omriariav/amq-noc/cmd/amq-noc@latest
+go install github.com/omriariav/amq-noc/cmd/amq-noc@v1.0.0
 ```
 
 Requirements: Go 1.25 or newer to build, `amq-squad` 3.0 or newer and `amq`
-on `PATH` to run.
+on `PATH` to run. amq-squad 3.x has a `/v3` module path:
+
+```sh
+go install github.com/omriariav/amq-squad/v3/cmd/amq-squad@v3.0.0
+```
+
+amq-noc 1.0 replaces the 0.x board. If you still run amq-squad 2.x, stay on
+`amq-noc@v0.13.0`.
 
 ## What it reads
 

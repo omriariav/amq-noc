@@ -264,3 +264,11 @@ Waiting rows still show under All, but `Counts` no longer adds them to the All n
 3. README states that waiting rows show under All without being counted in it, so All equals the sum of the four bucket tabs.
 
 No golden changed. Gate: `commit14-make-ci.txt`, `commit14-cross.txt`.
+
+## Commit 15: attention items in the details pane (repository session)
+
+The details pane showed an attention item only when it carried a gate, so amq-squad 3.0.1's `seat_launch_failed` (stage, reason, detail), a task's `task_waiting`/`task_blocked` and the squad-level items (`usage_limit`, owner alerts) were dropped. A row now lists its own non-gate items (kind, severity, subject), and every row of a squad shows the squad-level items (first one plus "(+N more)"), both right under the status line. Show only. Test input `testdata/status-301-launchfail.json` is real `status --json` from the 3.0.1 tree (not a golden). Tests: TestSeatRowShowsLaunchFailureAttention, TestTaskRowShowsItsOwnAttention, TestSquadAttentionOnEveryRowOfTheSquad, TestSquadAttentionFoldsExtraItems, TestGateItemNotRepeatedAsAttention; the first four fail with the two lookups reverted. No golden changed.
+
+## Release v1.0.0
+
+origin/main (the CI workflow, #78) merged in. README pins `@v1.0.0` and the amq-squad `/v3` install line; release notes in `docs/v1.0.0-release-notes.md`. amq-squad's status contract and both goldens are unchanged from v3.0.0 through the 3.0.1 merges, so the vendored fixtures stand and v1.0.0 does not wait for the 3.0.1 tag.

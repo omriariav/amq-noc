@@ -320,6 +320,9 @@ func (m *Model) detailsLines(w int) []string {
 	if r.NotLive() {
 		out = append(out, hot.Render("⊘ not live: "+clamp("contract live=false", w-13)))
 	}
+	// Attention sits right under the status: it says why the row is stuck,
+	// and the pane may be too short to reach the end.
+	out = append(out, m.attentionLines(r, w)...)
 	out = append(out, "")
 
 	model, effort := "-", "-"
@@ -381,6 +384,62 @@ func (m *Model) waitingLines(r Row) []string {
 		out = append(out, dim.Render("Detail: ")+oneLine(wq.Detail))
 	}
 	out = append(out, "", dim.Render("no squad document yet; nothing to open"))
+	return out
+}
+
+// attentionLines renders the row's attention items (kind, severity, then the
+// subject) and the squad-level ones (the first, with "(+N more)").
+func (m *Model) attentionLines(r Row, w int) []string {
+	var out []string
+	if items := m.attentionFor(r); len(items) > 0 {
+		out = append(out, "", dim.Render(fmt.Sprintf("Attention (%d)", len(items))))
+		for _, a := range items {
+			out = append(out, hot.Render(clamp(orDash(a.Kind), w))+dim.Render("  "+orDash(a.Severity)))
+			out = append(out, wrap(oneLine(a.Subject), w)...)
+		}
+	}
+	if items := m.squadAttention(r); len(items) > 0 {
+		out = append(out, "", dim.Render(fmt.Sprintf("Squad attention (%d)", len(items))))
+		line := orDash(items[0].Kind) + ": " + oneLine(items[0].Subject)
+		if len(items) > 1 {
+			line += fmt.Sprintf(" (+%d more)", len(items)-1)
+		}
+		out = append(out, wrap(line, w)...)
+	}
+	return out
+}
+
+// attentionFor lists the attention items the contract ties to the row (by
+// task id for a task row, by seat handle for a seat row), leaving out gate
+// items, which the Gate section shows. Show only: no item's action runs here.
+func (m *Model) attentionFor(r Row) []Attention {
+	if r.Squad >= len(m.fleet.Squads) {
+		return nil
+	}
+	var out []Attention
+	for _, a := range m.fleet.Squads[r.Squad].Attention {
+		if a.GateID != "" {
+			continue
+		}
+		if (r.IsTask() && a.TaskID == r.Task.ID) || (!r.IsTask() && r.Seat != nil && a.TaskID == "" && a.Seat == r.Seat.Handle) {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// squadAttention lists the squad-level attention items (no seat, task or
+// gate), shown on every row of that squad.
+func (m *Model) squadAttention(r Row) []Attention {
+	if r.Squad >= len(m.fleet.Squads) {
+		return nil
+	}
+	var out []Attention
+	for _, a := range m.fleet.Squads[r.Squad].Attention {
+		if a.Seat == "" && a.TaskID == "" && a.GateID == "" {
+			out = append(out, a)
+		}
+	}
 	return out
 }
 

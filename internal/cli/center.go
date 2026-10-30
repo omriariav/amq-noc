@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -45,11 +46,16 @@ Flags:
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
-	if *fleet && *root != "" {
+	rootSet := false
+	fs.Visit(func(f *flag.Flag) { rootSet = rootSet || f.Name == "root" })
+	if rootSet && (strings.TrimSpace(*root) == "" || strings.HasPrefix(*root, "-")) {
+		return usageErrorf("--root needs a directory, got %q", *root)
+	}
+	if *fleet && rootSet {
 		return usageErrorf("--root and --fleet cannot be used together")
 	}
 	client := center.Client{Runner: center.ExecRunner{}, Fleet: *fleet, Root: *root}
-	if !*fleet && *root == "" && os.Getenv("AM_ROOT") == "" {
+	if !*fleet && *root == "" && strings.TrimSpace(os.Getenv("AM_ROOT")) == "" {
 		client.Hint = "AM_ROOT is not set: run inside a squad's shell, pass --root DIR, or use --fleet"
 	}
 	if *once {

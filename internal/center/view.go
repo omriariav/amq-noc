@@ -397,7 +397,7 @@ func (m *Model) attentionLines(r Row, w int) []string {
 		out = append(out, "", dim.Render(fmt.Sprintf("Attention (%d)", len(items))))
 		for _, a := range items {
 			out = append(out, hot.Render(clamp(orDash(a.Kind), w))+dim.Render("  "+orDash(a.Severity)))
-			out = append(out, wrap(oneLine(a.Subject), w)...)
+			out = append(out, m.fit(oneLine(a.Subject), w)...)
 		}
 	}
 	if items := m.squadAttention(r); len(items) > 0 {
@@ -406,14 +406,25 @@ func (m *Model) attentionLines(r Row, w int) []string {
 		if len(items) > 1 {
 			line += fmt.Sprintf(" (+%d more)", len(items)-1)
 		}
-		out = append(out, wrap(line, w)...)
+		out = append(out, m.fit(line, w)...)
 	}
 	return out
 }
 
-// attentionFor lists the attention items the contract ties to the row (by
-// task id for a task row, by seat handle for a seat row), leaving out gate
-// items, which the Gate section shows. Show only: no item's action runs here.
+// fit wraps s in the wide layout; the narrow details pane is a few lines
+// high, so there s is clamped to one line to leave room for the rest.
+func (m *Model) fit(s string, w int) []string {
+	if m.wide() {
+		return wrap(s, w)
+	}
+	return []string{clamp(s, w)}
+}
+
+// attentionFor lists the attention items the contract ties to the row,
+// leaving out gate items, which the Gate section shows: on a task row the
+// items of that task, and on any row the seat-level items (no task id) of the
+// row's seat, which for a busy seat is the lease holder of its task row.
+// Show only: no item's action runs here.
 func (m *Model) attentionFor(r Row) []Attention {
 	if r.Squad >= len(m.fleet.Squads) {
 		return nil
@@ -423,22 +434,29 @@ func (m *Model) attentionFor(r Row) []Attention {
 		if a.GateID != "" {
 			continue
 		}
-		if (r.IsTask() && a.TaskID == r.Task.ID) || (!r.IsTask() && r.Seat != nil && a.TaskID == "" && a.Seat == r.Seat.Handle) {
+		if (r.IsTask() && a.TaskID == r.Task.ID) || (a.TaskID == "" && r.Seat != nil && a.Seat != "" && a.Seat == r.Seat.Handle) {
 			out = append(out, a)
 		}
 	}
 	return out
 }
 
-// squadAttention lists the squad-level attention items (no seat, task or
-// gate), shown on every row of that squad.
+// squadAttention lists the squad-level attention items, shown on every row of
+// that squad: items with no seat, task or gate, and seat-level items whose
+// seat has no row (a seat the status does not list), so no item is lost.
 func (m *Model) squadAttention(r Row) []Attention {
 	if r.Squad >= len(m.fleet.Squads) {
 		return nil
 	}
+	shown := map[string]bool{}
+	for _, row := range m.rows {
+		if row.Squad == r.Squad && row.Seat != nil {
+			shown[row.Seat.Handle] = true
+		}
+	}
 	var out []Attention
 	for _, a := range m.fleet.Squads[r.Squad].Attention {
-		if a.Seat == "" && a.TaskID == "" && a.GateID == "" {
+		if a.TaskID == "" && a.GateID == "" && (a.Seat == "" || !shown[a.Seat]) {
 			out = append(out, a)
 		}
 	}

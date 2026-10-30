@@ -141,3 +141,12 @@ func TestNoRootHint(t *testing.T) {
 		t.Fatalf("with AM_ROOT set the hint must not show: %v", err)
 	}
 }
+
+func TestRootValueIsChecked(t *testing.T) {
+	for _, args := range [][]string{{"--root", "--fleet", "--once"}, {"--root=", "--once"}, {"--root", "  ", "--once"}, {"--root=", "--fleet", "--once"}} {
+		_, _, err := captureOutput(t, func() error { return Run(args, "v-test") })
+		if err == nil || ExitCode(err) != 1 || !strings.Contains(err.Error(), "--root") {
+			t.Errorf("%v: err = %v (exit %d)", args, err, ExitCode(err))
+		}
+	}
+}

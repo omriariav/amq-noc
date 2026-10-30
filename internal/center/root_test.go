@@ -57,3 +57,13 @@ func TestStatusErrorCarriesHint(t *testing.T) {
 		t.Fatalf("no hint: err = %v", err)
 	}
 }
+
+// A one-squad document that grows a waiting or operator key is still read as
+// one squad; only kind "fleet" or squads[] makes a fleet.
+func TestOneSquadWithFleetKeysStaysOneSquad(t *testing.T) {
+	doc := strings.Replace(string(goldenFixture), "{", `{"waiting":[],"operator":null,`, 1)
+	f, err := Parse([]byte(doc))
+	if err != nil || f.IsFleet || len(f.Squads) != 1 || len(f.Squads[0].Seats) == 0 {
+		t.Fatalf("err=%v fleet=%v squads=%d", err, f.IsFleet, len(f.Squads))
+	}
+}

@@ -47,8 +47,8 @@ amq-squad 3.0), `amq-squad status --root DIR --json` with `--root DIR`, or
 seconds. Without `--root` or `--fleet`, amq-squad reads `AM_ROOT`, which is set
 inside a squad's shell; outside one, pass `--root` or use `--fleet`.
 
-amq-noc never reads `.amq-squad/` files and never composes an amq-squad
-command. The buckets (Needs you, Working, Ready, Inactive) come from the
+amq-noc never reads `.amq-squad/` files and composes no amq-squad command
+beyond the status call (with `--root`, your directory is passed through to it). The buckets (Needs you, Working, Ready, Inactive) come from the
 contract's `bucket` and `bucket_marker` fields; a row the contract could not
 classify shows as Inactive with an `(unknown)` marker.
 

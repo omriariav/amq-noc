@@ -183,6 +183,7 @@ func Parse(data []byte) (Fleet, error) {
 	}
 	var probe struct {
 		SchemaVersion int               `json:"schema_version"`
+		Kind          string            `json:"kind"`
 		Squads        []json.RawMessage `json:"squads"`
 		Operator      *Seat             `json:"operator"`
 		Waiting       []WaitingSquad    `json:"waiting"`
@@ -190,7 +191,9 @@ func Parse(data []byte) (Fleet, error) {
 	if err := json.Unmarshal(data, &probe); err != nil {
 		return Fleet{}, fmt.Errorf("status: %w", err)
 	}
-	if probe.Squads != nil || probe.Operator != nil || probe.Waiting != nil {
+	// A fleet document says kind "fleet" or carries squads[]; a one-squad
+	// document has neither, whatever other keys it grows.
+	if probe.Kind == "fleet" || probe.Squads != nil {
 		if probe.SchemaVersion != SchemaVersion {
 			return Fleet{}, fmt.Errorf("status: fleet schema_version %d, this amq-noc reads %d", probe.SchemaVersion, SchemaVersion)
 		}

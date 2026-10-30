@@ -94,3 +94,88 @@ func TestGateItemNotRepeatedAsAttention(t *testing.T) {
 		}
 	}
 }
+
+// A seat-level item (no task id) for a seat that holds a task shows on that
+// task's row: the busy seat has no row of its own.
+func TestBusySeatItemShowsOnItsTaskRow(t *testing.T) {
+	f := mustParse(t, string(goldenFixture))
+	s := &f.Squads[0]
+	var task *Task
+	for i := range s.Tasks {
+		if s.Tasks[i].LeaseHolder != "" {
+			task = &s.Tasks[i]
+			break
+		}
+	}
+	if task == nil {
+		t.Fatal("fixture has no leased task")
+	}
+	s.Attention = append(s.Attention, Attention{ID: "q1", Kind: "question", Severity: "high",
+		Subject: "busy seat asks a question", Seat: task.LeaseHolder})
+	m, _ := newTestModel(f, 140, 40)
+	selectRow(t, m, func(r Row) bool { return r.IsTask() && r.Task.ID == task.ID })
+	if d := details(m); !strings.Contains(d, "question") || !strings.Contains(d, "busy seat asks a question") {
+		t.Fatalf("busy seat's item missing on its task row:\n%s", d)
+	}
+	// every item of the document shows on some row
+	assertEveryItemShown(t, m)
+}
+
+// A seat-level item for a seat the status does not list shows as squad
+// attention, not nowhere.
+func TestItemOfUnlistedSeatShowsAsSquadAttention(t *testing.T) {
+	f := mustParse(t, string(launchFailSample))
+	f.Squads[0].Attention = append(f.Squads[0].Attention, Attention{ID: "x", Kind: "seat_launch_failed",
+		Subject: "seat ghost did not launch", Seat: "ghost"})
+	m, _ := newTestModel(f, 140, 40)
+	selectRow(t, m, func(r Row) bool { return r.IsTask() })
+	if d := details(m); !strings.Contains(d, "Squad attention (2)") {
+		t.Fatalf("unlisted seat's item missing:\n%s", d)
+	}
+	assertEveryItemShown(t, m)
+}
+
+// assertEveryItemShown checks that each non-gate attention item of every
+// squad appears in the details pane of at least one row.
+func assertEveryItemShown(t *testing.T, m *Model) {
+	t.Helper()
+	for si, s := range m.fleet.Squads {
+		for _, a := range s.Attention {
+			if a.GateID != "" {
+				continue
+			}
+			found := false
+			for _, it := range m.items {
+				if it.kind != itemRow || it.row.Squad != si {
+					continue
+				}
+				for _, x := range append(m.attentionFor(it.row), m.squadAttention(it.row)...) {
+					found = found || x.ID == a.ID
+				}
+			}
+			if !found {
+				t.Errorf("attention item %s (%s) shows on no row", a.ID, a.Kind)
+			}
+		}
+	}
+}
+
+func TestEveryItemShownInSamples(t *testing.T) {
+	for _, doc := range [][]byte{goldenFixture, goldenFleet, launchFailSample} {
+		m, _ := newTestModel(mustParse(t, string(doc)), 140, 40)
+		assertEveryItemShown(t, m)
+	}
+}
+
+// The narrow pane is a few lines high: one long launch failure must still
+// leave room for the squad attention line.
+func TestNarrowPaneKeepsSquadAttention(t *testing.T) {
+	m, _ := newTestModel(mustParse(t, string(launchFailSample)), 80, 30)
+	selectRow(t, m, func(r Row) bool { return !r.IsTask() && r.Seat != nil && r.Seat.Handle == "rev-1" })
+	v := m.View()
+	for _, want := range []string{"seat_launch_failed", "Squad attention (1)", "usage_limit"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("narrow frame lacks %q:\n%s", want, v)
+		}
+	}
+}

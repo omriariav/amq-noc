@@ -273,6 +273,17 @@ The details pane showed an attention item only when it carried a gate, so amq-sq
 
 A live run against amq-squad v3.0.0 outside a squad's shell failed both ways: `amq-noc` stopped on "no store root" (amq-squad 3.0's status needs a root and amq-noc could not pass one), and `amq-noc --fleet` stopped on "fleet has no squads" for amq-squad's own empty-fleet document. Owner ruling: add `--root DIR` (passed through as `status --root DIR --json`; refused together with `--fleet`), render an empty fleet as an empty board ("no squads in the fleet"), and append a hint to a failed status read when neither `--root`, `--fleet` nor `AM_ROOT` is given. Tests: TestStatusArgvPassesRoot, TestEmptyFleetRendersEmptyBoard, TestStatusErrorCarriesHint, TestRootAndFleetTogetherIsAUsageError, TestNoRootHint; TestParseFleetEnvelopeValidation no longer lists the empty fleet. Live: `--fleet` renders the empty board, `--root ~/.agent-mail/solo` renders that squad, a bare run prints the hint.
 
+## Commit 18: review fixes on PR #88
+
+An independent review of commits 15 and 17 found:
+1. A seat-level item (no task id) for a seat that holds a task showed on no row, because the busy seat has no row of its own. That covers 3.0.1's `question`, `verifier_waiting`, `seat_closing` and a busy seat's `seat_launch_failed`. Now the task row shows its lease holder's seat-level items, and an item for a seat the status does not list shows as squad attention. TestBusySeatItemShowsOnItsTaskRow, TestItemOfUnlistedSeatShowsAsSquadAttention, and TestEveryItemShownInSamples (every non-gate item of all three samples shows on some row).
+2. A one-squad document that grew a `waiting` or `operator` key was read as an empty fleet. Now only `kind: "fleet"` or `squads[]` selects the fleet path. TestOneSquadWithFleetKeysStaysOneSquad.
+3. In the narrow layout one long subject filled the pane. Subjects are clamped to one line there. TestNarrowPaneKeepsSquadAttention.
+4. `--root --fleet`, `--root=` and a blank `--root` are usage errors. TestRootValueIsChecked. A blank `AM_ROOT` counts as unset for the hint.
+5. README: amq-noc composes no amq-squad command beyond the status call, into which `--root` passes the user's directory.
+
+The first three tests fail with their fix reverted.
+
 ## Release v1.0.0
 
 origin/main (the CI workflow, #78) merged in. README pins `@v1.0.0` and the amq-squad `/v3` install line; release notes in `docs/v1.0.0-release-notes.md`. amq-squad's status contract and both goldens are unchanged from v3.0.0 through the 3.0.1 merges, so the vendored fixtures stand and v1.0.0 does not wait for the 3.0.1 tag.

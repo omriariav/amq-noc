@@ -74,7 +74,49 @@
           "last_message": "starting t1: parser fix",
           "prompt_state": "running",
           "tokens_in": 18250,
-          "tokens_out": 2210
+          "tokens_out": 2210,
+          "worktree": "/Users/owner/code/app/.worktrees/impl-1",
+          "branch": "squad/impl-1",
+          "launch": {
+            "launch_id": "0de97c89b15b5262f41e4fd3ee0b1a87",
+            "outcome": "live",
+            "reason_code": "",
+            "added_at": null,
+            "wake": {
+              "mode": "enabled",
+              "require_wake": true,
+              "injector": "raw",
+              "audit_reason": ""
+            },
+            "timing": {
+              "start": "2026-10-24T11:38:00Z",
+              "seat_live": "2026-10-24T11:38:04.666Z",
+              "first_message": "2026-10-24T11:39:02.115Z",
+              "to_seat_live_ms": 4666,
+              "to_first_message_ms": 62115,
+              "ceiling_ms": 10000,
+              "over_ceiling": false,
+              "slowest_segment": "prepare",
+              "segments": [
+                {
+                  "name": "prepare",
+                  "ms": 3201
+                },
+                {
+                  "name": "mint",
+                  "ms": 602
+                },
+                {
+                  "name": "apply",
+                  "ms": 538
+                },
+                {
+                  "name": "seat_exec",
+                  "ms": 325
+                }
+              ]
+            }
+          }
         },
         {
           "handle": "impl-2",
@@ -94,7 +136,60 @@
           "last_message": "",
           "prompt_state": "idle",
           "tokens_in": null,
-          "tokens_out": null
+          "tokens_out": null,
+          "worktree": "/Users/owner/code/app/.worktrees/impl-2",
+          "branch": "squad/impl-2",
+          "launch": {
+            "launch_id": "0de97c89b15b5262f41e4fd3ee0b1a87",
+            "outcome": "live",
+            "reason_code": "",
+            "added_at": null,
+            "wake": {
+              "mode": "disabled",
+              "require_wake": false,
+              "injector": "",
+              "audit_reason": "amq-squad: no Codex wake: AMQ's Codex dialog hook is not on the host"
+            },
+            "timing": {
+              "start": "2026-10-24T11:38:00Z",
+              "seat_live": "2026-10-24T11:38:12.300Z",
+              "first_message": null,
+              "to_seat_live_ms": 12300,
+              "to_first_message_ms": null,
+              "ceiling_ms": 10000,
+              "over_ceiling": true,
+              "slowest_segment": "seat_exec",
+              "segments": [
+                {
+                  "name": "prepare",
+                  "ms": 3201
+                },
+                {
+                  "name": "mint",
+                  "ms": 602
+                },
+                {
+                  "name": "apply",
+                  "ms": 538
+                },
+                {
+                  "name": "seat_exec",
+                  "ms": 7959
+                }
+              ]
+            }
+          },
+          "warnings": [
+            "launch_budget_exceeded: 12.300 s from the start to seat live, over the 10s ceiling; slowest segment seat_exec 7.959 s",
+            "wake_off: amq-squad: no Codex wake: AMQ's Codex dialog hook is not on the host; the seat idles after each turn until it is rung by hand"
+          ]
+        }
+      ],
+      "stale_records": [
+        {
+          "handle": "senior-dev",
+          "session": "squad",
+          "launch_id": "5f0c2a9e41d37b68"
         }
       ],
       "tasks": [
@@ -114,6 +209,8 @@
           },
           "lease_holder": "impl-1",
           "lease_expires_at": "2026-10-24T12:09:30Z",
+          "budget": 0,
+          "budget_ends_at": null,
           "lease_claimed": true,
           "attempt": 1,
           "wait_reason": "",
@@ -123,7 +220,40 @@
           ],
           "project_path": "/Users/owner/code/app",
           "created_at": "2026-10-24T11:40:00Z",
-          "updated_at": "2026-10-24T11:59:30Z"
+          "updated_at": "2026-10-24T11:59:30Z",
+          "evidence": "",
+          "pr_repository": "",
+          "pr_number": 0,
+          "pr_head": "",
+          "wait_holders": [],
+          "waits_for": [],
+          "wait_pool": "",
+          "next": [
+            {
+              "verb": "task block",
+              "who": "holder"
+            },
+            {
+              "verb": "task done",
+              "who": "holder"
+            },
+            {
+              "verb": "task fail",
+              "who": "holder"
+            },
+            {
+              "verb": "task release",
+              "who": "holder"
+            },
+            {
+              "verb": "task cancel",
+              "who": "lead"
+            },
+            {
+              "verb": "task release",
+              "who": "lead"
+            }
+          ]
         },
         {
           "id": "t2",
@@ -137,6 +267,8 @@
           "pool": null,
           "lease_holder": "",
           "lease_expires_at": null,
+          "budget": 0,
+          "budget_ends_at": null,
           "lease_claimed": false,
           "attempt": 1,
           "wait_reason": "",
@@ -144,7 +276,25 @@
           "depends_on": [],
           "project_path": "/Users/owner/code/app",
           "created_at": "2026-10-24T11:41:00Z",
-          "updated_at": "2026-10-24T11:55:00Z"
+          "updated_at": "2026-10-24T11:55:00Z",
+          "evidence": "go test ./... ok",
+          "pr_repository": "owner/app",
+          "pr_number": 42,
+          "pr_head": "4f1c2a9",
+          "wait_holders": [],
+          "waits_for": [],
+          "wait_pool": "",
+          "next": [
+            {
+              "verb": "task cancel",
+              "who": "lead"
+            },
+            {
+              "verb": "task reset",
+              "who": "lead",
+              "may_refuse": "only its creator cto resets it"
+            }
+          ]
         }
       ],
       "attention": [
@@ -178,7 +328,8 @@
           "action_class": "tag",
           "target_digest": "sha256:8502aa",
           "state": "open",
-          "raised_by": "impl-1"
+          "raised_by": "impl-1",
+          "question": "Create a tag named v1?\nAsked by impl-1.\nYes lets it run. No stops it."
         }
       ],
       "actions": {
@@ -219,9 +370,106 @@
         "max_seats": 12,
         "live_seats": 2,
         "usage_limit_since": "2026-10-24T11:30:00Z",
-        "usage_limit_until": "2026-10-24T16:00:00Z"
+        "usage_limit_until": "2026-10-24T16:00:00Z",
+        "pid": 4321,
+        "started_at": "2026-10-24T11:38:01.120Z",
+        "launch_start": "2026-10-24T11:38:00Z",
+        "live": true
       },
-      "warnings": []
+      "warnings": [],
+      "lead": {
+        "handle": "lead",
+        "pid": 4300,
+        "start": "1761306000.120000",
+        "pane": "%3",
+        "recorded_at": "2026-10-24T11:38:00.900Z",
+        "live": true,
+        "attach": "tmux attach -t %3"
+      },
+      "decisions": [
+        {
+          "at": "2026-10-24T11:38:01.130Z",
+          "kind": "scheduler_started",
+          "seat": "",
+          "task_id": "",
+          "reason": "incarnation 7f3a",
+          "reason_code": "",
+          "stage": ""
+        },
+        {
+          "at": "2026-10-24T11:38:12.400Z",
+          "kind": "roster_launched",
+          "seat": "",
+          "task_id": "",
+          "reason": "launch 0de97c89b15b5262f41e4fd3ee0b1a87: 2 seats in one apply",
+          "reason_code": "",
+          "stage": ""
+        },
+        {
+          "at": "2026-10-24T11:39:03.000Z",
+          "kind": "seat_first_message",
+          "seat": "impl-1",
+          "task_id": "",
+          "reason": "2026-10-24T11:39:02.115Z",
+          "reason_code": "",
+          "stage": ""
+        },
+        {
+          "at": "2026-10-24T11:55:00Z",
+          "kind": "exit_refused",
+          "seat": "impl-2",
+          "task_id": "t3",
+          "reason": "ledger_tampered at gone",
+          "reason_code": "",
+          "stage": ""
+        }
+      ],
+      "train": {
+        "runs": [
+          {
+            "run": "r-20261024-1150",
+            "started_at": "2026-10-24T11:50:00Z",
+            "last_at": "2026-10-24T11:52:10Z",
+            "last_kind": "refusal",
+            "repository": "owner/app",
+            "base": "main",
+            "prs": [
+              41,
+              42
+            ],
+            "merged": [
+              41
+            ],
+            "refusal": "refusal PR #42 checks: a required check is failing",
+            "done": false,
+            "dry_run": false
+          }
+        ],
+        "alerts": [
+          {
+            "id": "a-tag-v1.2.0",
+            "kind": "ungated_tag",
+            "detail": "tag v1.2.0 has no accepted gate",
+            "gate_id": "",
+            "at": "2026-10-24T11:45:00Z"
+          }
+        ]
+      },
+      "requests": [
+        {
+          "request_id": "q-3f2a9c1e7b04",
+          "thread": "cockpit/q-3f2a9c1e7b04",
+          "lead": "cto",
+          "turns": 2,
+          "posts": 2,
+          "relayed_at": "2026-10-24T11:58:00Z",
+          "refused": [
+            "relay_refused_gate_shape"
+          ],
+          "closed": false,
+          "updated_at": "2026-10-24T11:58:00Z"
+        }
+      ]
     }
   ],
   "waiting": [
@@ -253,6 +501,9 @@
     "last_message": "",
     "prompt_state": "idle",
     "tokens_in": 18250,
-    "tokens_out": 2210
+    "tokens_out": 2210,
+    "worktree": "",
+    "branch": "",
+    "launch": null
   }
 }
